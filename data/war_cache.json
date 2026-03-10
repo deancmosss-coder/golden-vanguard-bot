@@ -1,0 +1,23 @@
+{
+  "updatedAt": "2026-03-09T15:00:00.000Z",
+  "status": [
+    { "name": "Herthon Secundus" },
+    { "name": "Zea Rugosia" },
+    { "name": "Mintoria" }
+  ],
+  "info": [
+    { "name": "Herthon Secundus" },
+    { "name": "Zea Rugosia" },
+    { "name": "Mintoria" }
+  ],
+  "majorOrders": [
+    { "title": "Secure Rare Samples" }
+  ],
+  "assignments": [
+    {
+      "id": 1,
+      "title": "Secure Rare Samples",
+      "briefing": "Deploy to priority worlds and support Super Earth operations."
+    }
+  ]
+}
