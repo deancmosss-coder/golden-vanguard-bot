@@ -8,7 +8,7 @@ const HUBS = {
   "1478464785069637663": { tag: "MO", label: "Major Order" },
   "1478465018164150415": { tag: "BOTS", label: "Automaton" },
   "1478465229829570762": { tag: "BUGS", label: "Terminid" },
-  "1478465444384997469": { tag: "ILL", label: "Illuminate" },
+  "1478912834539622611": { tag: "SQUIDS", label: "Illuminate" },
   "1478465577294233601": { tag: "TRAIN", label: "Training" },
 };
 
