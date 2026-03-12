@@ -485,28 +485,62 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     // Ask-to-Play dropdowns
-    if (interaction.isStringSelectMenu()) {
-      const session = sessions.get(interaction.message.id);
-      if (!session) return interaction.reply({ content: "Session expired.", ephemeral: true });
+   if (interaction.isStringSelectMenu()) {
+  const session = sessions.get(interaction.message.id);
 
-      if (interaction.user.id !== session.ownerId) {
-        return interaction.reply({ content: "Only the host can set faction/difficulty.", ephemeral: true });
-      }
-
-      if (interaction.customId === FACTION_SELECT_ID) {
-        session.faction = interaction.values[0];
-        await updateAskMessage(session);
-        return interaction.reply({ content: `✅ Faction set to **${session.faction}**`, ephemeral: true });
-      }
-
-      if (interaction.customId === DIFFICULTY_SELECT_ID) {
-        session.difficulty = interaction.values[0];
-        await updateAskMessage(session);
-
-        if (interaction.guild) await renameHostVcFromSession(session, interaction.guild);
-        return interaction.reply({ content: `✅ Difficulty set to **${session.difficulty}**`, ephemeral: true });
-      }
+  if (!session) {
+    if (interaction.deferred || interaction.replied) {
+      return interaction.followUp({ content: "Session expired.", ephemeral: true }).catch(() => {});
     }
+    return interaction.reply({ content: "Session expired.", ephemeral: true }).catch(() => {});
+  }
+
+  if (interaction.user.id !== session.ownerId) {
+    if (interaction.deferred || interaction.replied) {
+      return interaction.followUp({ content: "Only the host can set faction/difficulty.", ephemeral: true }).catch(() => {});
+    }
+    return interaction.reply({ content: "Only the host can set faction/difficulty.", ephemeral: true }).catch(() => {});
+  }
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    if (interaction.customId === FACTION_SELECT_ID) {
+      session.faction = interaction.values[0];
+      await updateAskMessage(session);
+
+      return interaction.editReply({
+        content: `✅ Faction set to **${session.faction}**`,
+      });
+    }
+
+    if (interaction.customId === DIFFICULTY_SELECT_ID) {
+      session.difficulty = interaction.values[0];
+      await updateAskMessage(session);
+
+      if (interaction.guild) {
+        await renameHostVcFromSession(session, interaction.guild);
+      }
+
+      return interaction.editReply({
+        content: `✅ Difficulty set to **${session.difficulty}**`,
+      });
+    }
+  } catch (error) {
+    console.error("String select menu error:", error);
+
+    if (interaction.deferred || interaction.replied) {
+      return interaction.editReply({
+        content: "❌ Something went wrong while updating the session.",
+      }).catch(() => {});
+    }
+
+    return interaction.reply({
+      content: "❌ Something went wrong while updating the session.",
+      ephemeral: true,
+    }).catch(() => {});
+  }
+}
   } catch (err) {
     console.error("[InteractionCreate] error:", err);
     if (interaction?.isRepliable?.()) {
@@ -746,5 +780,6 @@ client.once(Events.ClientReady, async () => {
   console.log(`✅ Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`);
   console.log(`✅ Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
 });
+
 
 client.login(TOKEN);
