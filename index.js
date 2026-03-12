@@ -116,7 +116,7 @@ function factionToTag(faction) {
   if (!faction) return null;
   if (faction === "Automatons") return "BOTS";
   if (faction === "Terminids") return "BUGS";
-  if (faction === "Illuminate") return "ILL";
+  if (faction === "Illuminate") return "SQUIDS";
   return null;
 }
 
