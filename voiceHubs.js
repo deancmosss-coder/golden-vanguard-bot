@@ -1,9 +1,9 @@
 const { ChannelType, PermissionsBitField, Events } = require("discord.js");
 
-// Category that contains your 5 hub VCs + created squad VCs
+// Category that contains your hub VCs + created squad VCs
 const HUB_CATEGORY_ID = "1478464677783666778";
 
-// Exact hub channels only
+// Exact hub VC IDs
 const HUBS = {
   "1478464785069637663": { tag: "MO", label: "Major Order" },
   "1478465018164150415": { tag: "BOTS", label: "Automaton" },
@@ -12,10 +12,10 @@ const HUBS = {
   "1478465577294233601": { tag: "TRAIN", label: "Training" },
 };
 
-// tempChannelId -> { ownerId, hubId, createdAt }
+// In-memory tracker for channels created since current bot boot
 const tempChannels = new Map();
 
-// userIds temporarily ignored after the bot moves them
+// Prevent reacting to the bot's own move event
 const ignoredMoves = new Map();
 
 function makeSafeName(username) {
@@ -26,9 +26,21 @@ function isHubChannelId(channelId) {
   return !!channelId && !!HUBS[channelId];
 }
 
-function isManagedTempChannel(channel) {
+function isManagedSquadChannel(channel) {
   if (!channel) return false;
-  return tempChannels.has(channel.id);
+  if (channel.type !== ChannelType.GuildVoice) return false;
+  if (channel.parentId !== HUB_CATEGORY_ID) return false;
+
+  // Must NOT be one of the hub channels
+  if (HUBS[channel.id]) return false;
+
+  // Match created VC names like:
+  // MO | Moss
+  // BOTS | D10 | Moss
+  // BUGS | Moss
+  // SQUIDS | D9 | Moss
+  // TRAIN | Moss
+  return /^(MO|BOTS|BUGS|SQUIDS|TRAIN)\s\|/i.test(channel.name);
 }
 
 function markIgnoredMove(userId, ms = 3000) {
@@ -50,18 +62,19 @@ function isIgnoredMove(userId) {
 async function deleteIfEmpty(channel, reason = "Auto-delete empty squad VC") {
   if (!channel) return;
 
-  // Let Discord fully update membership first
-  await new Promise((resolve) => setTimeout(resolve, 800));
+  // Let Discord finish updating member counts
+  await new Promise((resolve) => setTimeout(resolve, 1200));
 
-  // Re-fetch from cache/guild if possible
   const fresh = channel.guild.channels.cache.get(channel.id);
   if (!fresh) {
     tempChannels.delete(channel.id);
     return;
   }
 
-  if (fresh.type !== ChannelType.GuildVoice) return;
-  if (!tempChannels.has(fresh.id)) return;
+  if (!isManagedSquadChannel(fresh)) {
+    tempChannels.delete(channel.id);
+    return;
+  }
 
   if (fresh.members.size === 0) {
     try {
@@ -69,24 +82,20 @@ async function deleteIfEmpty(channel, reason = "Auto-delete empty squad VC") {
     } catch (err) {
       console.error("[VoiceHubs] Delete failed:", err);
     } finally {
-      tempChannels.delete(fresh.id);
+      tempChannels.delete(channel.id);
     }
   }
 }
 
-async function cleanupEmptyTempChannels(guild) {
-  for (const [channelId] of tempChannels) {
-    const ch = guild.channels.cache.get(channelId);
-    if (!ch) {
-      tempChannels.delete(channelId);
-      continue;
-    }
+async function cleanupEmptySquadChannels(guild) {
+  const candidates = guild.channels.cache.filter((ch) => isManagedSquadChannel(ch));
 
-    if (ch.type === ChannelType.GuildVoice && ch.members.size === 0) {
+  for (const [, ch] of candidates) {
+    if (ch.members.size === 0) {
       try {
         await ch.delete("Cleanup: empty squad VC on startup");
       } catch {}
-      tempChannels.delete(channelId);
+      tempChannels.delete(ch.id);
     }
   }
 }
@@ -94,7 +103,7 @@ async function cleanupEmptyTempChannels(guild) {
 function setupVoiceHubs(client) {
   client.once(Events.ClientReady, async () => {
     for (const guild of client.guilds.cache.values()) {
-      await cleanupEmptyTempChannels(guild);
+      await cleanupEmptySquadChannels(guild);
     }
     console.log("✅ Voice hubs online (Join-to-Create enabled).");
   });
@@ -106,23 +115,17 @@ function setupVoiceHubs(client) {
     const oldChannelId = oldState.channelId;
     const newChannelId = newState.channelId;
 
-    // Ignore the follow-up event caused by the bot moving a user
-    if (isIgnoredMove(member.id)) {
-      return;
-    }
-
-    // No actual VC change
     if (oldChannelId === newChannelId) return;
 
-    // ============================
-    // 1) User joined one of the 5 hub channels
-    // ============================
+    // Ignore the follow-up event caused by bot moving the user
+    if (isIgnoredMove(member.id)) return;
+
+    // 1) User joined one of the exact hub VCs
     if (isHubChannelId(newChannelId)) {
       const hub = HUBS[newChannelId];
       const hubChannel = newState.channel;
 
-      if (!hubChannel) return;
-      if (hubChannel.parentId !== HUB_CATEGORY_ID) return;
+      if (!hubChannel || hubChannel.parentId !== HUB_CATEGORY_ID) return;
 
       const safeName = makeSafeName(member.user.username);
       const channelName = `${hub.tag} | ${safeName}`;
@@ -165,13 +168,10 @@ function setupVoiceHubs(client) {
       return;
     }
 
-    // ============================
-    // 2) Someone left one of our temp VCs
-    // Check old channel after a delay and delete if empty
-    // ============================
+    // 2) Someone left a squad VC -> delete it if now empty
     if (oldChannelId) {
       const oldChannel = oldState.channel;
-      if (isManagedTempChannel(oldChannel)) {
+      if (isManagedSquadChannel(oldChannel)) {
         deleteIfEmpty(oldChannel).catch((err) => {
           console.error("[VoiceHubs] Delayed delete check failed:", err);
         });
