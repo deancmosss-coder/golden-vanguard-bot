@@ -397,7 +397,7 @@ async function sendPromotionRequest(member) {
 
   await logOrientation(
     member.client,
-    `⭐ **Promotion Requested**\nDiver: ${member}\nStatus: Awaiting Strike Captain approval`
+    `⭐ **Promotion Requested**\nDiver: ${member}\nStatus: Awaiting approval`
   );
 
   return { ok: Boolean(sent) };
@@ -474,7 +474,7 @@ async function moreTraining(guild, targetUserId, approverMember, interaction = n
   }
 
   await member.send(
-    "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to a Strike Captain."
+    "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to Strike Captain or higher."
   ).catch(() => null);
 
   return { ok: true };
@@ -504,7 +504,7 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
   }
 
   await member.send(
-    "Your Trooper promotion request was denied. Speak to a Strike Captain if you need help completing orientation."
+    "Your Trooper promotion request was denied. Speak to Strike Captain or higher if you need help completing orientation."
   ).catch(() => null);
 
   return { ok: true };
@@ -528,7 +528,6 @@ async function handleOrientationButton(interaction) {
     return false;
   }
 
-  // Approval buttons
   if (
     customId.startsWith("orientation_approve_") ||
     customId.startsWith("orientation_more_training_") ||
@@ -536,7 +535,7 @@ async function handleOrientationButton(interaction) {
   ) {
     if (!isApprover(member)) {
       await interaction.reply({
-        content: "Only Strike Captains can approve or review recruit promotions.",
+        content: "Only Strike Captain or higher can approve or review recruit promotions.",
         ephemeral: true,
       });
       return true;
@@ -564,7 +563,6 @@ async function handleOrientationButton(interaction) {
     }
   }
 
-  // Recruit-facing buttons
   ensureRecruit(member.id);
 
   if (!isRecruitMember(member)) {
@@ -630,7 +628,7 @@ async function handleOrientationButton(interaction) {
 
     if (recruit.promotionRequested) {
       await interaction.reply({
-        content: "Your promotion request has already been sent to Strike Captains.",
+        content: "Your promotion request has already been sent for review.",
         ephemeral: true,
       });
       return true;
@@ -646,7 +644,7 @@ async function handleOrientationButton(interaction) {
     }
 
     await interaction.reply({
-      content: "⭐ Your promotion request has been sent for Strike Captain review.",
+      content: "⭐ Your promotion request has been sent for review.",
       ephemeral: true,
     });
     return true;
@@ -656,7 +654,7 @@ async function handleOrientationButton(interaction) {
 }
 
 function shouldTrackVoiceChannel(channel) {
-  if (!channel || channel.type !== 2) return false; // GuildVoice
+  if (!channel || channel.type !== 2) return false;
   if (!CONFIG.vcCategoryId) return true;
   return channel.parentId === CONFIG.vcCategoryId;
 }
@@ -716,7 +714,10 @@ function scanVoiceSessions(guild) {
 
     const recruitMember = guild.members.cache.get(session.recruitId);
     if (recruitMember) {
-      logProgress(recruitMember, `Deployment detected with <@${session.supervisorId}>`).catch(console.error);
+      logProgress(
+        recruitMember,
+        `Deployment detected with <@${session.supervisorId}>`
+      ).catch(console.error);
     }
   }
 }
