@@ -20,6 +20,7 @@ const {
 
 const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
+const orientationSystem = require("./services/orientationSystem");
 
 // ===== ENV =====
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -784,3 +785,4 @@ client.once(Events.ClientReady, async () => {
 });
 
 client.login(TOKEN);
+
