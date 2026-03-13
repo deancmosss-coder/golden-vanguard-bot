@@ -20,7 +20,7 @@ const FACTION_ROLES = [
 const ASK_TO_PLAY_ROLE = "Ask to Play";
 
 /**
- * Nickname tags (edit if you want shorter tags)
+ * Nickname tags
  */
 const TAG_MAP = {
   "Eclipse Vanguard": "Eclipse Vanguard",
@@ -166,6 +166,7 @@ function buildAnswerButtons(userId) {
 
 function computeRecommendation(answers) {
   const tally = new Map();
+
   for (const a of answers) {
     const faction = SCORE_MAP[a];
     tally.set(faction, (tally.get(faction) || 0) + 1);
@@ -244,6 +245,7 @@ function buildOverrideButtonsRow2(userId) {
 async function ensureAskToPlayRole(member) {
   const role = member.guild.roles.cache.find((r) => r.name === ASK_TO_PLAY_ROLE);
   if (!role) return;
+
   if (!member.roles.cache.has(role.id)) {
     await member.roles.add(role).catch(() => {});
   }
@@ -269,7 +271,7 @@ async function assignFactionRoles(member, chosenFaction) {
 }
 
 /**
- * ✅ Apply nickname tag: Name [Faction]
+ * Apply nickname tag: Name [Faction]
  * Removes any existing trailing [....] tag first.
  */
 async function applyFactionNicknameTag(member, chosenFaction) {
@@ -283,25 +285,25 @@ async function applyFactionNicknameTag(member, chosenFaction) {
   await member.setNickname(nextNick).catch(() => {});
 }
 
-function buildPublicAnnouncement(user, recommendedFaction, chosenFaction) {
-  const overrideLine =
-    chosenFaction === recommendedFaction
-      ? ""
-      : `\n🧠 Recommended: **${recommendedFaction}**\n🧾 Chosen: **${chosenFaction}** (override)`;
+function buildPublicAnnouncement(member, recommendedFaction, chosenFaction) {
+  const lines = [
+    `${member} has completed enlistment.`,
+    "",
+    `🏷 Assigned faction: **${chosenFaction}**`,
+  ];
+
+  if (chosenFaction !== recommendedFaction) {
+    lines.push(`🧠 Recommended: **${recommendedFaction}**`);
+    lines.push(`🧾 Chosen: **${chosenFaction}** (override)`);
+  }
+
+  lines.push("");
+  lines.push("Welcome to the Golden Vanguard.");
 
   return new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle("🛡 Enlistment Complete")
-    .setDescription(
-      [
-        `${user} has completed enlistment.`,
-        "",
-        `🏷 Assigned faction: **${chosenFaction}**`,
-        overrideLine,
-        "",
-        "Welcome to the Golden Vanguard.",
-      ].join("\n")
-    );
+    .setDescription(lines.join("\n"));
 }
 
 async function startEnlistment(interaction) {
@@ -333,7 +335,6 @@ module.exports = {
     return startEnlistment(interaction);
   },
 
-  // Optional admin slash command kept (since you already have panel/button working)
   adminData: new SlashCommandBuilder()
     .setName("post-enlistment-panel")
     .setDescription("Post the enlistment start panel (admin).")
@@ -380,7 +381,6 @@ module.exports = {
       });
     }
 
-    // A/B/C/D answer
     if (action === "ans") {
       const answer = parts[3];
       session.answers.push(answer);
@@ -403,12 +403,12 @@ module.exports = {
       });
     }
 
-    // Confirm recommended
     if (action === "confirm") {
       const recommendedFaction = session.recommendedFaction;
+      let member;
 
       try {
-        const member = await interaction.guild.members.fetch(interaction.user.id);
+        member = await interaction.guild.members.fetch(interaction.user.id);
 
         await ensureAskToPlayRole(member);
         await assignFactionRoles(member, recommendedFaction);
@@ -424,12 +424,14 @@ module.exports = {
       }
 
       const publicEmbed = buildPublicAnnouncement(
-        interaction.user,
+        member,
         recommendedFaction,
         recommendedFaction
       );
 
       await interaction.channel.send({ embeds: [publicEmbed] }).catch(() => {});
+
+      sessions.delete(interaction.user.id);
 
       return interaction.update({
         content: "✅ Enlistment complete. Your faction role + tag have been assigned.",
@@ -438,7 +440,6 @@ module.exports = {
       });
     }
 
-    // Override
     if (action === "override") {
       const embed = new EmbedBuilder()
         .setColor(0xf1c40f)
@@ -460,9 +461,9 @@ module.exports = {
       });
     }
 
-    // Manual pick
     if (action === "pick") {
       const chosenFaction = parts.slice(3).join(":");
+      let member;
 
       if (!FACTION_ROLES.includes(chosenFaction)) {
         return interaction.reply({
@@ -474,7 +475,7 @@ module.exports = {
       const recommended = session.recommendedFaction;
 
       try {
-        const member = await interaction.guild.members.fetch(interaction.user.id);
+        member = await interaction.guild.members.fetch(interaction.user.id);
 
         await ensureAskToPlayRole(member);
         await assignFactionRoles(member, chosenFaction);
@@ -489,8 +490,10 @@ module.exports = {
         });
       }
 
-      const publicEmbed = buildPublicAnnouncement(interaction.user, recommended, chosenFaction);
+      const publicEmbed = buildPublicAnnouncement(member, recommended, chosenFaction);
       await interaction.channel.send({ embeds: [publicEmbed] }).catch(() => {});
+
+      sessions.delete(interaction.user.id);
 
       return interaction.update({
         content: "✅ Enlistment complete. Your faction role + tag have been assigned.",
