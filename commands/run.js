@@ -17,6 +17,7 @@ const {
 } = require("discord.js");
 
 const { updateOperationsBoard } = require("../services/operationsBoard");
+const orientationSystem = require("../services/orientationSystem");
 
 const STORE_PATH = path.join(__dirname, "..", "tracker_store.json");
 const MISSIONS_PATH = path.join(__dirname, "..", "missions.json");
@@ -63,7 +64,6 @@ function getPlanetNamesFromWarCache() {
   const warCache = readWarCache();
   const names = new Set();
 
-  // Best source: active planets from /war/campaign
   if (Array.isArray(warCache?.campaign)) {
     for (const p of warCache.campaign) {
       if (p?.name) names.add(String(p.name));
@@ -71,14 +71,12 @@ function getPlanetNamesFromWarCache() {
     }
   }
 
-  // Full fallback: /planets object keyed by planet index
   if (warCache?.planets && typeof warCache.planets === "object" && !Array.isArray(warCache.planets)) {
     for (const value of Object.values(warCache.planets)) {
       if (value?.name) names.add(String(value.name));
     }
   }
 
-  // Extra fallback: older cached shapes
   if (Array.isArray(warCache?.status)) {
     for (const p of warCache.status) {
       if (p?.name) names.add(String(p.name));
@@ -809,6 +807,8 @@ async function execute(interaction) {
   store.runs.push(run);
   store.users[userId].totalRuns += 1;
   writeStore(store);
+
+  await orientationSystem.maybeAutoLogAAR(interaction.member).catch(console.error);
 
   await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
   await refreshOpsBoardFromCache(interaction.client).catch(() => {});
