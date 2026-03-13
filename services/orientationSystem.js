@@ -12,18 +12,19 @@ const DATA_PATH = path.join(__dirname, "..", "data", "recruits.json");
 /**
  * ENV expected:
  *
- * ORIENTATION_RECRUIT_ROLE_ID=1482096597600043168
- * ORIENTATION_TROOPER_ROLE_ID=1305335520355684445
- * ORIENTATION_STRIKE_CAPTAIN_ROLE_ID=1473485355649990788
- * ORIENTATION_HIGH_COMMAND_ROLE_ID=1305334705486565487
- * ORIENTATION_VANGUARD_PRIME_ROLE_ID=1482095139437547580
+ * ORIENTATION_RECRUIT_ROLE_ID=
+ * ORIENTATION_TROOPER_ROLE_ID=
+ * ORIENTATION_STRIKE_CAPTAIN_ROLE_ID=
+ * ORIENTATION_HIGH_COMMAND_ROLE_ID=
+ * ORIENTATION_VANGUARD_PRIME_ROLE_ID=
  *
- * ORIENTATION_RECRUIT_MONITOR_CHANNEL_ID=1482128414377906176
- * ORIENTATION_PROMOTION_REQUESTS_CHANNEL_ID=1482128496569483525
- * ORIENTATION_LOG_CHANNEL_ID=1482128560029175951
- * ORIENTATION_CHECKLIST_CHANNEL_ID=1482098283684827266
- * ORIENTATION_VC_CATEGORY_ID=1478464677783666778
+ * ORIENTATION_RECRUIT_MONITOR_CHANNEL_ID=
+ * ORIENTATION_PROMOTION_REQUESTS_CHANNEL_ID=
+ * ORIENTATION_LOG_CHANNEL_ID=
+ * ORIENTATION_CHECKLIST_CHANNEL_ID=
+ * ORIENTATION_PROMOTION_ANNOUNCE_CHANNEL_ID=
  *
+ * ORIENTATION_VC_CATEGORY_ID=
  * ORIENTATION_MIN_VC_MINUTES=10
  */
 
@@ -39,6 +40,7 @@ const CONFIG = {
   promotionRequestsChannelId: (process.env.ORIENTATION_PROMOTION_REQUESTS_CHANNEL_ID || "").trim(),
   orientationLogChannelId: (process.env.ORIENTATION_LOG_CHANNEL_ID || "").trim(),
   checklistChannelId: (process.env.ORIENTATION_CHECKLIST_CHANNEL_ID || "").trim(),
+  promotionAnnounceChannelId: (process.env.ORIENTATION_PROMOTION_ANNOUNCE_CHANNEL_ID || "").trim(),
 
   vcCategoryId: (process.env.ORIENTATION_VC_CATEGORY_ID || "").trim(),
   minVcMinutes: Number(process.env.ORIENTATION_MIN_VC_MINUTES || 10),
@@ -58,7 +60,6 @@ CONFIG.supervisorRoleIds = [
   CONFIG.vanguardPrimeRoleId,
 ].filter(Boolean);
 
-// Active VC overlap tracker
 // key = `${guildId}:${recruitId}:${supervisorId}:${channelId}`
 const activeVcSessions = new Map();
 
@@ -314,6 +315,24 @@ async function logOrientation(client, message) {
   return sendToChannel(client, CONFIG.orientationLogChannelId, { content: message });
 }
 
+async function announcePromotion(client, member, approverMember) {
+  if (!CONFIG.promotionAnnounceChannelId) return null;
+
+  return sendToChannel(client, CONFIG.promotionAnnounceChannelId, {
+    content: [
+      "🪖 **WELCOME TO THE GOLDEN VANGUARD**",
+      "",
+      `${member} has completed Recruit Orientation and has been promoted to **Trooper**.`,
+      "",
+      "Welcome to the Vanguard, Diver.",
+      "Deploy together. Reinforce together. Win together.",
+      "",
+      `Approved by: ${approverMember}`,
+    ].join("\n"),
+    allowedMentions: { users: [member.id] },
+  });
+}
+
 async function logNewRecruit(member) {
   ensureRecruit(member.id);
   await logRecruitMonitor(
@@ -433,6 +452,8 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     ].join("\n")
   );
 
+  await announcePromotion(guild.client, member, approverMember).catch(console.error);
+
   if (interaction) {
     const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
       .setFooter({ text: `Approved by ${approverMember.displayName}` });
@@ -443,9 +464,11 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     }).catch(console.error);
   }
 
-  await member.send(
-    "Welcome to the Vanguard, Diver.\n\nYou have been promoted to **Trooper** and are now cleared for deployment."
-  ).catch(() => null);
+  await member
+    .send(
+      "Welcome to the Vanguard, Diver.\n\nYou have been promoted to **Trooper** and are now cleared for deployment."
+    )
+    .catch(() => null);
 
   return { ok: true };
 }
@@ -473,9 +496,11 @@ async function moreTraining(guild, targetUserId, approverMember, interaction = n
     }).catch(console.error);
   }
 
-  await member.send(
-    "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to Strike Captain or higher."
-  ).catch(() => null);
+  await member
+    .send(
+      "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to Strike Captain or higher."
+    )
+    .catch(() => null);
 
   return { ok: true };
 }
@@ -503,9 +528,11 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
     }).catch(console.error);
   }
 
-  await member.send(
-    "Your Trooper promotion request was denied. Speak to Strike Captain or higher if you need help completing orientation."
-  ).catch(() => null);
+  await member
+    .send(
+      "Your Trooper promotion request was denied. Speak to Strike Captain or higher if you need help completing orientation."
+    )
+    .catch(() => null);
 
   return { ok: true };
 }
