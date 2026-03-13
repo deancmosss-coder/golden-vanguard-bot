@@ -162,7 +162,7 @@ function buildWelcomeEmbed(member, memberCount) {
     .setTitle("🛡 WELCOME TO THE GOLDEN VANGUARD 🛡")
     .setDescription(
       [
-        `Welcome <@${member.id}>!`,
+        `Welcome ${interaction.user}!`,
         "",
         `${member.user.username}, you have entered the Golden Vanguard.`,
         "",
@@ -783,3 +783,4 @@ client.once(Events.ClientReady, async () => {
 
 
 client.login(TOKEN);
+
