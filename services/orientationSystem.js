@@ -44,8 +44,12 @@ const CONFIG = {
   minVcMinutes: Number(process.env.ORIENTATION_MIN_VC_MINUTES || 10),
 };
 
-// Only Strike Captains approve for now.
-CONFIG.approverRoleIds = [CONFIG.strikeCaptainRoleId].filter(Boolean);
+// Strike Captain and higher can approve.
+CONFIG.approverRoleIds = [
+  CONFIG.strikeCaptainRoleId,
+  CONFIG.highCommandRoleId,
+  CONFIG.vanguardPrimeRoleId,
+].filter(Boolean);
 
 // Strike Captain and higher can supervise missions.
 CONFIG.supervisorRoleIds = [
