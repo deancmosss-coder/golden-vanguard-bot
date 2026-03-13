@@ -38,7 +38,7 @@ const SUNDAY_ANNOUNCE_TIME = (process.env.SUNDAY_ANNOUNCE_TIME || "23:00").trim(
 const MONDAY_RESET_TIME =
   (process.env.MONDAY_RESET_TIME || process.env.MONDAY_RESET || "00:00").trim();
 
-const TRIGGER_TEXT = "@ask to play";
+const TRIGGER_TEXT = "@asktoplay";
 const MAX_SQUAD = 4;
 
 const FACTION_SELECT_ID = "gv_faction";
@@ -171,20 +171,21 @@ function buildWelcomeEmbed(member, memberCount) {
         "• Deploy with structure and intent",
         "",
         "**This is not a roleplay server.**",
-        "Factions are playstyle archetypes designed to help you learn, adapt, and sharpen your tactical edge.",
+        "Divisions are playstyle archetypes designed to help you learn, adapt, and sharpen your tactical edge.",
         "",
         "━━━━━━━━━━━━━━━━━━",
         "",
         "📜 Read #community-laws",
+        "📘 Review #vanguard-field-manual",
         "",
         "🎮 Looking for a squad?",
-        "Go to #squad-lfg and ping @Ask-to-Play",
+        "Go to #squad-lfg and use **@asktoplay**",
         "",
         "How to find a squad",
-        "1) Join a Voice Channel under **Operations Command**",
-        "2) Ping **@asktoplay** in **#squad-lfg**",
-        "3) Set enemy faction and Difficulty or leave blank",
-        "4) Players will come and fight with you",
+        "1) Join a Voice Channel under **Vanguard Communication (VC)**",
+        "2) Use **@asktoplay** in **#squad-lfg**",
+        "3) Set enemy faction and difficulty or leave faction as **Any**",
+        "4) Players can join your squad and VC",
         "",
         "━━━━━━━━━━━━━━━━━━",
         "",
@@ -211,13 +212,16 @@ function buildWelcomeEmbed(member, memberCount) {
 
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
-    if (!WELCOME_CHANNEL_ID) return;
-    const ch = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
-    if (!ch?.isTextBased()) return;
+    if (WELCOME_CHANNEL_ID) {
+      const ch = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
+      if (ch?.isTextBased()) {
+        await ch.send({ embeds: [buildWelcomeEmbed(member, member.guild.memberCount)] });
+      }
+    }
 
-    await ch.send({ embeds: [buildWelcomeEmbed(member, member.guild.memberCount)] });
+    await orientationSystem.logNewRecruit(member);
   } catch (err) {
-    console.error("[WELCOME] Failed:", err);
+    console.error("[WELCOME / ORIENTATION JOIN] Failed:", err);
   }
 });
 
@@ -394,6 +398,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton()) {
+      const handled = await orientationSystem.handleOrientationButton(interaction);
+      if (handled) return;
+    }
+
+    if (interaction.isButton()) {
       const validDivisionButtons = [
         "division_eclipse",
         "division_bastion",
@@ -566,6 +575,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
    ========================= */
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
+    orientationSystem.handleVoiceStateUpdate(oldState, newState);
+
     const guild = newState.guild || oldState.guild;
     if (!guild) return;
 
@@ -782,7 +793,10 @@ client.once(Events.ClientReady, async () => {
     `✅ Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
   );
   console.log(`✅ Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
+
+  // Run ONCE if you want the bot to post the orientation panel automatically.
+  // Then remove/comment it so it does not post a duplicate on every restart.
+  // await orientationSystem.sendChecklistPanel(client);
 });
 
 client.login(TOKEN);
-
