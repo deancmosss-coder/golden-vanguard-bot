@@ -711,18 +711,42 @@ function scanVoiceSessions(guild) {
         const key = getVoiceKey(guild.id, recruit.id, supervisor.id, channel.id);
         currentKeys.add(key);
 
-        if (!activeVcSessions.has(key)) {
+                if (!activeVcSessions.has(key)) {
           activeVcSessions.set(key, {
             guildId: guild.id,
             recruitId: recruit.id,
             supervisorId: supervisor.id,
             channelId: channel.id,
             startedAt: now,
+            completed: false,
           });
+        } else {
+          const session = activeVcSessions.get(key);
+
+          if (!session.completed) {
+            const durationMs = now - session.startedAt;
+            const enoughTime = durationMs >= CONFIG.minVcMinutes * 60 * 1000;
+
+            if (enoughTime) {
+              const recruitRecord = ensureRecruit(session.recruitId);
+
+              if (!recruitRecord.deploymentComplete) {
+                markDeployment(session.recruitId, session.supervisorId, session.channelId);
+
+                const recruitMember = guild.members.cache.get(session.recruitId);
+                if (recruitMember) {
+                  logProgress(
+                    recruitMember,
+                    `Deployment detected with <@${session.supervisorId}>`
+                  ).catch(console.error);
+                }
+              }
+
+              session.completed = true;
+              activeVcSessions.set(key, session);
+            }
+          }
         }
-      }
-    }
-  }
 
   for (const [key, session] of activeVcSessions.entries()) {
     if (session.guildId !== guild.id) continue;
