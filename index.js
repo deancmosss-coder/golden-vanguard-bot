@@ -1,5 +1,5 @@
 // =========================
-// index.js (FULL, WORKING)
+// index.js (FULL, WORKING + ORIENTATION ADDED)
 // =========================
 
 require("dotenv").config();
@@ -19,8 +19,8 @@ const {
 } = require("discord.js");
 
 const { setupVoiceHubs } = require("./voiceHubs");
-
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
+const orientationSystem = require("./services/orientationSystem");
 
 // ===== ENV =====
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -47,7 +47,6 @@ const DIFFICULTY_SELECT_ID = "gv_difficulty";
 const HUB_CATEGORY_ID = "1478464677783666778";
 
 // ===== DIVISION ROLE IDS =====
-// REPLACE THESE WITH YOUR REAL ROLE IDS
 const DIVISION_ROLE_IDS = {
   eclipse: "1474609575415255092",
   bastion: "1474610126693466202",
@@ -116,7 +115,7 @@ function factionToTag(faction) {
   if (!faction) return null;
   if (faction === "Automatons") return "BOTS";
   if (faction === "Terminids") return "BUGS";
-  if (faction === "Illuminate") return "ILL";
+  if (faction === "Illuminate") return "SQUIDS";
   return null;
 }
 
@@ -162,7 +161,7 @@ function buildWelcomeEmbed(member, memberCount) {
     .setTitle("🛡 WELCOME TO THE GOLDEN VANGUARD 🛡")
     .setDescription(
       [
-        `Welcome <@${member.id}>!`,
+        `Welcome ${member}!`,
         "",
         `${member.user.username}, you have entered the Golden Vanguard.`,
         "",
@@ -212,11 +211,15 @@ function buildWelcomeEmbed(member, memberCount) {
 
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
-    if (!WELCOME_CHANNEL_ID) return;
-    const ch = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
-    if (!ch?.isTextBased()) return;
+    if (WELCOME_CHANNEL_ID) {
+      const ch = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
+      if (ch?.isTextBased()) {
+        await ch.send({ embeds: [buildWelcomeEmbed(member, member.guild.memberCount)] });
+      }
+    }
 
-    await ch.send({ embeds: [buildWelcomeEmbed(member, member.guild.memberCount)] });
+    // ORIENTATION ADD
+    await orientationSystem.logNewRecruit(member);
   } catch (err) {
     console.error("[WELCOME] Failed:", err);
   }
@@ -336,7 +339,6 @@ client.on(Events.MessageCreate, async (message) => {
   try {
     if (message.author.bot || !message.guild) return;
 
-    // Tracker proof uploads
     try {
       const runCmd = require("./commands/run.js");
       if (typeof runCmd.handleTrackerProofMessage === "function") {
@@ -346,7 +348,6 @@ client.on(Events.MessageCreate, async (message) => {
       // ignore
     }
 
-    // Ask-to-Play trigger
     if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
 
     const contentLower = (message.content || "").toLowerCase();
@@ -390,14 +391,18 @@ client.on(Events.MessageCreate, async (message) => {
    ========================= */
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    // Autocomplete
     if (interaction.isAutocomplete()) {
       const cmd = commands.get(interaction.commandName);
       if (cmd?.autocomplete) return cmd.autocomplete(interaction);
       return;
     }
 
-    // Division terminal buttons
+    // ORIENTATION ADD
+    if (interaction.isButton()) {
+      const handled = await orientationSystem.handleOrientationButton(interaction);
+      if (handled) return;
+    }
+
     if (interaction.isButton()) {
       const validDivisionButtons = [
         "division_eclipse",
@@ -459,52 +464,97 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
 
-    // Tracker buttons
     if (interaction.isButton() && interaction.customId?.startsWith("gv_")) {
       console.log("BUTTON CLICKED:", interaction.customId);
       const runCmd = require("./commands/run.js");
       return runCmd.handleTrackerButton(interaction);
     }
 
-    // Tracker edit modal
     if (interaction.isModalSubmit() && interaction.customId?.startsWith("gv_run_edit:")) {
       const runCmd = require("./commands/run.js");
       return runCmd.handleTrackerModal(interaction);
     }
 
-    // Slash commands
     if (interaction.isChatInputCommand()) {
       const cmd = commands.get(interaction.commandName);
       if (!cmd) return;
       return cmd.execute(interaction);
     }
 
-    // Enlistment buttons
     if (interaction.isButton() && interaction.customId.startsWith("enlist:") && enlistment) {
       return enlistment.handleButton(interaction);
     }
 
-    // Ask-to-Play dropdowns
     if (interaction.isStringSelectMenu()) {
       const session = sessions.get(interaction.message.id);
-      if (!session) return interaction.reply({ content: "Session expired.", ephemeral: true });
+
+      if (!session) {
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .followUp({ content: "Session expired.", ephemeral: true })
+            .catch(() => {});
+        }
+        return interaction.reply({ content: "Session expired.", ephemeral: true }).catch(() => {});
+      }
 
       if (interaction.user.id !== session.ownerId) {
-        return interaction.reply({ content: "Only the host can set faction/difficulty.", ephemeral: true });
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .followUp({
+              content: "Only the host can set faction/difficulty.",
+              ephemeral: true,
+            })
+            .catch(() => {});
+        }
+        return interaction
+          .reply({
+            content: "Only the host can set faction/difficulty.",
+            ephemeral: true,
+          })
+          .catch(() => {});
       }
 
-      if (interaction.customId === FACTION_SELECT_ID) {
-        session.faction = interaction.values[0];
-        await updateAskMessage(session);
-        return interaction.reply({ content: `✅ Faction set to **${session.faction}**`, ephemeral: true });
-      }
+      try {
+        await interaction.deferReply({ ephemeral: true });
 
-      if (interaction.customId === DIFFICULTY_SELECT_ID) {
-        session.difficulty = interaction.values[0];
-        await updateAskMessage(session);
+        if (interaction.customId === FACTION_SELECT_ID) {
+          session.faction = interaction.values[0];
+          await updateAskMessage(session);
 
-        if (interaction.guild) await renameHostVcFromSession(session, interaction.guild);
-        return interaction.reply({ content: `✅ Difficulty set to **${session.difficulty}**`, ephemeral: true });
+          return interaction.editReply({
+            content: `✅ Faction set to **${session.faction}**`,
+          });
+        }
+
+        if (interaction.customId === DIFFICULTY_SELECT_ID) {
+          session.difficulty = interaction.values[0];
+          await updateAskMessage(session);
+
+          if (interaction.guild) {
+            await renameHostVcFromSession(session, interaction.guild);
+          }
+
+          return interaction.editReply({
+            content: `✅ Difficulty set to **${session.difficulty}**`,
+          });
+        }
+      } catch (error) {
+        console.error("String select menu error:", error);
+
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .editReply({
+              content: "❌ Something went wrong while updating the session.",
+            })
+            .catch(() => {});
+        }
+
+        return interaction
+          .reply({
+            content: "❌ Something went wrong while updating the session.",
+            ephemeral: true,
+          })
+          .catch(() => {});
       }
     }
   } catch (err) {
@@ -526,6 +576,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
    ========================= */
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
+    // ORIENTATION ADD
+    orientationSystem.handleVoiceStateUpdate(oldState, newState);
+
     const guild = newState.guild || oldState.guild;
     if (!guild) return;
 
@@ -553,9 +606,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 client.once(Events.ClientReady, async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  /* =========================
-     WAR SYSTEM STARTUP
-     ========================= */
   try {
     await refreshWarBoard(client);
     console.log("✅ War board refreshed on startup");
@@ -563,8 +613,8 @@ client.once(Events.ClientReady, async () => {
     console.error("❌ War board startup refresh failed:", err);
   }
 
-    cron.schedule(
-    "*/10 * * * *",
+  cron.schedule(
+    "*/15 * * * *",
     async () => {
       try {
         await refreshWarBoard(client);
@@ -617,13 +667,11 @@ client.once(Events.ClientReady, async () => {
     return t.d === 1;
   }
 
-  // Ensure pinned leaderboard exists
   for (const guild of client.guilds.cache.values()) {
     const store = runCmd.readStore();
     await runCmd.ensureLeaderboardMessage(guild, store).catch(() => {});
   }
 
-  // Button expiry/auto-finalise (every 2 mins)
   cron.schedule(
     "*/2 * * * *",
     async () => {
@@ -636,7 +684,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Weekly announce
   const [sunH, sunM] = SUNDAY_ANNOUNCE_TIME.split(":").map(Number);
   cron.schedule(
     `${sunM} ${sunH} * * 0`,
@@ -650,15 +697,17 @@ client.once(Events.ClientReady, async () => {
         const ann = findTextChannelByName(guild, ANN_NAME);
         if (!ann) continue;
 
-        await ann.send({
-          content:
-            `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
-            `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-            `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-            `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-            `📌 Live leaderboard: **#${LB_NAME}**`,
-          allowedMentions: topP ? { users: [topP.key] } : undefined,
-        }).catch(() => {});
+        await ann
+          .send({
+            content:
+              `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
+              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
+              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+              `📌 Live leaderboard: **#${LB_NAME}**`,
+            allowedMentions: topP ? { users: [topP.key] } : undefined,
+          })
+          .catch(() => {});
 
         store.history = store.history || { weeks: [] };
         store.history.weeks.push({
@@ -678,7 +727,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Weekly reset
   const [monH, monM] = MONDAY_RESET_TIME.split(":").map(Number);
   cron.schedule(
     `${monM} ${monH} * * 1`,
@@ -693,7 +741,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Monthly announce (last day 23:55 UK)
   cron.schedule(
     "55 23 * * *",
     async () => {
@@ -710,21 +757,22 @@ client.once(Events.ClientReady, async () => {
         const ann = findTextChannelByName(guild, ANN_NAME);
         if (!ann) continue;
 
-        await ann.send({
-          content:
-            `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
-            `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-            `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-            `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-            `📌 Leaderboards: **#${LB_NAME}**`,
-          allowedMentions: topP ? { users: [topP.key] } : undefined,
-        }).catch(() => {});
+        await ann
+          .send({
+            content:
+              `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
+              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
+              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+              `📌 Leaderboards: **#${LB_NAME}**`,
+            allowedMentions: topP ? { users: [topP.key] } : undefined,
+          })
+          .catch(() => {});
       }
     },
     { timezone: TRACKER_TZ }
   );
 
-  // Monthly reset (1st at 00:05 UK)
   cron.schedule(
     "5 0 1 * *",
     async () => {
@@ -742,8 +790,14 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
+  // ORIENTATION ADD
+  // Run this once to post the checklist panel, then comment it back out.
+  // await orientationSystem.sendChecklistPanel(client).catch(console.error);
+
   console.log(`✅ Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
-  console.log(`✅ Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`);
+  console.log(
+    `✅ Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
+  );
   console.log(`✅ Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
 });
 
