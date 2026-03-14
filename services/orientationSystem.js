@@ -708,10 +708,11 @@ function scanVoiceSessions(guild) {
     for (const recruit of recruits) {
       for (const supervisor of supervisors) {
         if (recruit.id === supervisor.id) continue;
+
         const key = getVoiceKey(guild.id, recruit.id, supervisor.id, channel.id);
         currentKeys.add(key);
 
-                if (!activeVcSessions.has(key)) {
+        if (!activeVcSessions.has(key)) {
           activeVcSessions.set(key, {
             guildId: guild.id,
             recruitId: recruit.id,
@@ -747,29 +748,14 @@ function scanVoiceSessions(guild) {
             }
           }
         }
+      }
+    }
+  }
 
   for (const [key, session] of activeVcSessions.entries()) {
     if (session.guildId !== guild.id) continue;
     if (currentKeys.has(key)) continue;
-
-    const durationMs = now - session.startedAt;
     activeVcSessions.delete(key);
-
-    const enoughTime = durationMs >= CONFIG.minVcMinutes * 60 * 1000;
-    if (!enoughTime) continue;
-
-    const recruit = ensureRecruit(session.recruitId);
-    if (recruit.deploymentComplete) continue;
-
-    markDeployment(session.recruitId, session.supervisorId, session.channelId);
-
-    const recruitMember = guild.members.cache.get(session.recruitId);
-    if (recruitMember) {
-      logProgress(
-        recruitMember,
-        `Deployment detected with <@${session.supervisorId}>`
-      ).catch(console.error);
-    }
   }
 }
 
