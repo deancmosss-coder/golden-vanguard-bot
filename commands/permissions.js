@@ -775,7 +775,12 @@ module.exports = {
       let synced = 0;
       let failed = 0;
 
-      const channels = guild.channels.cache.filter((c) => c.parentId);
+      const channels = guild.channels.cache.filter((c) =>
+  c.parentId &&
+  (c.type === ChannelType.GuildText ||
+   c.type === ChannelType.GuildVoice ||
+   c.type === ChannelType.GuildAnnouncement)
+);
       for (const channel of channels.values()) {
         try {
           if (typeof channel.lockPermissions === "function") {
