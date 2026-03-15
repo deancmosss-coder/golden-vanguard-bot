@@ -591,9 +591,21 @@ function terminalOverwrites(guild) {
   ];
 }
 
-function squadLfgOverrides(baseOverwrites) {
+function squadLfgOverrides(baseOverwrites, guild) {
+  const filtered = baseOverwrites.filter(
+    (ow) => ow.id !== guild.roles.everyone.id
+  );
+
   return [
-    ...baseOverwrites,
+    {
+      id: guild.roles.everyone.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+    },
+    ...filtered,
     {
       id: ROLES.recruit,
       allow: [
@@ -704,10 +716,13 @@ async function lockChildren(category) {
   let failed = 0;
 
   const children = category.children?.cache || new Map();
+
   for (const child of children.values()) {
     try {
-      await child.lockPermissions();
-      synced++;
+      if (typeof child.lockPermissions === "function") {
+        await child.lockPermissions();
+        synced++;
+      }
     } catch (err) {
       failed++;
       console.error(`[permissions] Failed to sync ${child.name}:`, err.message);
@@ -763,8 +778,10 @@ module.exports = {
       const channels = guild.channels.cache.filter((c) => c.parentId);
       for (const channel of channels.values()) {
         try {
-          await channel.lockPermissions();
-          synced++;
+          if (typeof channel.lockPermissions === "function") {
+            await channel.lockPermissions();
+            synced++;
+          }
         } catch (err) {
           failed++;
           console.error(`[permissions] Sync failed for ${channel.name}:`, err.message);
@@ -789,16 +806,24 @@ module.exports = {
 
     const applyCategory = async (name, overwrites) => {
       const category = findCategory(name);
-      if (!category) return false;
+      if (!category) {
+        console.log(`[permissions] Category not found: ${name}`);
+        return false;
+      }
 
-      await category.permissionOverwrites.set(overwrites);
-      updatedCategories++;
+      try {
+        await category.permissionOverwrites.set(overwrites);
+        updatedCategories++;
 
-      const result = await lockChildren(category);
-      syncedChannels += result.synced;
-      failed += result.failed;
-
-      return true;
+        const result = await lockChildren(category);
+        syncedChannels += result.synced;
+        failed += result.failed;
+        return true;
+      } catch (err) {
+        failed++;
+        console.error(`[permissions] Failed applying category ${name}:`, err.message);
+        return false;
+      }
     };
 
     try {
@@ -833,15 +858,13 @@ module.exports = {
       const channelByName = (name) =>
         guild.channels.cache.find((c) => lower(c.name) === lower(name));
 
-      // squad-lfg visible to Recruit+
       const squadLfg = channelByName("squad-lfg");
       if (squadLfg) {
         await squadLfg.permissionOverwrites.set(
-          squadLfgOverrides(trooperCategoryOverwrites(guild))
+          squadLfgOverrides(trooperCategoryOverwrites(guild), guild)
         );
       }
 
-      // after-action-reports visible to Recruit+
       const aar = channelByName("after-action-reports");
       if (aar) {
         await aar.permissionOverwrites.set(
@@ -849,13 +872,11 @@ module.exports = {
         );
       }
 
-      // divisions forum visible to everyone, read-only
       const divisionsForum = channelByName("divisions");
       if (divisionsForum) {
         await divisionsForum.permissionOverwrites.set(divisionForumOverwrites(guild));
       }
 
-      // enlistment / division terminals: Trooper+ interaction only
       const enlistmentTerminal = channelByName("enlistment-terminal");
       if (enlistmentTerminal) {
         await enlistmentTerminal.permissionOverwrites.set(terminalOverwrites(guild));
@@ -866,7 +887,6 @@ module.exports = {
         await divisionTerminal.permissionOverwrites.set(terminalOverwrites(guild));
       }
 
-      // Division bases
       const bastionBase = channelByName("bastion-base");
       if (bastionBase) {
         await bastionBase.permissionOverwrites.set(
