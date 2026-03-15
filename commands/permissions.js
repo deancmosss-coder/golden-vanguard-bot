@@ -826,6 +826,24 @@ module.exports = {
       }
     };
 
+    const channelByName = (name) =>
+      guild.channels.cache.find((c) => lower(c.name) === lower(name));
+
+    const safeSet = async (channelName, overwrites) => {
+      const ch = channelByName(channelName);
+      if (!ch) {
+        console.log(`[permissions] Channel not found: ${channelName}`);
+        return;
+      }
+
+      try {
+        await ch.permissionOverwrites.set(overwrites);
+      } catch (err) {
+        failed++;
+        console.error(`[permissions] Failed applying channel ${channelName}:`, err.message);
+      }
+    };
+
     try {
       // Leadership only
       await applyCategory("Vanguard Headquarters", leadershipOverwrites(guild));
@@ -854,66 +872,39 @@ module.exports = {
       // =========================
       // CHANNEL-SPECIFIC OVERRIDES
       // =========================
+      await safeSet(
+        "squad-lfg",
+        squadLfgOverrides(trooperCategoryOverwrites(guild), guild)
+      );
 
-      const channelByName = (name) =>
-        guild.channels.cache.find((c) => lower(c.name) === lower(name));
+      await safeSet(
+        "after-action-reports",
+        afterActionOverrides(trooperCategoryOverwrites(guild))
+      );
 
-      const squadLfg = channelByName("squad-lfg");
-      if (squadLfg) {
-        await squadLfg.permissionOverwrites.set(
-          squadLfgOverrides(trooperCategoryOverwrites(guild), guild)
-        );
-      }
+      await safeSet("divisions", divisionForumOverwrites(guild));
+      await safeSet("enlistment-terminal", terminalOverwrites(guild));
+      await safeSet("division-terminal", terminalOverwrites(guild));
 
-      const aar = channelByName("after-action-reports");
-      if (aar) {
-        await aar.permissionOverwrites.set(
-          afterActionOverrides(trooperCategoryOverwrites(guild))
-        );
-      }
+      await safeSet(
+        "bastion-base",
+        divisionBaseOverwrites(guild, ROLES.bastionGuard, ROLES.bastionCommander)
+      );
 
-      const divisionsForum = channelByName("divisions");
-      if (divisionsForum) {
-        await divisionsForum.permissionOverwrites.set(divisionForumOverwrites(guild));
-      }
+      await safeSet(
+        "purifier-base",
+        divisionBaseOverwrites(guild, ROLES.purifierCorps, ROLES.purifierCommander)
+      );
 
-      const enlistmentTerminal = channelByName("enlistment-terminal");
-      if (enlistmentTerminal) {
-        await enlistmentTerminal.permissionOverwrites.set(terminalOverwrites(guild));
-      }
+      await safeSet(
+        "orbital-base",
+        divisionBaseOverwrites(guild, ROLES.orbitalDirective, ROLES.orbitalCommander)
+      );
 
-      const divisionTerminal = channelByName("division-terminal");
-      if (divisionTerminal) {
-        await divisionTerminal.permissionOverwrites.set(terminalOverwrites(guild));
-      }
-
-      const bastionBase = channelByName("bastion-base");
-      if (bastionBase) {
-        await bastionBase.permissionOverwrites.set(
-          divisionBaseOverwrites(guild, ROLES.bastionGuard, ROLES.bastionCommander)
-        );
-      }
-
-      const purifierBase = channelByName("purifier-base");
-      if (purifierBase) {
-        await purifierBase.permissionOverwrites.set(
-          divisionBaseOverwrites(guild, ROLES.purifierCorps, ROLES.purifierCommander)
-        );
-      }
-
-      const orbitalBase = channelByName("orbital-base");
-      if (orbitalBase) {
-        await orbitalBase.permissionOverwrites.set(
-          divisionBaseOverwrites(guild, ROLES.orbitalDirective, ROLES.orbitalCommander)
-        );
-      }
-
-      const eclipseBase = channelByName("eclipse-base");
-      if (eclipseBase) {
-        await eclipseBase.permissionOverwrites.set(
-          divisionBaseOverwrites(guild, ROLES.eclipseVanguard, ROLES.eclipseCommander)
-        );
-      }
+      await safeSet(
+        "eclipse-base",
+        divisionBaseOverwrites(guild, ROLES.eclipseVanguard, ROLES.eclipseCommander)
+      );
 
       return interaction.editReply(
         `✅ Golden Vanguard permissions applied.\n` +
