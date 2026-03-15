@@ -40,12 +40,18 @@ function hasAllRoles(guild) {
   return Object.values(ROLES).every((id) => guild.roles.cache.has(id));
 }
 
+function isSyncableChannel(channel) {
+  return (
+    channel?.parentId &&
+    (channel.type === ChannelType.GuildText ||
+      channel.type === ChannelType.GuildVoice ||
+      channel.type === ChannelType.GuildAnnouncement)
+  );
+}
+
 function leadershipOverwrites(guild) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: ROLES.strikeCaptain,
       allow: [
@@ -81,10 +87,7 @@ function leadershipOverwrites(guild) {
 
 function recruitOrientationOverwrites(guild) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: ROLES.recruit,
       allow: [
@@ -125,10 +128,7 @@ function recruitOrientationOverwrites(guild) {
 
 function libraryOverwrites(guild) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: ROLES.recruit,
       allow: [
@@ -209,14 +209,8 @@ function libraryOverwrites(guild) {
 
 function trooperCategoryOverwrites(guild) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: ROLES.recruit,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: ROLES.recruit, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: ROLES.trooper,
       allow: [
@@ -279,10 +273,7 @@ function trooperCategoryOverwrites(guild) {
 
 function recruitVoiceCategoryOverwrites(guild) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: ROLES.recruit,
       allow: [
@@ -354,14 +345,8 @@ function recruitVoiceCategoryOverwrites(guild) {
 
 function divisionCategoryBaseOverwrites(guild) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: ROLES.recruit,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: ROLES.recruit, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: ROLES.trooper,
       allow: [
@@ -507,14 +492,8 @@ function divisionForumOverwrites(guild) {
 
 function terminalOverwrites(guild) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: ROLES.recruit,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: ROLES.recruit, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: ROLES.trooper,
       allow: [
@@ -633,26 +612,11 @@ function afterActionOverrides(baseOverwrites) {
 
 function divisionBaseOverwrites(guild, divisionRoleId, commanderRoleId) {
   return [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: ROLES.recruit,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: ROLES.trooper,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: ROLES.corporal,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: ROLES.sergeant,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: ROLES.recruit, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: ROLES.trooper, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: ROLES.corporal, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: ROLES.sergeant, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
       id: divisionRoleId,
       allow: [
@@ -719,7 +683,11 @@ async function lockChildren(category) {
 
   for (const child of children.values()) {
     try {
-      if (typeof child.lockPermissions === "function") {
+      if (
+        isSyncableChannel(child) &&
+        typeof child.lockPermissions === "function" &&
+        !child.permissionsLocked
+      ) {
         await child.lockPermissions();
         synced++;
       }
@@ -774,18 +742,17 @@ module.exports = {
     if (sub === "sync") {
       let synced = 0;
       let failed = 0;
+      let skipped = 0;
 
-      const channels = guild.channels.cache.filter((c) =>
-  c.parentId &&
-  (c.type === ChannelType.GuildText ||
-   c.type === ChannelType.GuildVoice ||
-   c.type === ChannelType.GuildAnnouncement)
-);
+      const channels = guild.channels.cache.filter((c) => isSyncableChannel(c));
+
       for (const channel of channels.values()) {
         try {
-          if (typeof channel.lockPermissions === "function") {
+          if (typeof channel.lockPermissions === "function" && !channel.permissionsLocked) {
             await channel.lockPermissions();
             synced++;
+          } else {
+            skipped++;
           }
         } catch (err) {
           failed++;
@@ -794,7 +761,7 @@ module.exports = {
       }
 
       return interaction.editReply(
-        `✅ Sync complete.\nSynced: **${synced}**\nFailed: **${failed}**`
+        `✅ Sync complete.\nSynced: **${synced}**\nSkipped: **${skipped}**\nFailed: **${failed}**`
       );
     }
 
@@ -850,33 +817,19 @@ module.exports = {
     };
 
     try {
-      // Leadership only
       await applyCategory("Vanguard Headquarters", leadershipOverwrites(guild));
       await applyCategory("Command Staff", leadershipOverwrites(guild));
-
-      // Recruit area
       await applyCategory("Recruit Orientation", recruitOrientationOverwrites(guild));
-
-      // Library
       await applyCategory("Vanguard Library", libraryOverwrites(guild));
-
-      // Trooper+ categories
       await applyCategory("Vanguard Operations", trooperCategoryOverwrites(guild));
       await applyCategory("Vanguard Community", trooperCategoryOverwrites(guild));
       await applyCategory("Streaming", trooperCategoryOverwrites(guild));
       await applyCategory("Other Games", trooperCategoryOverwrites(guild));
       await applyCategory("Vanguard Chat", trooperCategoryOverwrites(guild));
       await applyCategory("Vanguard Tracker", trooperCategoryOverwrites(guild));
-
-      // Recruit+ voice
       await applyCategory("Vanguard Communications", recruitVoiceCategoryOverwrites(guild));
-
-      // Division category
       await applyCategory("Vanguard Division", divisionCategoryBaseOverwrites(guild));
 
-      // =========================
-      // CHANNEL-SPECIFIC OVERRIDES
-      // =========================
       await safeSet(
         "squad-lfg",
         squadLfgOverrides(trooperCategoryOverwrites(guild), guild)
