@@ -5,8 +5,8 @@ const HUB_CATEGORY_ID = "1478464677783666778";
 
 // Exact hub VC IDs
 const HUBS = {
-  "1478464785069637663": { tag: "MO", label: "Major Order" },
-  "1478465018164150415": { tag: "BOTS", label: "Automaton" },
+  "1482847778999894168": { tag: "MO", label: "Major Order" },
+  "1482848108772589730": { tag: "BOTS", label: "Automaton" },
   "1478465229829570762": { tag: "BUGS", label: "Terminid" },
   "1478912834539622611": { tag: "SQUIDS", label: "Illuminate" },
   "1478465577294233601": { tag: "TRAIN", label: "Training" },
