@@ -14,9 +14,7 @@ const createdChannels = new Map();
 const ignoredMoves = new Map();
 
 function makeSafeName(username) {
-  return (username || "Host")
-    .replace(/[^\w\s-]/g, "")
-    .slice(0, 16);
+  return (username || "Host").replace(/[^\w\s-]/g, "").slice(0, 16);
 }
 
 function isHub(channelId) {
@@ -38,7 +36,6 @@ function markIgnored(userId, ms = 3000) {
 
 function isIgnored(userId) {
   const until = ignoredMoves.get(userId);
-
   if (!until) return false;
 
   if (Date.now() > until) {
@@ -50,12 +47,10 @@ function isIgnored(userId) {
 }
 
 async function deleteIfEmpty(channel) {
-
   if (!channel) return;
 
   for (let i = 0; i < 5; i++) {
-
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const fresh = channel.guild.channels.cache.get(channel.id);
 
@@ -70,7 +65,6 @@ async function deleteIfEmpty(channel) {
     }
 
     if (fresh.members.size === 0) {
-
       try {
         await fresh.delete("Auto delete empty squad VC");
       } catch (err) {
@@ -84,34 +78,27 @@ async function deleteIfEmpty(channel) {
 }
 
 async function cleanupOrphans(guild) {
-
-  const channels = guild.channels.cache.filter(c => isManagedVC(c));
+  const channels = guild.channels.cache.filter((c) => isManagedVC(c));
 
   for (const [, ch] of channels) {
-
     if (ch.members.size === 0) {
       try {
         await ch.delete("Startup cleanup");
       } catch {}
     }
-
   }
 }
 
 function setupVoiceHubs(client) {
-
   client.once(Events.ClientReady, async () => {
-
     for (const guild of client.guilds.cache.values()) {
       await cleanupOrphans(guild);
     }
 
     console.log("Voice hub system ready");
-
   });
 
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
@@ -121,19 +108,16 @@ function setupVoiceHubs(client) {
     if (oldId === newId) return;
     if (isIgnored(member.id)) return;
 
-    // Joined a hub VC
     if (isHub(newId)) {
-
       const hub = HUBS[newId];
       const hubChannel = newState.channel;
 
-      if (!hubChannel || hubChannel.parentId !== HUB_CATEGORY_ID) return;
+      if (!hubChannel) return;
 
       const safeName = makeSafeName(member.user.username);
       const vcName = `${hub.tag} | ${safeName}`;
 
       try {
-
         const created = await newState.guild.channels.create({
           name: vcName,
           type: ChannelType.GuildVoice,
@@ -160,7 +144,6 @@ function setupVoiceHubs(client) {
 
         markIgnored(member.id);
         await member.voice.setChannel(created);
-
       } catch (err) {
         console.error("[VoiceHub] Create failed:", err);
       }
@@ -168,23 +151,16 @@ function setupVoiceHubs(client) {
       return;
     }
 
-    // Someone left a squad VC
     if (oldId) {
-
       const oldChannel = oldState.channel;
 
       if (isManagedVC(oldChannel)) {
-
-        deleteIfEmpty(oldChannel).catch(err => {
+        deleteIfEmpty(oldChannel).catch((err) => {
           console.error("[VoiceHub] Delete check error:", err);
         });
-
       }
-
     }
-
   });
-
 }
 
 module.exports = { setupVoiceHubs };
