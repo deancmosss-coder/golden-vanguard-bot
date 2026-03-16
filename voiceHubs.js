@@ -12,13 +12,14 @@ const HUBS = {
 
 const createdChannels = new Map();
 const ignoredMoves = new Map();
+const createCooldown = new Map();
 
 function makeSafeName(username) {
   return (username || "Host").replace(/[^\w\s-]/g, "").slice(0, 16);
 }
 
 function isHub(channelId) {
-  return HUBS[channelId] !== undefined;
+  return !!channelId && HUBS[channelId] !== undefined;
 }
 
 function isManagedVC(channel) {
@@ -26,7 +27,6 @@ function isManagedVC(channel) {
   if (channel.type !== ChannelType.GuildVoice) return false;
   if (channel.parentId !== HUB_CATEGORY_ID) return false;
   if (HUBS[channel.id]) return false;
-
   return /^(MO|BOTS|BUGS|SQUIDS|DANGER)\s\|/i.test(channel.name);
 }
 
@@ -44,6 +44,22 @@ function isIgnored(userId) {
   }
 
   return true;
+}
+
+function onCreateCooldown(userId, ms = 4000) {
+  const until = createCooldown.get(userId);
+  if (!until) return false;
+
+  if (Date.now() > until) {
+    createCooldown.delete(userId);
+    return false;
+  }
+
+  return true;
+}
+
+function markCreateCooldown(userId, ms = 4000) {
+  createCooldown.set(userId, Date.now() + ms);
 }
 
 async function deleteIfEmpty(channel) {
@@ -69,9 +85,9 @@ async function deleteIfEmpty(channel) {
         await fresh.delete("Auto delete empty squad VC");
       } catch (err) {
         console.error("[VoiceHub] Delete failed:", err);
+      } finally {
+        createdChannels.delete(channel.id);
       }
-
-      createdChannels.delete(channel.id);
       return;
     }
   }
@@ -109,11 +125,10 @@ function setupVoiceHubs(client) {
     if (isIgnored(member.id)) return;
 
     if (isHub(newId)) {
+      if (onCreateCooldown(member.id)) return;
+      markCreateCooldown(member.id);
+
       const hub = HUBS[newId];
-      const hubChannel = newState.channel;
-
-      if (!hubChannel) return;
-
       const safeName = makeSafeName(member.user.username);
       const vcName = `${hub.tag} | ${safeName}`;
 
@@ -153,7 +168,6 @@ function setupVoiceHubs(client) {
 
     if (oldId) {
       const oldChannel = oldState.channel;
-
       if (isManagedVC(oldChannel)) {
         deleteIfEmpty(oldChannel).catch((err) => {
           console.error("[VoiceHub] Delete check error:", err);
