@@ -1,5 +1,7 @@
 // =========================
-// index.js (FULL, WORKING + ORIENTATION ADDED)
+// index.js
+// CLEAN CORE FILE
+// No automated permission sync logic
 // =========================
 
 require("dotenv").config();
@@ -76,6 +78,7 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
+// VC system
 setupVoiceHubs(client);
 
 // ===== LOAD COMMANDS =====
@@ -84,6 +87,7 @@ const commandsPath = path.join(__dirname, "commands");
 
 if (fs.existsSync(commandsPath)) {
   const files = fs.readdirSync(commandsPath).filter((f) => f.endsWith(".js"));
+
   for (const file of files) {
     const mod = require(`./commands/${file}`);
 
@@ -95,6 +99,7 @@ if (fs.existsSync(commandsPath)) {
       commands.set(mod.adminData.name, { execute: mod.executeAdmin });
     }
   }
+
   console.log(`✅ Loaded ${commands.size} slash command(s) from ./commands`);
 }
 
@@ -116,6 +121,7 @@ function factionToTag(faction) {
   if (faction === "Automatons") return "BOTS";
   if (faction === "Terminids") return "BUGS";
   if (faction === "Illuminate") return "SQUIDS";
+  if (faction === "Any / Flexible") return null;
   return null;
 }
 
@@ -135,9 +141,10 @@ async function renameHostVcFromSession(session, guild) {
   let tag = chosenTag;
 
   if (!tag) {
-    const m = vc.name.match(/^(MO|BOTS|BUGS|ILL|TRAIN)\s\|/i);
+    const m = vc.name.match(/^(MO|BOTS|BUGS|SQUIDS|ILL|TRAIN)\s\|/i);
     tag = m ? m[1].toUpperCase() : null;
   }
+
   if (!tag) return;
 
   const hostName = safeUsername(host.user);
@@ -218,7 +225,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
       }
     }
 
-    // ORIENTATION ADD
     await orientationSystem.logNewRecruit(member);
   } catch (err) {
     console.error("[WELCOME] Failed:", err);
@@ -256,6 +262,7 @@ function buildAskEmbed(session, vcName) {
 function buildAskComponents(session) {
   const factionDone = !!session.faction;
   const difficultyDone = !!session.difficulty;
+
   if (factionDone && difficultyDone) return [];
 
   const factionMenu = new StringSelectMenuBuilder()
@@ -295,6 +302,7 @@ function syncRosterFromVc(session, vc) {
 
   if (vc) {
     const ids = [...vc.members.values()].map((m) => m.id);
+
     for (const id of ids) {
       if (id === session.ownerId) continue;
       if (next.size >= MAX_SQUAD) break;
@@ -304,6 +312,7 @@ function syncRosterFromVc(session, vc) {
 
   const before = [...session.roster].sort().join(",");
   const after = [...next].sort().join(",");
+
   if (before === after) return false;
 
   session.roster = next;
@@ -357,7 +366,9 @@ client.on(Events.MessageCreate, async (message) => {
     if (!roleMentionTrigger && !textTrigger) return;
 
     const guild = message.guild;
-    const owner = await guild.members.fetch(message.author.id);
+    const owner = await guild.members.fetch(message.author.id).catch(() => null);
+    if (!owner) return;
+
     const vc = owner.voice?.channel || null;
 
     const session = {
@@ -397,7 +408,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    // ORIENTATION ADD
     if (interaction.isButton()) {
       const handled = await orientationSystem.handleOrientationButton(interaction);
       if (handled) return;
@@ -465,7 +475,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton() && interaction.customId?.startsWith("gv_")) {
-      console.log("BUTTON CLICKED:", interaction.customId);
       const runCmd = require("./commands/run.js");
       return runCmd.handleTrackerButton(interaction);
     }
@@ -494,6 +503,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .followUp({ content: "Session expired.", ephemeral: true })
             .catch(() => {});
         }
+
         return interaction.reply({ content: "Session expired.", ephemeral: true }).catch(() => {});
       }
 
@@ -506,6 +516,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             })
             .catch(() => {});
         }
+
         return interaction
           .reply({
             content: "Only the host can set faction/difficulty.",
@@ -559,6 +570,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (err) {
     console.error("[InteractionCreate] error:", err);
+
     if (interaction?.isRepliable?.()) {
       try {
         if (interaction.deferred || interaction.replied) {
@@ -576,7 +588,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
    ========================= */
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
-    // ORIENTATION ADD
     orientationSystem.handleVoiceStateUpdate(oldState, newState);
 
     const guild = newState.guild || oldState.guild;
@@ -790,8 +801,7 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // ORIENTATION ADD
-  // Run this once to post the checklist panel, then comment it back out.
+  // Run once if needed, then comment back out
   // await orientationSystem.sendChecklistPanel(client).catch(console.error);
 
   console.log(`✅ Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
