@@ -10,7 +10,6 @@ const HUBS = {
   "1478465577294233601": { tag: "DANGER", label: "Danger Room" },
 };
 
-const createdChannels = new Map();
 const ignoredMoves = new Map();
 const createCooldown = new Map();
 
@@ -46,7 +45,7 @@ function isIgnored(userId) {
   return true;
 }
 
-function onCreateCooldown(userId, ms = 4000) {
+function onCreateCooldown(userId) {
   const until = createCooldown.get(userId);
   if (!until) return false;
 
@@ -69,24 +68,14 @@ async function deleteIfEmpty(channel) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const fresh = channel.guild.channels.cache.get(channel.id);
-
-    if (!fresh) {
-      createdChannels.delete(channel.id);
-      return;
-    }
-
-    if (!isManagedVC(fresh)) {
-      createdChannels.delete(channel.id);
-      return;
-    }
+    if (!fresh) return;
+    if (!isManagedVC(fresh)) return;
 
     if (fresh.members.size === 0) {
       try {
         await fresh.delete("Auto delete empty squad VC");
       } catch (err) {
         console.error("[VoiceHub] Delete failed:", err);
-      } finally {
-        createdChannels.delete(channel.id);
       }
       return;
     }
@@ -110,7 +99,6 @@ function setupVoiceHubs(client) {
     for (const guild of client.guilds.cache.values()) {
       await cleanupOrphans(guild);
     }
-
     console.log("Voice hub system ready");
   });
 
@@ -124,9 +112,13 @@ function setupVoiceHubs(client) {
     if (oldId === newId) return;
     if (isIgnored(member.id)) return;
 
+    // Joined a hub VC
     if (isHub(newId)) {
       if (onCreateCooldown(member.id)) return;
       markCreateCooldown(member.id);
+
+      // Make sure the member is still actually in that hub
+      if (member.voice.channelId !== newId) return;
 
       const hub = HUBS[newId];
       const safeName = makeSafeName(member.user.username);
@@ -155,8 +147,6 @@ function setupVoiceHubs(client) {
           ],
         });
 
-        createdChannels.set(created.id, true);
-
         markIgnored(member.id);
         await member.voice.setChannel(created);
       } catch (err) {
@@ -166,6 +156,7 @@ function setupVoiceHubs(client) {
       return;
     }
 
+    // Someone left a managed VC
     if (oldId) {
       const oldChannel = oldState.channel;
       if (isManagedVC(oldChannel)) {
