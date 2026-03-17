@@ -3,9 +3,9 @@ const { ChannelType, PermissionsBitField, Events } = require("discord.js");
 const HUB_CATEGORY_ID = "1478464677783666778";
 
 const HUBS = {
-  1483525677398491226": { tag: "MO", label: "Major Order" },
-  "1483525610637623436": { tag: "BOTS", label: "Automaton" },
-  "1478465229829570762": { tag: "BUGS", label: "Terminid" },
+  "1483530247809929286": { tag: "MO", label: "Major Order" },
+  "1483530198119878831": { tag: "BOTS", label: "Automaton" },
+  "1483530099914702948": { tag: "BUGS", label: "Terminid" },
   "1478912834539622611": { tag: "SQUIDS", label: "Illuminate" },
   "1478465577294233601": { tag: "DANGER", label: "Danger Room" },
 };
