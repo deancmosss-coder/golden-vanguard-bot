@@ -105,7 +105,8 @@ function setupVoiceHubs(client) {
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
-
+console.log("JOINED VC:", newid);
+    
     const oldId = oldState.channelId;
     const newId = newState.channelId;
 
