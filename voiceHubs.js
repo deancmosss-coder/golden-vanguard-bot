@@ -3,11 +3,11 @@ const { ChannelType, Events } = require("discord.js");
 const HUB_CATEGORY_ID = "1478464677783666778";
 
 const HUBS = {
-  "1483530247809929286": { tag: "MO", label: "Major Order" },
-  "1483530198119878831": { tag: "BOTS", label: "Automaton" },
-  "1483530099914702948": { tag: "BUGS", label: "Terminid" },
-  "1478912834539622611": { tag: "SQUIDS", label: "Illuminate" },
-  "1478465577294233601": { tag: "DANGER", label: "Danger Room" },
+  "1483928051384320221": { tag: "MO", label: "Major Order" },
+  "1483928217701060638": { tag: "BOTS", label: "Automaton" },
+  "1483928278116077800": { tag: "BUGS", label: "Terminid" },
+  "1483928332373332019": { tag: "SQUIDS", label: "Illuminate" },
+  "1483928397275988139": { tag: "DANGER", label: "Danger Room" },
 };
 
 const ignoredMoves = new Map();
