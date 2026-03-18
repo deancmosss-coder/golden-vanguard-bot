@@ -1,4 +1,4 @@
-const { ChannelType, PermissionsBitField, Events } = require("discord.js");
+const { ChannelType, Events } = require("discord.js");
 
 const HUB_CATEGORY_ID = "1478464677783666778";
 
@@ -89,7 +89,9 @@ async function cleanupOrphans(guild) {
     if (ch.members.size === 0) {
       try {
         await ch.delete("Startup cleanup");
-      } catch {}
+      } catch (err) {
+        console.error("[VoiceHub] Cleanup delete failed:", err);
+      }
     }
   }
 }
@@ -99,26 +101,25 @@ function setupVoiceHubs(client) {
     for (const guild of client.guilds.cache.values()) {
       await cleanupOrphans(guild);
     }
-    console.log("Voice hub system ready");
+    console.log("✅ Voice hubs online (clean upgraded mode)");
   });
 
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
-   
+
     const oldId = oldState.channelId;
     const newId = newState.channelId;
 
     if (oldId === newId) return;
     if (isIgnored(member.id)) return;
-console.log("JOINED VC:", newid);
-    // Joined a hub VC
+
+    // User joined a hub
     if (isHub(newId)) {
       if (onCreateCooldown(member.id)) return;
       markCreateCooldown(member.id);
 
-      // Make sure the member is still actually in that hub
-      if (member.voice.channelId !== newId) return;
+      if (!newState.channel || newState.channel.id !== newId) return;
 
       const hub = HUBS[newId];
       const safeName = makeSafeName(member.user.username);
@@ -131,20 +132,6 @@ console.log("JOINED VC:", newid);
           parent: HUB_CATEGORY_ID,
           userLimit: 0,
           reason: `Join to create from ${hub.label}`,
-          permissionOverwrites: [
-            {
-              id: member.id,
-              allow: [
-                PermissionsBitField.Flags.ViewChannel,
-                PermissionsBitField.Flags.Connect,
-                PermissionsBitField.Flags.Speak,
-                PermissionsBitField.Flags.Stream,
-                PermissionsBitField.Flags.UseVAD,
-                PermissionsBitField.Flags.ManageChannels,
-                PermissionsBitField.Flags.MoveMembers,
-              ],
-            },
-          ],
         });
 
         markIgnored(member.id);
@@ -156,7 +143,7 @@ console.log("JOINED VC:", newid);
       return;
     }
 
-    // Someone left a managed VC
+    // User left a managed VC
     if (oldId) {
       const oldChannel = oldState.channel;
       if (isManagedVC(oldChannel)) {
