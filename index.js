@@ -2,6 +2,7 @@
 // index.js
 // CLEAN CORE FILE
 // No automated permission sync logic
+// Includes player VC time tracking
 // =========================
 
 require("dotenv").config();
@@ -23,6 +24,7 @@ const {
 const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
 const orientationSystem = require("./services/orientationSystem");
+const playerStats = require("./services/playerStats");
 
 // ===== ENV =====
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -590,6 +592,20 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
     orientationSystem.handleVoiceStateUpdate(oldState, newState);
 
+    // ===== PLAYER VC TIME TRACKING =====
+    if (!oldState.channelId && newState.channelId) {
+      playerStats.startVoiceSession(newState.id);
+    }
+
+    if (oldState.channelId && !newState.channelId) {
+      playerStats.endVoiceSession(oldState.id);
+    }
+
+    if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+      playerStats.endVoiceSession(oldState.id);
+      playerStats.startVoiceSession(newState.id);
+    }
+
     const guild = newState.guild || oldState.guild;
     if (!guild) return;
 
@@ -751,6 +767,12 @@ client.once(Events.ClientReady, async () => {
         runCmd.writeStore(store);
         await runCmd.updateLeaderboard(guild).catch(() => {});
       }
+
+      try {
+        playerStats.resetWeeklyProfiles();
+      } catch (err) {
+        console.error("[PLAYER STATS] Weekly profile reset failed:", err);
+      }
     },
     { timezone: TRACKER_TZ }
   );
@@ -799,6 +821,12 @@ client.once(Events.ClientReady, async () => {
           enemies: {},
         };
         runCmd.writeStore(store);
+      }
+
+      try {
+        playerStats.resetMonthlyProfiles();
+      } catch (err) {
+        console.error("[PLAYER STATS] Monthly profile reset failed:", err);
       }
     },
     { timezone: TRACKER_TZ }
