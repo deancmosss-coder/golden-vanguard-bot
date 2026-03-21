@@ -1,17 +1,17 @@
 // =========================================
-// deploy-commands.js (FULL, DEPLOYS ALL)
+// deploy-commands.js (FULL, DEPLOYS ONLY REAL COMMANDS)
 // =========================================
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { REST, Routes } = require("discord.js");
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID; // Application ID
 const guildId = process.env.GUILD_ID;   // Server ID
 
 if (!token || !clientId || !guildId) {
-  console.error("Missing env vars: DISCORD_TOKEN, CLIENT_ID, GUILD_ID");
+  console.error("❌ Missing env vars: DISCORD_TOKEN, CLIENT_ID, GUILD_ID");
   process.exit(1);
 }
 
@@ -22,39 +22,33 @@ const commandFiles = fs.existsSync(commandsPath)
   ? fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"))
   : [];
 
-// Load slash commands from ./commands
 for (const file of commandFiles) {
   const command = require(`./commands/${file}`);
 
-  if (command?.data) commands.push(command.data.toJSON());
-  if (command?.adminData) commands.push(command.adminData.toJSON());
+  // ✅ Normal slash commands
+  if (command?.data) {
+    commands.push(command.data.toJSON());
+  }
+
+  // ✅ Admin slash commands (if you use adminData)
+  if (command?.adminData) {
+    commands.push(command.adminData.toJSON());
+  }
 }
-
-// Add built-in command list commands
-commands.push(
-  new SlashCommandBuilder()
-    .setName("commands")
-    .setDescription("View all player commands")
-    .toJSON()
-);
-
-commands.push(
-  new SlashCommandBuilder()
-    .setName("admincommands")
-    .setDescription("View admin command list")
-    .toJSON()
-);
 
 const rest = new REST({ version: "10" }).setToken(token);
 
 (async () => {
   try {
-    console.log(`Deploying ${commands.length} command(s)…`);
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
-      body: commands,
-    });
-    console.log("✅ Commands deployed.");
+    console.log(`🚀 Deploying ${commands.length} command(s)...`);
+
+    await rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: commands }
+    );
+
+    console.log("✅ Commands deployed successfully.");
   } catch (error) {
-    console.error(error);
+    console.error("❌ Deployment failed:", error);
   }
 })();
