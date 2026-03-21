@@ -22,6 +22,30 @@ function currentMonthKey(d = new Date()) {
   return `${y}-${m}`;
 }
 
+function blankBucket() {
+  return {
+    runsLogged: 0,
+    proofRuns: 0,
+    wins: 0,
+    losses: 0,
+
+    kills: 0,
+    deaths: 0,
+    accidentals: 0,
+    score: 0,
+
+    missionTypes: {},
+    enemies: {},
+    planets: {},
+    difficulties: {},
+
+    vcMinutes: 0,
+
+    lastRunAt: null,
+    updatedAt: null,
+  };
+}
+
 function defaultStore() {
   return {
     leaderboardMessage: {},
@@ -68,30 +92,6 @@ function writeStore(store) {
   } catch (err) {
     console.error("[PLAYER STATS] writeStore failed:", err);
   }
-}
-
-function blankBucket() {
-  return {
-    runsLogged: 0,
-    proofRuns: 0,
-    wins: 0,
-    losses: 0,
-
-    kills: 0,
-    deaths: 0,
-    accidentals: 0,
-    score: 0,
-
-    missionTypes: {},
-    enemies: {},
-    planets: {},
-    difficulties: {},
-
-    vcMinutes: 0,
-
-    lastRunAt: null,
-    updatedAt: null,
-  };
 }
 
 function ensureProfile(store, userId) {
