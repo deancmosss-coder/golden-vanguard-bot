@@ -6,6 +6,7 @@
 
 require("dotenv").config();
 
+const { getCommandListEmbed } = require("./embeds/commandList");
 const fs = require("fs");
 const path = require("path");
 const cron = require("node-cron");
