@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
 
-const DATA_FILE = path.join(__dirname, "..", "data", "tracker.json");
+const DATA_FILE = path.join(__dirname, "..", "tracker_store.json");
 
 function readStore() {
   if (!fs.existsSync(DATA_FILE)) return null;
@@ -22,25 +22,39 @@ module.exports = {
 
   async execute(interaction) {
     const store = readStore();
-    if (!store) return interaction.reply({ content: "No tracker data yet.", ephemeral: true });
+    if (!store) {
+      return interaction.reply({ content: "No tracker data yet.", ephemeral: true });
+    }
 
     const month =
       interaction.options.getString("month") ||
-      new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit" })
-        .format(new Date())
-        .replace("-", "-");
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/London",
+        year: "numeric",
+        month: "2-digit",
+      }).format(new Date());
 
     const weeks = (store.history?.weeks || []).filter((w) => w.monthKey === month);
 
     if (!weeks.length) {
-      return interaction.reply({ content: `No weekly winners recorded for **${month}** yet.`, ephemeral: true });
+      return interaction.reply({
+        content: `No weekly winners recorded for **${month}** yet.`,
+        ephemeral: true,
+      });
     }
 
     const lines = weeks
       .map((w, i) => {
         const diver = w.topPlayerId ? `<@${w.topPlayerId}>` : "—";
-        const faction = w.topFactionName || "—";
-        return `**Week ${i + 1}** (${w.weekLabel})\n🏆 Diver: ${diver} — **${w.topPlayerPoints}**\n🛡 Faction: **${faction}** — **${w.topFactionPoints}**`;
+        const division = w.topDivisionName || w.topFactionName || "—";
+        const enemy = w.topEnemyName || "—";
+
+        return [
+          `**Week ${i + 1}**`,
+          `🏆 Diver: ${diver} — **${w.topPlayerPoints || 0}**`,
+          `🛡 Division: **${division}** — **${w.topDivisionPoints || w.topFactionPoints || 0}**`,
+          `👾 Enemy Front: **${enemy}** — **${w.topEnemyPoints || 0}**`,
+        ].join("\n");
       })
       .join("\n\n");
 
