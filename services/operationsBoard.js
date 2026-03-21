@@ -30,66 +30,215 @@ function topN(obj, n = 3, valueGetter = (v) => Number(v || 0)) {
     .slice(0, n);
 }
 
-function findPrimaryAssignment(warData) {
-  const list = Array.isArray(warData?.assignments) ? warData.assignments : [];
+function getMajorOrders(warData) {
+  if (Array.isArray(warData?.majorOrders)) return warData.majorOrders;
+  return [];
+}
+
+function getPrimaryMajorOrder(warData) {
+  const list = getMajorOrders(warData);
   return list[0] || null;
 }
 
-function buildAssignmentText(assignment) {
-  if (!assignment) return "_No active assignment found._";
-
-  const title = assignment.title || "Unknown Assignment";
-  const briefing = assignment.briefing ? `\n${assignment.briefing.slice(0, 250)}` : "";
-  const expiresAt = assignment.expiresAt
-    ? `\nEnds: <t:${Math.floor(new Date(assignment.expiresAt).getTime() / 1000)}:R>`
-    : "";
-
-  return `**${title}**${briefing}${expiresAt}`;
+function getPlanetCatalog(warData) {
+  const planets = warData?.planets;
+  if (planets && typeof planets === "object" && !Array.isArray(planets)) {
+    return planets;
+  }
+  return {};
 }
 
-function getTrackedTopPlanets(store) {
-  const planets = store?.planets || {};
-  const entries = topN(planets, 3, (v) => Number(v?.missions || 0));
+function resolvePlanetNameByIndex(warData, index) {
+  const catalog = getPlanetCatalog(warData);
+  const key = String(index);
 
-  if (!entries.length) return "_No planet data yet._";
+  if (catalog[key]?.name) return String(catalog[key].name);
 
-  return entries
-    .map(([planet, stats], i) => `${i + 1}. **${planet}** — ${Number(stats?.missions || 0)} missions`)
-    .join("\n");
+  for (const [k, v] of Object.entries(catalog)) {
+    if (String(k) === key && v?.name) return String(v.name);
+    if (Number(v?.index) === Number(index) && v?.name) return String(v.name);
+  }
+
+  return null;
+}
+
+function extractPlanetNamesFromTaskValues(warData, values) {
+  if (!Array.isArray(values)) return [];
+
+  const out = [];
+
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      for (const inner of value) {
+        const resolved = resolvePlanetNameByIndex(warData, inner);
+        if (resolved) out.push(resolved);
+      }
+      continue;
+    }
+
+    if (typeof value === "number" || /^\d+$/.test(String(value))) {
+      const resolved = resolvePlanetNameByIndex(warData, value);
+      if (resolved) out.push(resolved);
+    }
+  }
+
+  return [...new Set(out)];
+}
+
+function extractMoTargetPlanets(warData, majorOrder) {
+  if (!majorOrder) return [];
+
+  const names = new Set();
+
+  const taskLists = [];
+  if (Array.isArray(majorOrder.tasks)) taskLists.push(...majorOrder.tasks);
+  if (Array.isArray(majorOrder.objectives)) taskLists.push(...majorOrder.objectives);
+  if (Array.isArray(majorOrder.goals)) taskLists.push(...majorOrder.goals);
+
+  for (const task of taskLists) {
+    if (Array.isArray(task?.values)) {
+      for (const name of extractPlanetNamesFromTaskValues(warData, task.values)) {
+        names.add(name);
+      }
+    }
+
+    if (Array.isArray(task?.targetPlanetIndices)) {
+      for (const idx of task.targetPlanetIndices) {
+        const resolved = resolvePlanetNameByIndex(warData, idx);
+        if (resolved) names.add(resolved);
+      }
+    }
+
+    if (task?.planetIndex !== undefined) {
+      const resolved = resolvePlanetNameByIndex(warData, task.planetIndex);
+      if (resolved) names.add(resolved);
+    }
+
+    if (task?.planet?.name) names.add(String(task.planet.name));
+    if (task?.name && !String(task.name).toLowerCase().includes("kill")) names.add(String(task.name));
+  }
+
+  if (majorOrder?.planet?.name) names.add(String(majorOrder.planet.name));
+
+  return [...names].filter(Boolean).slice(0, 5);
+}
+
+function inferFactionFromText(text) {
+  const t = String(text || "").toLowerCase();
+
+  if (t.includes("terminid") || t.includes("bugs") || t.includes("bug")) return "Terminids";
+  if (t.includes("automaton") || t.includes("bots") || t.includes("bot")) return "Automatons";
+  if (t.includes("illuminate") || t.includes("squid") || t.includes("squids")) return "Illuminate";
+
+  return "Unknown";
+}
+
+function getMoFaction(majorOrder) {
+  if (!majorOrder) return "Unknown";
+
+  const combined = [
+    majorOrder.title,
+    majorOrder.briefing,
+    majorOrder.description,
+    ...(Array.isArray(majorOrder.tasks)
+      ? majorOrder.tasks.flatMap((t) => [t?.description, t?.briefing, t?.name])
+      : []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return inferFactionFromText(combined);
+}
+
+function getMoExpiry(majorOrder) {
+  if (!majorOrder) return null;
+
+  const raw =
+    majorOrder.expiresAt ||
+    majorOrder.expiration ||
+    majorOrder.endTime ||
+    majorOrder.endDate ||
+    majorOrder.deadline ||
+    null;
+
+  if (!raw) return null;
+
+  const ts = new Date(raw).getTime();
+  if (Number.isNaN(ts)) return null;
+
+  return Math.floor(ts / 1000);
+}
+
+function buildMajorOrderText(warData, majorOrder) {
+  if (!majorOrder) return "_No active major order found._";
+
+  const title = majorOrder.title || majorOrder.name || "Major Order";
+  const briefing =
+    majorOrder.briefing ||
+    majorOrder.description ||
+    (Array.isArray(majorOrder.tasks) && majorOrder.tasks[0]?.description) ||
+    null;
+
+  const planets = extractMoTargetPlanets(warData, majorOrder);
+  const faction = getMoFaction(majorOrder);
+  const expiryTs = getMoExpiry(majorOrder);
+
+  const parts = [`**${title}**`];
+
+  if (briefing) parts.push(briefing.slice(0, 280));
+  parts.push(`Target Planets: **${planets.length ? planets.join(", ") : "Unknown"}**`);
+  parts.push(`Enemy Faction: **${faction}**`);
+
+  if (expiryTs) {
+    parts.push(`Expires: <t:${expiryTs}:R>`);
+  }
+
+  return parts.join("\n");
 }
 
 function extractPlanetNames(warData) {
   const names = new Set();
 
-  const status = warData?.status;
-  const info = warData?.info;
-
-  if (Array.isArray(status)) {
-    for (const p of status) {
+  if (Array.isArray(warData?.campaign)) {
+    for (const p of warData.campaign) {
       if (p?.name) names.add(String(p.name));
       if (p?.planet?.name) names.add(String(p.planet.name));
     }
   }
 
-  if (Array.isArray(status?.planetStatus)) {
-    for (const p of status.planetStatus) {
+  if (warData?.planets && typeof warData.planets === "object" && !Array.isArray(warData.planets)) {
+    for (const value of Object.values(warData.planets)) {
+      if (value?.name) names.add(String(value.name));
+    }
+  }
+
+  if (Array.isArray(warData?.status?.planetStatus)) {
+    for (const p of warData.status.planetStatus) {
       if (p?.name) names.add(String(p.name));
       if (p?.planet?.name) names.add(String(p.planet.name));
     }
   }
 
-  if (Array.isArray(info)) {
-    for (const p of info) {
+  if (Array.isArray(warData?.status)) {
+    for (const p of warData.status) {
+      if (p?.name) names.add(String(p.name));
+      if (p?.planet?.name) names.add(String(p.planet.name));
+    }
+  }
+
+  if (Array.isArray(warData?.info)) {
+    for (const p of warData.info) {
       if (p?.name) names.add(String(p.name));
     }
   }
 
-  if (info && typeof info === "object" && !Array.isArray(info)) {
-    for (const value of Object.values(info)) {
+  if (warData?.info && typeof warData.info === "object" && !Array.isArray(warData.info)) {
+    for (const value of Object.values(warData.info)) {
       if (value?.name) names.add(String(value.name));
       if (Array.isArray(value)) {
         for (const p of value) {
           if (p?.name) names.add(String(p.name));
+          if (p?.planet?.name) names.add(String(p.planet.name));
         }
       }
     }
@@ -147,7 +296,7 @@ function buildWarMapLines(warData) {
 
   const format = (arr) =>
     arr.length
-      ? arr.slice(0, 5).map((p, i) => `${i + 1}. ${p}`).join("\n")
+      ? [...new Set(arr)].slice(0, 5).map((p, i) => `${i + 1}. ${p}`).join("\n")
       : "_No active intel_";
 
   return {
@@ -220,39 +369,19 @@ async function updateOperationsBoard(client, warData) {
 
   console.log("[WAR BOARD] Found channel:", channel.name);
 
-  const assignment = findPrimaryAssignment(warData);
+  const majorOrder = getPrimaryMajorOrder(warData);
   const warMap = buildWarMapLines(warData);
-
-function parseMajorOrderIntel(assignment) {
-  if (!assignment) return "_No intel available_";
-
-  const briefing = (assignment.briefing || "").toLowerCase();
-
-  let faction = "Unknown";
-  if (briefing.includes("terminid")) faction = "Terminids";
-  if (briefing.includes("automaton")) faction = "Automatons";
-  if (briefing.includes("illuminate")) faction = "Illuminate";
-
-  const planetMatch = briefing.match(/(fenrir|hellmire|estanu|mintoria|aesir|fori|erata|nivel)/i);
-  const planet = planetMatch ? planetMatch[0] : "Multiple Planets";
-
-  return `Planet Target: **${planet}**
-Enemy Faction: **${faction}**`;
-}
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle("🌌 GOLDEN VANGUARD WAR MAP")
     .setDescription("Live war sync + Vanguard command overview")
     .addFields(
-     {
- name: "🎯 Current Major Order",
- value: buildAssignmentText(assignment)
-},
-{
- name: "🛰 Mission Intel",
- value: parseMajorOrderIntel(assignment)
-},
+      {
+        name: "🎯 Current Major Order",
+        value: buildMajorOrderText(warData, majorOrder),
+        inline: false,
+      },
       {
         name: "🤖 Automaton Front",
         value: warMap.bots,
