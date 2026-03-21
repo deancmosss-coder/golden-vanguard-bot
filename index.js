@@ -3,6 +3,7 @@
 // CLEAN CORE FILE
 // No automated permission sync logic
 // Includes player VC time tracking
+// Fixed tracker store access
 // =========================
 
 require("dotenv").config();
@@ -49,6 +50,7 @@ const FACTION_SELECT_ID = "gv_faction";
 const DIFFICULTY_SELECT_ID = "gv_difficulty";
 
 const HUB_CATEGORY_ID = "1478464677783666778";
+const TRACKER_STORE_PATH = path.join(__dirname, "tracker_store.json");
 
 // ===== DIVISION ROLE IDS =====
 const DIVISION_ROLE_IDS = {
@@ -114,6 +116,76 @@ try {
 }
 
 const sessions = new Map();
+
+/* =========================
+   TRACKER STORE HELPERS
+   ========================= */
+function currentMonthKeyLocal(d = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TRACKER_TZ,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(d);
+
+  const y = parts.find((p) => p.type === "year")?.value || "0000";
+  const m = parts.find((p) => p.type === "month")?.value || "00";
+  return `${y}-${m}`;
+}
+
+function defaultTrackerStore() {
+  return {
+    leaderboardMessage: {},
+    weekly: { players: {}, divisions: {}, enemies: {} },
+    monthly: {
+      monthKey: currentMonthKeyLocal(),
+      players: {},
+      divisions: {},
+      enemies: {},
+    },
+    users: {},
+    runs: [],
+    proofSessions: {},
+    history: { weeks: [] },
+    planets: {},
+    profiles: {},
+    medals: {},
+  };
+}
+
+function readTrackerStore() {
+  try {
+    if (!fs.existsSync(TRACKER_STORE_PATH)) return defaultTrackerStore();
+    const raw = fs.readFileSync(TRACKER_STORE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const base = defaultTrackerStore();
+
+    return {
+      ...base,
+      ...parsed,
+      leaderboardMessage: parsed.leaderboardMessage || base.leaderboardMessage,
+      weekly: parsed.weekly || base.weekly,
+      monthly: parsed.monthly || base.monthly,
+      users: parsed.users || base.users,
+      runs: Array.isArray(parsed.runs) ? parsed.runs : [],
+      proofSessions: parsed.proofSessions || base.proofSessions,
+      history: parsed.history || base.history,
+      planets: parsed.planets || base.planets,
+      profiles: parsed.profiles || base.profiles,
+      medals: parsed.medals || base.medals,
+    };
+  } catch (err) {
+    console.error("[INDEX] readTrackerStore failed:", err);
+    return defaultTrackerStore();
+  }
+}
+
+function writeTrackerStore(store) {
+  try {
+    fs.writeFileSync(TRACKER_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
+  } catch (err) {
+    console.error("[INDEX] writeTrackerStore failed:", err);
+  }
+}
 
 /* =========================
    VOICE RENAME
@@ -697,8 +769,10 @@ client.once(Events.ClientReady, async () => {
 
   // Ensure leaderboard message exists for every guild
   for (const guild of client.guilds.cache.values()) {
-    const store = runCmd.readStore();
-    await runCmd.ensureLeaderboardMessage(guild, store).catch(() => {});
+    const store = readTrackerStore();
+    if (typeof runCmd.ensureLeaderboardMessage === "function") {
+      await runCmd.ensureLeaderboardMessage(guild, store).catch(() => {});
+    }
   }
 
   // Expire proof/edit controls every 2 mins
@@ -706,7 +780,9 @@ client.once(Events.ClientReady, async () => {
     "*/2 * * * *",
     async () => {
       try {
-        await runCmd.expireTrackerControls(client);
+        if (typeof runCmd.expireTrackerControls === "function") {
+          await runCmd.expireTrackerControls(client);
+        }
       } catch (e) {
         console.error("expireTrackerControls error:", e);
       }
@@ -720,7 +796,7 @@ client.once(Events.ClientReady, async () => {
     `${sunM} ${sunH} * * 0`,
     async () => {
       for (const guild of client.guilds.cache.values()) {
-        const store = runCmd.readStore();
+        const store = readTrackerStore();
         const topP = topEntryLocal(store.weekly?.players);
         const topD = topEntryLocal(store.weekly?.divisions);
         const topE = topEntryLocal(store.weekly?.enemies);
@@ -740,7 +816,7 @@ client.once(Events.ClientReady, async () => {
 
         store.history = store.history || { weeks: [] };
         store.history.weeks.push({
-          monthKey: runCmd.currentMonthKey(),
+          monthKey: currentMonthKeyLocal(),
           createdAt: new Date().toISOString(),
           topPlayerId: topP?.key || null,
           topPlayerPoints: topP?.val || 0,
@@ -750,7 +826,7 @@ client.once(Events.ClientReady, async () => {
           topEnemyPoints: topE?.val || 0,
         });
 
-        runCmd.writeStore(store);
+        writeTrackerStore(store);
       }
     },
     { timezone: TRACKER_TZ }
@@ -762,10 +838,16 @@ client.once(Events.ClientReady, async () => {
     `${monM} ${monH} * * 1`,
     async () => {
       for (const guild of client.guilds.cache.values()) {
-        const store = runCmd.readStore();
+        const store = readTrackerStore();
         store.weekly = { players: {}, divisions: {}, enemies: {} };
-        runCmd.writeStore(store);
-        await runCmd.updateLeaderboard(guild).catch(() => {});
+        writeTrackerStore(store);
+
+        if (typeof runCmd.updateLeaderboard === "function") {
+          await runCmd.updateLeaderboard(guild).catch(() => {});
+        } else if (typeof runCmd.ensureLeaderboardMessage === "function") {
+          const freshStore = readTrackerStore();
+          await runCmd.ensureLeaderboardMessage(guild, freshStore).catch(() => {});
+        }
       }
 
       try {
@@ -784,8 +866,8 @@ client.once(Events.ClientReady, async () => {
       if (!isLastDayOfMonthLondon()) return;
 
       for (const guild of client.guilds.cache.values()) {
-        const store = runCmd.readStore();
-        const monthKey = store.monthly?.monthKey || runCmd.currentMonthKey();
+        const store = readTrackerStore();
+        const monthKey = store.monthly?.monthKey || currentMonthKeyLocal();
 
         const topP = topEntryLocal(store.monthly?.players);
         const topD = topEntryLocal(store.monthly?.divisions);
@@ -813,14 +895,14 @@ client.once(Events.ClientReady, async () => {
     "5 0 1 * *",
     async () => {
       for (const guild of client.guilds.cache.values()) {
-        const store = runCmd.readStore();
+        const store = readTrackerStore();
         store.monthly = {
-          monthKey: runCmd.currentMonthKey(),
+          monthKey: currentMonthKeyLocal(),
           players: {},
           divisions: {},
           enemies: {},
         };
-        runCmd.writeStore(store);
+        writeTrackerStore(store);
       }
 
       try {
