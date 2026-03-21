@@ -1,6 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-
 const {
   getStatus,
   getInfo,
@@ -13,9 +12,7 @@ const CACHE_FILE = path.join(__dirname, "..", "data", "war_cache.json");
 
 function ensureDirExists(filePath) {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 function writeJson(file, data) {
@@ -23,28 +20,49 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
 }
 
-async function safeFetch(name, fn, fallback) {
-  try {
-    const res = await fn();
-    console.log(`[WAR SYNC] ${name} OK`);
-    return res;
-  } catch (err) {
-    console.warn(
-      `[WAR SYNC] ${name} FAILED:`,
-      err.response?.status || err.message
-    );
-    return fallback;
-  }
-}
-
 async function syncWarData() {
   console.log("[WAR SYNC] Starting sync...");
 
-  const status = await safeFetch("status", getStatus, null);
-  const info = await safeFetch("info", getInfo, null);
-  const campaign = await safeFetch("campaign", getCampaign, []);
-  const planets = await safeFetch("planets", getPlanets, {});
-  const majorOrders = await safeFetch("majorOrders", getMajorOrders, []);
+  let status = null;
+  let info = null;
+  let campaign = [];
+  let planets = {};
+  let majorOrders = [];
+
+  try {
+    status = await getStatus();
+    console.log("[WAR SYNC] status OK");
+  } catch (err) {
+    console.error("[WAR SYNC] status failed:", err.response?.status || err.message);
+  }
+
+  try {
+    info = await getInfo();
+    console.log("[WAR SYNC] info OK");
+  } catch (err) {
+    console.error("[WAR SYNC] info failed:", err.response?.status || err.message);
+  }
+
+  try {
+    campaign = await getCampaign();
+    console.log("[WAR SYNC] campaign OK");
+  } catch (err) {
+    console.error("[WAR SYNC] campaign failed:", err.response?.status || err.message);
+  }
+
+  try {
+    planets = await getPlanets();
+    console.log("[WAR SYNC] planets OK");
+  } catch (err) {
+    console.error("[WAR SYNC] planets failed:", err.response?.status || err.message);
+  }
+
+  try {
+    majorOrders = await getMajorOrders();
+    console.log("[WAR SYNC] majorOrders OK");
+  } catch (err) {
+    console.error("[WAR SYNC] majorOrders failed:", err.response?.status || err.message);
+  }
 
   const payload = {
     updatedAt: new Date().toISOString(),
@@ -58,7 +76,7 @@ async function syncWarData() {
   writeJson(CACHE_FILE, payload);
 
   console.log("[WAR SYNC] Sync complete");
-  console.log("[WAR SYNC] MO count:", majorOrders?.length || 0);
+  console.log("[WAR SYNC] MO count:", Array.isArray(majorOrders) ? majorOrders.length : 0);
 
   return payload;
 }
