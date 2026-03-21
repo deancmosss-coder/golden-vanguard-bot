@@ -3,52 +3,65 @@ const path = require("path");
 
 const TRACKER = path.join(__dirname, "..", "tracker_store.json");
 
-function readJson(file){
- try{
-  return JSON.parse(fs.readFileSync(file,"utf8"));
- }catch{
-  return {};
- }
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return {};
+  }
 }
 
-async function postWarEffort(client){
-
- const tracker = readJson(TRACKER);
-
- const planets = tracker.planets || {};
- const divisions = tracker.weekly?.divisions || {};
- const enemies = tracker.weekly?.enemies || {};
-
- const topPlanets = Object.entries(planets)
- .sort((a,b)=>b[1].missions-a[1].missions)
- .slice(0,3);
-
- const topDivisions = Object.entries(divisions)
- .sort((a,b)=>b[1]-a[1])
- .slice(0,3);
-
- const topEnemies = Object.entries(enemies)
- .sort((a,b)=>b[1]-a[1])
- .slice(0,3);
-
- const channel = client.channels.cache.find(
-  c=>c.name==="vanguard-war-effort"
- );
-
- if(!channel) return;
-
- channel.send(`
-📡 **WAR EFFORT REPORT**
-
-🪐 Top Planets
-${topPlanets.map(p=>`${p[0]} — ${p[1].missions}`).join("\n")}
-
-🛡 Division Effort
-${topDivisions.map(d=>`${d[0]} — ${d[1]}`).join("\n")}
-
-👾 Enemy Front
-${topEnemies.map(e=>`${e[0]} — ${e[1]}`).join("\n")}
-`);
+function formatSection(title, lines) {
+  if (!lines.length) return `${title}\n_No data yet_`;
+  return `${title}\n${lines.join("\n")}`;
 }
 
-module.exports = {postWarEffort};
+async function postWarEffort(client) {
+  console.log("[WAR EFFORT] Posting report...");
+
+  const tracker = readJson(TRACKER);
+
+  const planets = tracker.planets || {};
+  const divisions = tracker.weekly?.divisions || {};
+  const enemies = tracker.weekly?.enemies || {};
+
+  const topPlanets = Object.entries(planets)
+    .sort((a, b) => Number(b[1]?.missions || 0) - Number(a[1]?.missions || 0))
+    .slice(0, 5)
+    .map(([name, stats], i) => `${i + 1}. **${name}** — ${Number(stats?.missions || 0)} runs`);
+
+  const topDivisions = Object.entries(divisions)
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+    .slice(0, 5)
+    .map(([name, pts], i) => `${i + 1}. **${name}** — ${Number(pts || 0)} pts`);
+
+  const topEnemies = Object.entries(enemies)
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+    .slice(0, 5)
+    .map(([name, pts], i) => `${i + 1}. **${name}** — ${Number(pts || 0)} pts`);
+
+  const channel = client.channels.cache.find(
+    (c) => c.name === "vanguard-war-effort" && c.isTextBased?.()
+  );
+
+  if (!channel) {
+    console.log("[WAR EFFORT] Channel not found");
+    return;
+  }
+
+  await channel.send({
+    content: [
+      "📡 **WAR EFFORT REPORT**",
+      "",
+      formatSection("🪐 Top Planets", topPlanets),
+      "",
+      formatSection("🛡 Division Effort", topDivisions),
+      "",
+      formatSection("👾 Enemy Front", topEnemies),
+    ].join("\n"),
+  });
+
+  console.log("[WAR EFFORT] Report posted");
+}
+
+module.exports = { postWarEffort };
