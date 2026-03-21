@@ -4,7 +4,7 @@
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
-const { REST, Routes } = require("discord.js");
+const { REST, Routes, SlashCommandBuilder } = require("discord.js");
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID; // Application ID
@@ -22,12 +22,28 @@ const commandFiles = fs.existsSync(commandsPath)
   ? fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"))
   : [];
 
+// Load slash commands from ./commands
 for (const file of commandFiles) {
   const command = require(`./commands/${file}`);
 
   if (command?.data) commands.push(command.data.toJSON());
   if (command?.adminData) commands.push(command.adminData.toJSON());
 }
+
+// Add built-in command list commands
+commands.push(
+  new SlashCommandBuilder()
+    .setName("commands")
+    .setDescription("View all player commands")
+    .toJSON()
+);
+
+commands.push(
+  new SlashCommandBuilder()
+    .setName("admincommands")
+    .setDescription("View admin command list")
+    .toJSON()
+);
 
 const rest = new REST({ version: "10" }).setToken(token);
 
