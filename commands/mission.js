@@ -190,4 +190,49 @@ async function execute(interaction) {
       });
     }
 
-    if (sub === "remove")
+    if (sub === "remove") {
+      const name = normaliseMissionName(interaction.options.getString("name", true));
+
+      if (!name) {
+        return interaction.reply({
+          content: "Mission name cannot be empty.",
+          ephemeral: true,
+        });
+      }
+
+      const filtered = missions.filter((m) => m.toLowerCase() !== name.toLowerCase());
+
+      if (filtered.length === missions.length) {
+        return interaction.reply({
+          content: `Mission not found: **${name}**`,
+          ephemeral: true,
+        });
+      }
+
+      const finalList = filtered.length ? filtered : ["Other"];
+      writeMissionList(finalList);
+
+      return interaction.reply({
+        content: `🗑 Mission removed: **${name}**`,
+        ephemeral: true,
+      });
+    }
+
+    return interaction.reply({
+      content: "Unknown subcommand.",
+      ephemeral: true,
+    });
+  } catch (err) {
+    console.error("[MISSION] execute failed:", err);
+    return interaction.reply({
+      content: "Mission command failed.",
+      ephemeral: true,
+    }).catch(() => {});
+  }
+}
+
+module.exports = {
+  data,
+  execute,
+  autocomplete,
+};
