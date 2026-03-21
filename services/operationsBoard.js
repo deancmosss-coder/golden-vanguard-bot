@@ -62,121 +62,6 @@ function resolvePlanetNameByIndex(warData, index) {
   return null;
 }
 
-function extractPlanetNamesFromTaskValues(warData, values) {
-  if (!Array.isArray(values)) return [];
-
-  const out = [];
-
-  for (const value of values) {
-    if (Array.isArray(value)) {
-      for (const inner of value) {
-        const resolved = resolvePlanetNameByIndex(warData, inner);
-        if (resolved) out.push(resolved);
-      }
-      continue;
-    }
-
-    if (typeof value === "number" || /^\d+$/.test(String(value))) {
-      const resolved = resolvePlanetNameByIndex(warData, value);
-      if (resolved) out.push(resolved);
-    }
-  }
-
-  return [...new Set(out)];
-}
-
-function extractMoTargetPlanets(warData, majorOrder) {
-  if (!majorOrder) return [];
-
-  const names = new Set();
-
-  const taskLists = [];
-  if (Array.isArray(majorOrder.tasks)) taskLists.push(...majorOrder.tasks);
-  if (Array.isArray(majorOrder.objectives)) taskLists.push(...majorOrder.objectives);
-  if (Array.isArray(majorOrder.goals)) taskLists.push(...majorOrder.goals);
-
-  for (const task of taskLists) {
-    if (Array.isArray(task?.values)) {
-      for (const name of extractPlanetNamesFromTaskValues(warData, task.values)) {
-        names.add(name);
-      }
-    }
-
-    if (Array.isArray(task?.targetPlanetIndices)) {
-      for (const idx of task.targetPlanetIndices) {
-        const resolved = resolvePlanetNameByIndex(warData, idx);
-        if (resolved) names.add(resolved);
-      }
-    }
-
-    if (task?.planetIndex !== undefined) {
-      const resolved = resolvePlanetNameByIndex(warData, task.planetIndex);
-      if (resolved) names.add(resolved);
-    }
-
-    if (task?.planet?.name) names.add(String(task.planet.name));
-    if (task?.name && !String(task.name).toLowerCase().includes("kill")) {
-      names.add(String(task.name));
-    }
-  }
-
-  if (majorOrder?.planet?.name) names.add(String(majorOrder.planet.name));
-
-  return [...names].filter(Boolean).slice(0, 5);
-}
-
-function inferFactionFromText(text) {
-  const t = String(text || "").toLowerCase();
-
-  if (t.includes("terminid") || t.includes("bugs") || t.includes("bug")) return "Terminids";
-  if (t.includes("automaton") || t.includes("bots") || t.includes("bot")) return "Automatons";
-  if (t.includes("illuminate") || t.includes("squid") || t.includes("squids")) return "Illuminate";
-
-  return "Unknown";
-}
-
-function getMoFaction(majorOrder) {
-  if (!majorOrder) return "Unknown";
-
-  const combined = [
-    majorOrder.title,
-    majorOrder.briefing,
-    majorOrder.description,
-    ...(Array.isArray(majorOrder.tasks)
-      ? majorOrder.tasks.flatMap((t) => [t?.description, t?.briefing, t?.name])
-      : []),
-    ...(Array.isArray(majorOrder.objectives)
-      ? majorOrder.objectives.flatMap((t) => [t?.description, t?.briefing, t?.name])
-      : []),
-    ...(Array.isArray(majorOrder.goals)
-      ? majorOrder.goals.flatMap((t) => [t?.description, t?.briefing, t?.name])
-      : []),
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return inferFactionFromText(combined);
-}
-
-function getMoExpiry(majorOrder) {
-  if (!majorOrder) return null;
-
-  const raw =
-    majorOrder.expiresAt ||
-    majorOrder.expiration ||
-    majorOrder.endTime ||
-    majorOrder.endDate ||
-    majorOrder.deadline ||
-    null;
-
-  if (!raw) return null;
-
-  const ts = new Date(raw).getTime();
-  if (Number.isNaN(ts)) return null;
-
-  return Math.floor(ts / 1000);
-}
-
 function extractPlanetNames(warData) {
   const names = new Set();
 
@@ -228,22 +113,34 @@ function extractPlanetNames(warData) {
   return [...names];
 }
 
+function inferFactionFromText(text) {
+  const t = String(text || "").toLowerCase();
+
+  if (t.includes("terminid") || t.includes("bugs") || t.includes("bug")) return "Terminids";
+  if (t.includes("automaton") || t.includes("bots") || t.includes("bot")) return "Automatons";
+  if (t.includes("illuminate") || t.includes("squid") || t.includes("squids")) return "Illuminate";
+
+  return "Unknown";
+}
+
 function inferFrontFromPlanet(name) {
   const n = String(name || "").toLowerCase();
 
   const illuminate = [
     "herthon", "zea", "secundus", "rugosia", "kerth", "regnus", "mog", "oasis",
     "genesis", "hydrobius", "haldus", "valmox", "alamak", "meze", "parsh",
+    "seasse", "rirga"
   ];
 
   const automatons = [
     "mintoria", "gacrux", "achdar", "grand", "urant", "gracux", "mortar", "martale",
     "charbal", "choepessa", "vernen", "wells", "aesir", "pass", "matar", "bay",
+    "aurora"
   ];
 
   const terminids = [
     "estanu", "fori", "prime", "crimsica", "hellmire", "nivel", "omicron",
-    "fenrir", "erata", "pöpli", "bore", "rock", "pandion",
+    "fenrir", "erata", "pöpli", "bore", "rock", "pandion", "charon"
   ];
 
   if (illuminate.some((x) => n.includes(x))) return "Illuminate";
@@ -313,47 +210,187 @@ function buildPlanetContribution(store) {
     .join("\n");
 }
 
+function formatNumberShort(num) {
+  const n = Number(num || 0);
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
+  return String(n);
+}
+
+function progressBar(percent, size = 10) {
+  const p = Math.max(0, Math.min(100, Number(percent || 0)));
+  const filled = Math.round((p / 100) * size);
+  return "█".repeat(filled) + "░".repeat(size - filled);
+}
+
+function extractPlanetNamesFromBrief(text) {
+  const s = String(text || "");
+  if (!s) return [];
+
+  const results = new Set();
+
+  const patterns = [
+    /Reach\s+([A-Z][A-Za-z'-]+(?:\s[A-Z][A-Za-z0-9'-]+)*)/g,
+    /on\s+([A-Z][A-Za-z'-]+(?:\s[A-Z][A-Za-z0-9'-]+)*)/g,
+    /Hold\s+([A-Z][A-Za-z'-]+(?:\s[A-Z][A-Za-z0-9'-]+)*)/g,
+    /Defend\s+([A-Z][A-Za-z'-]+(?:\s[A-Z][A-Za-z0-9'-]+)*)/g,
+  ];
+
+  for (const rx of patterns) {
+    let match;
+    while ((match = rx.exec(s)) !== null) {
+      const value = String(match[1] || "").trim();
+      if (value && value.length <= 40) results.add(value);
+    }
+  }
+
+  return [...results];
+}
+
+function getTaskValue(task, desiredValueType) {
+  if (!task || !Array.isArray(task.valueTypes) || !Array.isArray(task.values)) return null;
+  const idx = task.valueTypes.findIndex((v) => Number(v) === Number(desiredValueType));
+  if (idx === -1) return null;
+  return task.values[idx] ?? null;
+}
+
+function extractMoTaskLines(warData, majorOrder) {
+  const setting = majorOrder?.setting || {};
+  const tasks = Array.isArray(setting.tasks) ? setting.tasks : [];
+  if (!tasks.length) return ["_No objectives found._"];
+
+  const lines = [];
+
+  for (const task of tasks) {
+    const type = Number(task?.type || 0);
+
+    // type 3 appears to be kill objective
+    if (type === 3) {
+      const current = Number(majorOrder?.progress?.[1] || 0);
+      const target = Number(majorOrder?.progress?.[0] || 0);
+      const factionCode = Number(getTaskValue(task, 2) || 0);
+      const planetIndex = getTaskValue(task, 12);
+      const planetName =
+        resolvePlanetNameByIndex(warData, planetIndex) ||
+        extractPlanetNamesFromBrief(setting.overrideBrief || "")[0] ||
+        "Unknown Planet";
+
+      let faction = "Unknown";
+      if (factionCode === 3 || factionCode === 4) {
+        faction = inferFactionFromText(setting.overrideBrief || "");
+      } else if (factionCode === 1) {
+        faction = "Terminids";
+      } else if (factionCode === 2) {
+        faction = "Automatons";
+      } else if (factionCode === 4) {
+        faction = "Illuminate";
+      }
+
+      const percent = target > 0 ? ((current / target) * 100) : 0;
+
+      lines.push(
+        `• Kill **${formatNumberShort(target)}** ${faction} on **${planetName}**\n` +
+        `  ${progressBar(percent)} **${percent.toFixed(1)}%** (${formatNumberShort(current)}/${formatNumberShort(target)})`
+      );
+      continue;
+    }
+
+    // type 13 appears to be hold / defend planet objective
+    if (type === 13) {
+      const planetIndex = getTaskValue(task, 12);
+      const planetName =
+        resolvePlanetNameByIndex(warData, planetIndex) ||
+        extractPlanetNamesFromBrief(setting.overrideBrief || "")[1] ||
+        "Unknown Planet";
+
+      lines.push(`• Hold **${planetName}** when the order expires`);
+      continue;
+    }
+
+    // fallback
+    const rawPlanetIndex = getTaskValue(task, 12);
+    const planetName = resolvePlanetNameByIndex(warData, rawPlanetIndex);
+    if (planetName) {
+      lines.push(`• Objective on **${planetName}**`);
+    } else {
+      lines.push(`• Objective Type **${type}**`);
+    }
+  }
+
+  return lines.slice(0, 5);
+}
+
+function extractMoTargetPlanets(warData, majorOrder) {
+  if (!majorOrder) return [];
+
+  const setting = majorOrder.setting || {};
+  const tasks = Array.isArray(setting.tasks) ? setting.tasks : [];
+  const names = new Set();
+
+  const fromBrief = extractPlanetNamesFromBrief(setting.overrideBrief || "");
+  for (const name of fromBrief) names.add(name);
+
+  for (const task of tasks) {
+    const planetIndex = getTaskValue(task, 12);
+    const resolved = resolvePlanetNameByIndex(warData, planetIndex);
+    if (resolved) names.add(resolved);
+  }
+
+  return [...names].filter(Boolean).slice(0, 5);
+}
+
+function getMoFaction(majorOrder) {
+  if (!majorOrder) return "Unknown";
+  const setting = majorOrder.setting || {};
+  return inferFactionFromText(
+    [setting.overrideTitle, setting.overrideBrief, setting.taskDescription]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
+function getMoRewardText(majorOrder) {
+  const setting = majorOrder?.setting || {};
+  const reward = setting.reward || (Array.isArray(setting.rewards) ? setting.rewards[0] : null);
+  if (!reward) return "_Unknown_";
+
+  const amount = Number(reward.amount || 0);
+  if (!amount) return "_Unknown_";
+
+  return `**${amount}** medals`;
+}
+
+function getMoExpiryText(majorOrder) {
+  if (!majorOrder?.expiresIn) return "_Unknown_";
+  const future = Math.floor(Date.now() / 1000) + Number(majorOrder.expiresIn);
+  return `<t:${future}:R>`;
+}
+
 function buildMajorOrderText(warData, majorOrder) {
   if (!majorOrder) return "_No active major order found._";
 
-  const title = majorOrder.title || majorOrder.name || "Major Order";
-
-  const briefing =
-    majorOrder.briefing ||
-    majorOrder.description ||
-    (Array.isArray(majorOrder.tasks) && majorOrder.tasks[0]?.description) ||
-    (Array.isArray(majorOrder.objectives) && majorOrder.objectives[0]?.description) ||
-    (Array.isArray(majorOrder.goals) && majorOrder.goals[0]?.description) ||
-    "No briefing available";
-
-  let planets = extractMoTargetPlanets(warData, majorOrder);
-
-  if (!planets.length) {
-    const allPlanets = extractPlanetNames(warData);
-    planets = allPlanets.slice(0, 3);
-  }
-
-  let faction = getMoFaction(majorOrder);
-
-  if (faction === "Unknown") {
-    const text = `${title} ${briefing}`.toLowerCase();
-    if (text.includes("bug")) faction = "Terminids";
-    else if (text.includes("bot")) faction = "Automatons";
-    else if (text.includes("illuminate")) faction = "Illuminate";
-  }
-
-  const expiryTs = getMoExpiry(majorOrder);
+  const setting = majorOrder.setting || {};
+  const title = setting.overrideTitle || "Major Order";
+  const briefing = setting.overrideBrief || "No briefing available";
+  const planets = extractMoTargetPlanets(warData, majorOrder);
+  const faction = getMoFaction(majorOrder);
+  const rewardText = getMoRewardText(majorOrder);
+  const expiryText = getMoExpiryText(majorOrder);
+  const taskLines = extractMoTaskLines(warData, majorOrder);
 
   return [
     `**${title}**`,
-    briefing.slice(0, 250),
+    briefing,
     "",
     `🎯 Target Planets: **${planets.length ? planets.join(", ") : "Unknown"}**`,
     `👾 Enemy: **${faction}**`,
-    expiryTs ? `⏳ Ends: <t:${expiryTs}:R>` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `🏅 Reward: ${rewardText}`,
+    `⏳ Ends: ${expiryText}`,
+    "",
+    `**Objectives**`,
+    ...taskLines,
+  ].join("\n");
 }
 
 async function updateOperationsBoard(client, warData) {
