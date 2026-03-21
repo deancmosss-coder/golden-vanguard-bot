@@ -1,9 +1,3 @@
-// =========================
-// index.js
-// CLEAN CORE FILE
-// No automated permission sync logic
-// =========================
-
 require("dotenv").config();
 
 const { getCommandListEmbed } = require("./embeds/commandList");
@@ -490,6 +484,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === "commands") {
+        return interaction.reply({
+          embeds: [getCommandListEmbed()],
+        });
+      }
+
       const cmd = commands.get(interaction.commandName);
       if (!cmd) return;
       return cmd.execute(interaction);
