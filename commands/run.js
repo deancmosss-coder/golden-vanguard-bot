@@ -1,6 +1,7 @@
 // =========================
 // commands/run.js (FULL REPLACEMENT)
 // Compatible with current index.js
+// Medal-enabled
 // =========================
 
 const fs = require("fs");
@@ -18,6 +19,7 @@ const {
 } = require("discord.js");
 
 const { updateOperationsBoard } = require("../services/operationsBoard");
+const { checkAndAwardMedals } = require("../services/medalService");
 const orientationSystem = require("../services/orientationSystem");
 
 const STORE_PATH = path.join(__dirname, "..", "tracker_store.json");
@@ -144,7 +146,6 @@ function getPlanetNamesFromWarCache() {
   const campaignNames = new Set();
   const allPlanetNames = new Set();
 
-  // 1) Major Order target planets FIRST
   if (Array.isArray(warCache?.majorOrders)) {
     for (const mo of warCache.majorOrders) {
       const indexes = extractTargetPlanetIndexesFromObject(mo, []);
@@ -155,7 +156,6 @@ function getPlanetNamesFromWarCache() {
     }
   }
 
-  // 2) Active campaign planets SECOND
   if (Array.isArray(warCache?.campaign)) {
     for (const item of warCache.campaign) {
       const name = item?.planet?.name || item?.name || null;
@@ -163,14 +163,12 @@ function getPlanetNamesFromWarCache() {
     }
   }
 
-  // 3) Full live planet list THIRD
   if (warCache?.planets && typeof warCache.planets === "object" && !Array.isArray(warCache.planets)) {
     for (const value of Object.values(warCache.planets)) {
       if (value?.name) allPlanetNames.add(String(value.name).trim());
     }
   }
 
-  // 4) Fallback older shapes
   if (Array.isArray(warCache?.status?.planetStatus)) {
     for (const p of warCache.status.planetStatus) {
       const name = p?.planet?.name || p?.name || null;
@@ -434,9 +432,11 @@ function rebuildUserStats(store, userId) {
       wins: 0,
       losses: 0,
       kills: 0,
+      points: 0,
     };
     stats.byDifficulty[difficulty].runs += 1;
     stats.byDifficulty[difficulty].kills += Number(run.kills || 0);
+    stats.byDifficulty[difficulty].points += Number(run.scoreAwarded || 0);
     if (won) stats.byDifficulty[difficulty].wins += 1;
     else stats.byDifficulty[difficulty].losses += 1;
   }
@@ -1011,6 +1011,7 @@ async function execute(interaction) {
   rebuildUserStats(store, userId);
   writeStore(store);
 
+  await checkAndAwardMedals(interaction.client, interaction.guildId, userId).catch(console.error);
   await orientationSystem.maybeAutoLogAAR(interaction.member).catch(console.error);
 
   await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
@@ -1152,6 +1153,8 @@ async function handleTrackerButton(interaction) {
       finalizeUnverified(store, run);
       rebuildUserStats(store, run.loggerId);
       writeStore(store);
+
+      await checkAndAwardMedals(interaction.client, interaction.guildId, run.loggerId).catch(console.error);
 
       await editRunMessage(interaction.client, run).catch(() => {});
       await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
@@ -1309,6 +1312,8 @@ async function handleTrackerModal(interaction) {
     rebuildUserStats(store, run.loggerId);
     writeStore(store);
 
+    await checkAndAwardMedals(interaction.client, interaction.guildId, run.loggerId).catch(console.error);
+
     await editRunMessage(interaction.client, run);
     await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
     await refreshOpsBoardFromCache(interaction.client).catch(() => {});
@@ -1378,6 +1383,8 @@ async function handleTrackerProofMessage(message) {
     rebuildUserStats(store, run.loggerId);
     writeStore(store);
 
+    await checkAndAwardMedals(message.client, message.guild.id, run.loggerId).catch(console.error);
+
     await editRunMessage(message.client, run);
     await ensureLeaderboardMessage(message.guild, store).catch(() => {});
     await refreshOpsBoardFromCache(message.client).catch(() => {});
@@ -1404,6 +1411,7 @@ async function expireSingleRun(client, store, run) {
 
   if (beforeState !== run.status || controlsState(run, Date.now()) === "none") {
     writeStore(store);
+    await checkAndAwardMedals(client, run.guildId, run.loggerId).catch(console.error);
     await editRunMessage(client, run).catch(() => {});
     await refreshOpsBoardFromCache(client).catch(() => {});
   }
@@ -1436,7 +1444,14 @@ async function expireTrackerControls(client) {
   }
 
   if (changed) {
-    for (const userId of touchedUsers) rebuildUserStats(store, userId);
+    for (const userId of touchedUsers) {
+      rebuildUserStats(store, userId);
+      const sampleRun = store.runs.find((r) => r.loggerId === userId && r.guildId);
+      if (sampleRun) {
+        await checkAndAwardMedals(client, sampleRun.guildId, userId).catch(console.error);
+      }
+    }
+
     writeStore(store);
 
     const guildIds = [...new Set(store.runs.map((r) => r.guildId))];
