@@ -22,6 +22,10 @@ const {
 
 const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
+const { postWarEffort } = require("./jobs/warEffortReport");
+const { checkWarAlerts } = require("./jobs/highCommandAlerts");
+const { postTopRankers } = require("./jobs/postTopRankers");
+const { postMedalHall } = require("./jobs/postMedalHall");
 const orientationSystem = require("./services/orientationSystem");
 
 // ===== ENV =====
@@ -624,6 +628,7 @@ client.once(Events.ClientReady, async () => {
     console.error("❌ War board startup refresh failed:", err);
   }
 
+  // Live war board refresh every 15 mins
   cron.schedule(
     "*/15 * * * *",
     async () => {
@@ -631,6 +636,32 @@ client.once(Events.ClientReady, async () => {
         await refreshWarBoard(client);
       } catch (err) {
         console.error("❌ War board scheduled refresh failed:", err);
+      }
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  // High command alerts every 30 mins
+  cron.schedule(
+    "*/30 * * * *",
+    async () => {
+      try {
+        await checkWarAlerts(client);
+      } catch (err) {
+        console.error("❌ War alerts scheduled check failed:", err);
+      }
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  // War effort report daily at 18:00 UK
+  cron.schedule(
+    "0 18 * * *",
+    async () => {
+      try {
+        await postWarEffort(client);
+      } catch (err) {
+        console.error("❌ War effort scheduled report failed:", err);
       }
     },
     { timezone: TRACKER_TZ }
@@ -733,6 +764,9 @@ client.once(Events.ClientReady, async () => {
         });
 
         runCmd.writeStore(store);
+
+        await postTopRankers(client, "weekly").catch(() => {});
+        await postMedalHall(client).catch(() => {});
       }
     },
     { timezone: TRACKER_TZ }
@@ -779,6 +813,8 @@ client.once(Events.ClientReady, async () => {
             allowedMentions: topP ? { users: [topP.key] } : undefined,
           })
           .catch(() => {});
+
+        await postTopRankers(client, "monthly").catch(() => {});
       }
     },
     { timezone: TRACKER_TZ }
@@ -809,6 +845,7 @@ client.once(Events.ClientReady, async () => {
     `✅ Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
   );
   console.log(`✅ Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
+  console.log(`✅ War: 15m board refresh | 30m alerts | daily 18:00 war effort (${TRACKER_TZ})`);
 });
 
 client.login(TOKEN);
