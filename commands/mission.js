@@ -1,5 +1,6 @@
 // =========================
 // commands/mission.js
+// FULL REPLACEMENT
 // =========================
 
 const fs = require("fs");
@@ -11,20 +12,87 @@ const {
 
 const MISSIONS_PATH = path.join(__dirname, "..", "missions.json");
 
-function readMissions() {
-  try {
-    if (!fs.existsSync(MISSIONS_PATH)) return { missions: ["Other"] };
-    const parsed = JSON.parse(fs.readFileSync(MISSIONS_PATH, "utf8"));
-    return {
-      missions: Array.isArray(parsed.missions) && parsed.missions.length ? parsed.missions : ["Other"],
-    };
-  } catch {
-    return { missions: ["Other"] };
-  }
+const DEFAULT_MISSIONS = [
+  "Blitz",
+  "Commando Operation",
+  "Defend Area",
+  "Destroy Command Bunkers",
+  "Destroy Eggs",
+  "Eradicate",
+  "Escort Civilians",
+  "Evacuate Civilians",
+  "Geological Survey",
+  "ICBM Launch",
+  "Raise the Flag",
+  "Retrieve Valuable Data",
+  "Upload Data",
+  "Seize Industrial Complex",
+  "Sabotage Supply Bases",
+  "Commando: Extract Intel",
+  "Confiscate Assets",
+  "Eliminate Devastators",
+  "Commando: Acquire Evidence",
+  "Commando: Secure Black Box",
+  "Annex Untapped Mineral Sites",
+  "Sabotage Orgo-Plasma Synthesis",
+  "Destroy Transmission Network",
+  "Eradicate Automaton Forces",
+  "Sabotage Air Base",
+  "Rapid Acquisition",
+  "Blitz: Destroy Bio-Processors",
+  "Halt Cyborg Production",
+  "Other",
+];
+
+function normaliseMissionName(name) {
+  return String(name || "").trim();
 }
 
-function writeMissions(data) {
-  fs.writeFileSync(MISSIONS_PATH, JSON.stringify(data, null, 2), "utf8");
+function uniqueSortedMissions(list) {
+  const seen = new Map();
+
+  for (const item of list) {
+    const clean = normaliseMissionName(item);
+    if (!clean) continue;
+
+    const key = clean.toLowerCase();
+    if (!seen.has(key)) seen.set(key, clean);
+  }
+
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function writeMissionList(missions) {
+  const finalList = uniqueSortedMissions(missions);
+  fs.writeFileSync(
+    MISSIONS_PATH,
+    JSON.stringify({ missions: finalList }, null, 2),
+    "utf8"
+  );
+}
+
+function readMissionList() {
+  try {
+    let fileMissions = [];
+
+    if (fs.existsSync(MISSIONS_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(MISSIONS_PATH, "utf8"));
+      if (Array.isArray(parsed?.missions)) {
+        fileMissions = parsed.missions;
+      }
+    }
+
+    const merged = uniqueSortedMissions([...DEFAULT_MISSIONS, ...fileMissions]);
+
+    if (!fs.existsSync(MISSIONS_PATH) || merged.length !== fileMissions.length) {
+      writeMissionList(merged);
+    }
+
+    return merged.length ? merged : ["Other"];
+  } catch (err) {
+    console.error("[MISSION] readMissionList failed:", err);
+    return [...DEFAULT_MISSIONS];
+  }
 }
 
 const data = new SlashCommandBuilder()
@@ -59,72 +127,67 @@ const data = new SlashCommandBuilder()
   );
 
 async function autocomplete(interaction) {
-  const focused = interaction.options.getFocused(true);
-  if (focused.name !== "name") return interaction.respond([]);
+  try {
+    const focused = interaction.options.getFocused(true);
+    if (focused.name !== "name") return interaction.respond([]);
 
-  const missions = readMissions().missions;
-  const q = String(focused.value || "").toLowerCase();
+    const missions = readMissionList();
+    const q = String(focused.value || "").toLowerCase();
 
-  return interaction.respond(
-    missions
-      .filter((m) => m.toLowerCase().includes(q))
-      .slice(0, 25)
-      .map((m) => ({ name: m, value: m }))
-  );
+    return interaction.respond(
+      missions
+        .filter((m) => m.toLowerCase().includes(q))
+        .slice(0, 25)
+        .map((m) => ({ name: m, value: m }))
+    );
+  } catch (err) {
+    console.error("[MISSION] autocomplete failed:", err);
+    try {
+      return interaction.respond([]);
+    } catch {}
+  }
 }
 
 async function execute(interaction) {
-  const sub = interaction.options.getSubcommand();
-  const data = readMissions();
+  try {
+    const sub = interaction.options.getSubcommand();
+    const missions = readMissionList();
 
-  if (sub === "list") {
-    return interaction.reply({
-      content:
-        data.missions.length
-          ? `**Mission Types**\n${data.missions.map((m, i) => `${i + 1}. ${m}`).join("\n")}`
+    if (sub === "list") {
+      return interaction.reply({
+        content: missions.length
+          ? `**Mission Types**\n${missions.map((m, i) => `${i + 1}. ${m}`).join("\n")}`
           : "No mission types found.",
-      ephemeral: true,
-    });
-  }
-
-  if (sub === "add") {
-    const name = interaction.options.getString("name", true).trim();
-    if (!name) return interaction.reply({ content: "Mission name cannot be empty.", ephemeral: true });
-
-    const exists = data.missions.some((m) => m.toLowerCase() === name.toLowerCase());
-    if (exists) return interaction.reply({ content: `Mission already exists: **${name}**`, ephemeral: true });
-
-    data.missions.push(name);
-    data.missions.sort((a, b) => a.localeCompare(b));
-    writeMissions(data);
-
-    return interaction.reply({
-      content: `✅ Mission added: **${name}**\nIt will appear in /run mission autocomplete immediately.`,
-      ephemeral: true,
-    });
-  }
-
-  if (sub === "remove") {
-    const name = interaction.options.getString("name", true).trim();
-    const before = data.missions.length;
-    data.missions = data.missions.filter((m) => m.toLowerCase() !== name.toLowerCase());
-
-    if (data.missions.length === before) {
-      return interaction.reply({ content: `Mission not found: **${name}**`, ephemeral: true });
+        ephemeral: true,
+      });
     }
 
-    if (!data.missions.length) data.missions = ["Other"];
-    writeMissions(data);
+    if (sub === "add") {
+      const name = normaliseMissionName(interaction.options.getString("name", true));
 
-    return interaction.reply({
-      content: `🗑 Mission removed: **${name}**`,
-      ephemeral: true,
-    });
-  }
-}
+      if (!name) {
+        return interaction.reply({
+          content: "Mission name cannot be empty.",
+          ephemeral: true,
+        });
+      }
 
-module.exports = {
-  data,
-  execute,
-  autocomplete,
-};
+      const exists = missions.some((m) => m.toLowerCase() === name.toLowerCase());
+
+      if (exists) {
+        return interaction.reply({
+          content: `Mission already exists: **${name}**`,
+          ephemeral: true,
+        });
+      }
+
+      missions.push(name);
+      writeMissionList(missions);
+
+      return interaction.reply({
+        content: `✅ Mission added: **${name}**`,
+        ephemeral: true,
+      });
+    }
+
+    if (sub === "remove")
