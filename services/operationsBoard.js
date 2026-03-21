@@ -115,7 +115,9 @@ function extractMoTargetPlanets(warData, majorOrder) {
     }
 
     if (task?.planet?.name) names.add(String(task.planet.name));
-    if (task?.name && !String(task.name).toLowerCase().includes("kill")) names.add(String(task.name));
+    if (task?.name && !String(task.name).toLowerCase().includes("kill")) {
+      names.add(String(task.name));
+    }
   }
 
   if (majorOrder?.planet?.name) names.add(String(majorOrder.planet.name));
@@ -143,6 +145,12 @@ function getMoFaction(majorOrder) {
     ...(Array.isArray(majorOrder.tasks)
       ? majorOrder.tasks.flatMap((t) => [t?.description, t?.briefing, t?.name])
       : []),
+    ...(Array.isArray(majorOrder.objectives)
+      ? majorOrder.objectives.flatMap((t) => [t?.description, t?.briefing, t?.name])
+      : []),
+    ...(Array.isArray(majorOrder.goals)
+      ? majorOrder.goals.flatMap((t) => [t?.description, t?.briefing, t?.name])
+      : []),
   ]
     .filter(Boolean)
     .join(" ");
@@ -167,33 +175,6 @@ function getMoExpiry(majorOrder) {
   if (Number.isNaN(ts)) return null;
 
   return Math.floor(ts / 1000);
-}
-
-function buildMajorOrderText(warData, majorOrder) {
-  if (!majorOrder) return "_No active major order found._";
-
-  const title = majorOrder.title || majorOrder.name || "Major Order";
-  const briefing =
-    majorOrder.briefing ||
-    majorOrder.description ||
-    (Array.isArray(majorOrder.tasks) && majorOrder.tasks[0]?.description) ||
-    null;
-
-  const planets = extractMoTargetPlanets(warData, majorOrder);
-  const faction = getMoFaction(majorOrder);
-  const expiryTs = getMoExpiry(majorOrder);
-
-  const parts = [`**${title}**`];
-
-  if (briefing) parts.push(briefing.slice(0, 280));
-  parts.push(`Target Planets: **${planets.length ? planets.join(", ") : "Unknown"}**`);
-  parts.push(`Enemy Faction: **${faction}**`);
-
-  if (expiryTs) {
-    parts.push(`Expires: <t:${expiryTs}:R>`);
-  }
-
-  return parts.join("\n");
 }
 
 function extractPlanetNames(warData) {
@@ -252,17 +233,17 @@ function inferFrontFromPlanet(name) {
 
   const illuminate = [
     "herthon", "zea", "secundus", "rugosia", "kerth", "regnus", "mog", "oasis",
-    "genesis", "hydrobius", "haldus", "valmox", "alamak", "meze", "parsh"
+    "genesis", "hydrobius", "haldus", "valmox", "alamak", "meze", "parsh",
   ];
 
   const automatons = [
     "mintoria", "gacrux", "achdar", "grand", "urant", "gracux", "mortar", "martale",
-    "charbal", "choepessa", "vernen", "wells", "aesir", "pass", "matar", "bay"
+    "charbal", "choepessa", "vernen", "wells", "aesir", "pass", "matar", "bay",
   ];
 
   const terminids = [
     "estanu", "fori", "prime", "crimsica", "hellmire", "nivel", "omicron",
-    "fenrir", "erata", "pöpli", "bore", "rock", "pandion"
+    "fenrir", "erata", "pöpli", "bore", "rock", "pandion",
   ];
 
   if (illuminate.some((x) => n.includes(x))) return "Illuminate";
@@ -329,6 +310,49 @@ function buildPlanetContribution(store) {
       const score = Number(stats?.score || 0);
       return `${i + 1}. **${name}** — ${missions} runs / ${score} pts`;
     })
+    .join("\n");
+}
+
+function buildMajorOrderText(warData, majorOrder) {
+  if (!majorOrder) return "_No active major order found._";
+
+  const title = majorOrder.title || majorOrder.name || "Major Order";
+
+  const briefing =
+    majorOrder.briefing ||
+    majorOrder.description ||
+    (Array.isArray(majorOrder.tasks) && majorOrder.tasks[0]?.description) ||
+    (Array.isArray(majorOrder.objectives) && majorOrder.objectives[0]?.description) ||
+    (Array.isArray(majorOrder.goals) && majorOrder.goals[0]?.description) ||
+    "No briefing available";
+
+  let planets = extractMoTargetPlanets(warData, majorOrder);
+
+  if (!planets.length) {
+    const allPlanets = extractPlanetNames(warData);
+    planets = allPlanets.slice(0, 3);
+  }
+
+  let faction = getMoFaction(majorOrder);
+
+  if (faction === "Unknown") {
+    const text = `${title} ${briefing}`.toLowerCase();
+    if (text.includes("bug")) faction = "Terminids";
+    else if (text.includes("bot")) faction = "Automatons";
+    else if (text.includes("illuminate")) faction = "Illuminate";
+  }
+
+  const expiryTs = getMoExpiry(majorOrder);
+
+  return [
+    `**${title}**`,
+    briefing.slice(0, 250),
+    "",
+    `🎯 Target Planets: **${planets.length ? planets.join(", ") : "Unknown"}**`,
+    `👾 Enemy: **${faction}**`,
+    expiryTs ? `⏳ Ends: <t:${expiryTs}:R>` : null,
+  ]
+    .filter(Boolean)
     .join("\n");
 }
 
