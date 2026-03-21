@@ -12,13 +12,10 @@ async function fetchJson(endpoint) {
       Accept: "application/json",
       "User-Agent": "golden-vanguard-bot",
     },
-    validateStatus: (status) => status >= 200 && status < 300,
   });
 
   return res.data;
 }
-
-// ===== CORE ENDPOINTS =====
 
 async function getStatus() {
   return fetchJson("/war/status");
@@ -40,10 +37,7 @@ async function getMajorOrders() {
   try {
     return await fetchJson("/war/major-orders");
   } catch (err) {
-    console.warn(
-      "[WAR API] /war/major-orders failed:",
-      err.response?.status || err.message
-    );
+    console.warn("[WAR API] /war/major-orders failed:", err.response?.status || err.message);
     return [];
   }
 }
