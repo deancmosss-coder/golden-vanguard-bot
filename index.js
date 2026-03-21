@@ -57,6 +57,7 @@ const FACTION_SELECT_ID = "gv_faction";
 const DIFFICULTY_SELECT_ID = "gv_difficulty";
 
 const HUB_CATEGORY_ID = "1478464677783666778";
+const COMMANDS_CHANNEL_ID = "1473714320293630178";
 
 // ===== DIVISION ROLE IDS =====
 const DIVISION_ROLE_IDS = {
@@ -495,10 +496,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
+      const allowedAnywhere = ["commands", "admincommands"];
+
+      if (
+        interaction.channelId !== COMMANDS_CHANNEL_ID &&
+        !allowedAnywhere.includes(interaction.commandName)
+      ) {
+        return interaction.reply({
+          content: `Please use bot commands in <#${COMMANDS_CHANNEL_ID}>.`,
+          ephemeral: true,
+        });
+      }
+
       // PLAYER COMMAND LIST
       if (interaction.commandName === "commands") {
         return interaction.reply({
           embeds: [getPlayerCommandsEmbed()],
+          ephemeral: true,
         });
       }
 
