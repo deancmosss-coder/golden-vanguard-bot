@@ -1,46 +1,76 @@
-const fs=require("fs");
-const path=require("path");
+const fs = require("fs");
+const path = require("path");
 
-const CACHE=path.join(__dirname,"..","data","war_cache.json");
+const CACHE = path.join(__dirname, "..", "data", "war_cache.json");
 
-function readJson(file){
- try{
-  return JSON.parse(fs.readFileSync(file,"utf8"));
- }catch{
-  return {};
- }
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return {};
+  }
 }
 
-async function checkWarAlerts(client){
+function getPlanetStatusList(war) {
+  if (Array.isArray(war?.status?.planetStatus)) return war.status.planetStatus;
+  if (Array.isArray(war?.status)) return war.status;
+  return [];
+}
 
- const war=readJson(CACHE);
+function getPlanetName(planet) {
+  return planet?.name || planet?.planet?.name || "Unknown Planet";
+}
 
- const planets=war?.status?.planetStatus||[];
+function getLiberationValue(planet) {
+  const raw =
+    planet?.liberation ??
+    planet?.liberationPercent ??
+    planet?.percentage ??
+    planet?.health ??
+    0;
 
- const critical=planets.filter(p=>p.liberation>90);
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
 
- if(!critical.length) return;
+async function checkWarAlerts(client) {
+  console.log("[WAR ALERTS] Checking alerts...");
 
- const channel=client.channels.cache.find(
-  c=>c.name==="high-command-dispatch"
- );
+  const war = readJson(CACHE);
+  const planets = getPlanetStatusList(war);
 
- if(!channel) return;
+  const critical = planets.filter((p) => getLiberationValue(p) >= 90);
 
- for(const p of critical){
+  if (!critical.length) {
+    console.log("[WAR ALERTS] No critical planets");
+    return;
+  }
 
- channel.send(`
-⚠ **HIGH COMMAND ALERT**
+  const channel = client.channels.cache.find(
+    (c) => c.name === "high-command-dispatch" && c.isTextBased?.()
+  );
 
-${p.name} nearing liberation.
+  if (!channel) {
+    console.log("[WAR ALERTS] Channel not found");
+    return;
+  }
+
+  for (const p of critical) {
+    const name = getPlanetName(p);
+    const liberation = getLiberationValue(p);
+
+    await channel.send(
+      `⚠ **HIGH COMMAND ALERT**
+
+**${name}** is nearing liberation (**${liberation}%**).
 
 All Vanguard divisions deploy immediately.
 
-For Super Earth.
-`);
+For Super Earth.`
+    ).catch(() => {});
+  }
 
- }
-
+  console.log("[WAR ALERTS] Alerts posted");
 }
 
-module.exports={checkWarAlerts};
+module.exports = { checkWarAlerts };
