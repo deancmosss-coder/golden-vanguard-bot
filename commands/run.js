@@ -1,7 +1,6 @@
 // =========================
-// commands/run.js (FULL REPLACEMENT)
-// Compatible with current index.js
-// Medal-enabled
+// commands/run.js
+// FULL REPLACEMENT
 // =========================
 
 const fs = require("fs");
@@ -19,8 +18,9 @@ const {
 } = require("discord.js");
 
 const { updateOperationsBoard } = require("../services/operationsBoard");
-const { checkAndAwardMedals } = require("../services/medalService");
 const orientationSystem = require("../services/orientationSystem");
+const playerStats = require("../services/playerStats");
+const medalService = require("../services/medalService");
 
 const STORE_PATH = path.join(__dirname, "..", "tracker_store.json");
 const MISSIONS_PATH = path.join(__dirname, "..", "missions.json");
@@ -44,16 +44,103 @@ const PROOF_REQUIRED_IMAGES = 2;
 const PROOF_WINDOW_MINUTES = 30;
 const EDIT_DELETE_WINDOW_MINUTES = 10;
 
-// -------------------------
-// File helpers
-// -------------------------
+const DEFAULT_MISSIONS = [
+  "Blitz",
+  "Commando Operation",
+  "Defend Area",
+  "Destroy Command Bunkers",
+  "Destroy Eggs",
+  "Eradicate",
+  "Escort Civilians",
+  "Evacuate Civilians",
+  "Geological Survey",
+  "ICBM Launch",
+  "Raise the Flag",
+  "Retrieve Valuable Data",
+  "Upload Data",
+  "Seize Industrial Complex",
+  "Sabotage Supply Bases",
+  "Commando: Extract Intel",
+  "Confiscate Assets",
+  "Eliminate Devastators",
+  "Commando: Acquire Evidence",
+  "Commando: Secure Black Box",
+  "Annex Untapped Mineral Sites",
+  "Sabotage Orgo-Plasma Synthesis",
+  "Destroy Transmission Network",
+  "Eradicate Automaton Forces",
+  "Sabotage Air Base",
+  "Rapid Acquisition",
+  "Blitz: Destroy Bio-Processors",
+  "Halt Cyborg Production",
+  "Other",
+];
+
+function normaliseMissionName(name) {
+  return String(name || "").trim();
+}
+
+function uniqueSortedMissions(list) {
+  const seen = new Map();
+
+  for (const item of list) {
+    const clean = normaliseMissionName(item);
+    if (!clean) continue;
+
+    const key = clean.toLowerCase();
+    if (!seen.has(key)) seen.set(key, clean);
+  }
+
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function writeMissionList(missions) {
+  try {
+    fs.writeFileSync(
+      MISSIONS_PATH,
+      JSON.stringify({ missions: uniqueSortedMissions(missions) }, null, 2),
+      "utf8"
+    );
+  } catch (err) {
+    console.error("[TRACKER] writeMissionList failed:", err);
+  }
+}
+
 function readMissionList() {
   try {
-    if (!fs.existsSync(MISSIONS_PATH)) return ["Other"];
-    const parsed = JSON.parse(fs.readFileSync(MISSIONS_PATH, "utf8"));
-    return Array.isArray(parsed.missions) && parsed.missions.length ? parsed.missions : ["Other"];
-  } catch {
-    return ["Other"];
+    let fileMissions = [];
+
+    if (fs.existsSync(MISSIONS_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(MISSIONS_PATH, "utf8"));
+      if (Array.isArray(parsed?.missions)) {
+        fileMissions = parsed.missions;
+      }
+    }
+
+    const merged = uniqueSortedMissions([...DEFAULT_MISSIONS, ...fileMissions]);
+
+    if (!fs.existsSync(MISSIONS_PATH) || merged.length !== fileMissions.length) {
+      writeMissionList(merged);
+    }
+
+    return merged.length ? merged : ["Other"];
+  } catch (err) {
+    console.error("[TRACKER] readMissionList failed:", err);
+    return [...DEFAULT_MISSIONS];
+  }
+}
+
+function ensureMissionExists(missionName) {
+  const clean = normaliseMissionName(missionName);
+  if (!clean) return;
+
+  const missions = readMissionList();
+  const exists = missions.some((m) => m.toLowerCase() === clean.toLowerCase());
+
+  if (!exists) {
+    missions.push(clean);
+    writeMissionList(missions);
+    console.log(`[TRACKER] Added new mission type automatically: ${clean}`);
   }
 }
 
@@ -66,147 +153,60 @@ function readWarCache() {
   }
 }
 
-// -------------------------
-// Planet extraction
-// -------------------------
-function buildPlanetLookup(warCache) {
-  const lookup = new Map();
-
-  if (warCache?.planets && typeof warCache.planets === "object" && !Array.isArray(warCache.planets)) {
-    for (const [key, value] of Object.entries(warCache.planets)) {
-      if (value?.name) {
-        const name = String(value.name).trim();
-        lookup.set(String(key), name);
-
-        if (value.index !== undefined && value.index !== null) {
-          lookup.set(String(value.index), name);
-        }
-        if (value.id !== undefined && value.id !== null) {
-          lookup.set(String(value.id), name);
-        }
-      }
-    }
-  }
-
-  if (Array.isArray(warCache?.campaign)) {
-    for (const item of warCache.campaign) {
-      const name = item?.planet?.name || item?.name || null;
-      if (!name) continue;
-
-      if (item?.planet?.index !== undefined && item?.planet?.index !== null) {
-        lookup.set(String(item.planet.index), String(name));
-      }
-      if (item?.planet?.id !== undefined && item?.planet?.id !== null) {
-        lookup.set(String(item.planet.id), String(name));
-      }
-      if (item?.index !== undefined && item?.index !== null) {
-        lookup.set(String(item.index), String(name));
-      }
-      if (item?.id !== undefined && item?.id !== null) {
-        lookup.set(String(item.id), String(name));
-      }
-    }
-  }
-
-  return lookup;
-}
-
-function extractTargetPlanetIndexesFromObject(node, out = []) {
-  if (!node) return out;
-
-  if (Array.isArray(node)) {
-    for (const item of node) extractTargetPlanetIndexesFromObject(item, out);
-    return out;
-  }
-
-  if (typeof node !== "object") return out;
-
-  for (const [key, value] of Object.entries(node)) {
-    if (key.toLowerCase() === "values" && Array.isArray(value) && value.length >= 3) {
-      const candidate = value[2];
-
-      if (Array.isArray(candidate)) {
-        for (const item of candidate) out.push(item);
-      } else {
-        out.push(candidate);
-      }
-    }
-
-    extractTargetPlanetIndexesFromObject(value, out);
-  }
-
-  return out;
-}
-
 function getPlanetNamesFromWarCache() {
   const warCache = readWarCache();
-  const lookup = buildPlanetLookup(warCache);
-
-  const majorOrderNames = new Set();
-  const campaignNames = new Set();
-  const allPlanetNames = new Set();
-
-  if (Array.isArray(warCache?.majorOrders)) {
-    for (const mo of warCache.majorOrders) {
-      const indexes = extractTargetPlanetIndexesFromObject(mo, []);
-      for (const idx of indexes) {
-        const found = lookup.get(String(idx));
-        if (found) majorOrderNames.add(found);
-      }
-    }
-  }
+  const names = new Set();
 
   if (Array.isArray(warCache?.campaign)) {
-    for (const item of warCache.campaign) {
-      const name = item?.planet?.name || item?.name || null;
-      if (name) campaignNames.add(String(name).trim());
+    for (const p of warCache.campaign) {
+      if (p?.name) names.add(String(p.name));
+      if (p?.planet?.name) names.add(String(p.planet.name));
     }
   }
 
   if (warCache?.planets && typeof warCache.planets === "object" && !Array.isArray(warCache.planets)) {
     for (const value of Object.values(warCache.planets)) {
-      if (value?.name) allPlanetNames.add(String(value.name).trim());
-    }
-  }
-
-  if (Array.isArray(warCache?.status?.planetStatus)) {
-    for (const p of warCache.status.planetStatus) {
-      const name = p?.planet?.name || p?.name || null;
-      if (name) allPlanetNames.add(String(name).trim());
+      if (value?.name) names.add(String(value.name));
     }
   }
 
   if (Array.isArray(warCache?.status)) {
     for (const p of warCache.status) {
-      const name = p?.planet?.name || p?.name || null;
-      if (name) allPlanetNames.add(String(name).trim());
+      if (p?.name) names.add(String(p.name));
+      if (p?.planet?.name) names.add(String(p.planet.name));
+    }
+  }
+
+  if (Array.isArray(warCache?.status?.planetStatus)) {
+    for (const p of warCache.status.planetStatus) {
+      if (p?.name) names.add(String(p.name));
+      if (p?.planet?.name) names.add(String(p.planet.name));
     }
   }
 
   if (Array.isArray(warCache?.info)) {
     for (const p of warCache.info) {
-      if (p?.name) allPlanetNames.add(String(p.name).trim());
+      if (p?.name) names.add(String(p.name));
     }
   }
 
-  const ordered = [
-    ...majorOrderNames,
-    ...[...campaignNames].filter((x) => !majorOrderNames.has(x)),
-    ...[...allPlanetNames].filter((x) => !majorOrderNames.has(x) && !campaignNames.has(x)),
-  ];
+  if (warCache?.info && typeof warCache.info === "object" && !Array.isArray(warCache.info)) {
+    for (const value of Object.values(warCache.info)) {
+      if (value?.name) names.add(String(value.name));
+      if (Array.isArray(value)) {
+        for (const p of value) {
+          if (p?.name) names.add(String(p.name));
+        }
+      }
+    }
+  }
 
-  return ordered
+  return [...names]
     .filter((name) => typeof name === "string" && name.trim().length > 0)
-    .filter((name) => !/^secure\s/i.test(name))
-    .filter((name) => !/^liberate\s/i.test(name))
-    .filter((name) => !/^defend\s/i.test(name))
-    .filter((name) => !/^eliminate\s/i.test(name))
+    .sort((a, b) => a.localeCompare(b))
     .slice(0, 25);
 }
 
-// -------------------------
-// Store helpers
-// -------------------------
 function currentMonthKey(d = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: TRACKER_TZ,
@@ -217,29 +217,6 @@ function currentMonthKey(d = new Date()) {
   const y = parts.find((p) => p.type === "year").value;
   const m = parts.find((p) => p.type === "month").value;
   return `${y}-${m}`;
-}
-
-function makeEmptyUserStats() {
-  return {
-    totalRuns: 0,
-    wins: 0,
-    losses: 0,
-    totalKills: 0,
-    totalDeaths: 0,
-    totalAccidentals: 0,
-    proofRuns: 0,
-    pointsEarned: 0,
-    kd: 0,
-    winRate: 0,
-    byEnemy: {
-      Terminids: { runs: 0, wins: 0, losses: 0, kills: 0 },
-      Automatons: { runs: 0, wins: 0, losses: 0, kills: 0 },
-      Illuminate: { runs: 0, wins: 0, losses: 0, kills: 0 },
-    },
-    byPlanet: {},
-    byDifficulty: {},
-    updatedAt: null,
-  };
 }
 
 function defaultStore() {
@@ -253,6 +230,39 @@ function defaultStore() {
     history: { weeks: [] },
     planets: {},
   };
+}
+
+function readStore() {
+  try {
+    if (!fs.existsSync(STORE_PATH)) return defaultStore();
+    const raw = fs.readFileSync(STORE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const base = defaultStore();
+
+    return {
+      ...base,
+      ...parsed,
+      leaderboardMessage: parsed.leaderboardMessage || base.leaderboardMessage,
+      weekly: parsed.weekly || base.weekly,
+      monthly: parsed.monthly || base.monthly,
+      users: parsed.users || base.users,
+      runs: Array.isArray(parsed.runs) ? parsed.runs : [],
+      proofSessions: parsed.proofSessions || base.proofSessions,
+      history: parsed.history || base.history,
+      planets: parsed.planets || base.planets,
+    };
+  } catch (e) {
+    console.error("[TRACKER] readStore failed:", e);
+    return defaultStore();
+  }
+}
+
+function writeStore(store) {
+  try {
+    fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), "utf8");
+  } catch (e) {
+    console.error("[TRACKER] writeStore failed:", e);
+  }
 }
 
 function clamp(n, min, max) {
@@ -384,119 +394,6 @@ function calcBasePoints({
   return Math.max(0, score);
 }
 
-function rebuildUserStats(store, userId) {
-  store.users = store.users || {};
-  store.users[userId] = store.users[userId] || { unverifiedStreak: 0, totalRuns: 0 };
-
-  const previous = store.users[userId];
-  const stats = makeEmptyUserStats();
-
-  const runs = (store.runs || []).filter((r) => r.loggerId === userId && r.status !== "deleted");
-
-  for (const run of runs) {
-    stats.totalRuns += 1;
-    stats.totalKills += Number(run.kills || 0);
-    stats.totalDeaths += Number(run.deaths || 0);
-    stats.totalAccidentals += Number(run.accidentals || 0);
-    stats.pointsEarned += Number(run.scoreAwarded || 0);
-    if (run.proofApplied) stats.proofRuns += 1;
-
-    const won = run.mainObjective === "Yes";
-    if (won) stats.wins += 1;
-    else stats.losses += 1;
-
-    if (ENEMIES.includes(run.enemy)) {
-      stats.byEnemy[run.enemy].runs += 1;
-      stats.byEnemy[run.enemy].kills += Number(run.kills || 0);
-      if (won) stats.byEnemy[run.enemy].wins += 1;
-      else stats.byEnemy[run.enemy].losses += 1;
-    }
-
-    const planet = run.planet || "Unknown";
-    stats.byPlanet[planet] = stats.byPlanet[planet] || {
-      runs: 0,
-      wins: 0,
-      losses: 0,
-      kills: 0,
-      points: 0,
-    };
-    stats.byPlanet[planet].runs += 1;
-    stats.byPlanet[planet].kills += Number(run.kills || 0);
-    stats.byPlanet[planet].points += Number(run.scoreAwarded || 0);
-    if (won) stats.byPlanet[planet].wins += 1;
-    else stats.byPlanet[planet].losses += 1;
-
-    const difficulty = String(run.difficulty || "Unknown");
-    stats.byDifficulty[difficulty] = stats.byDifficulty[difficulty] || {
-      runs: 0,
-      wins: 0,
-      losses: 0,
-      kills: 0,
-      points: 0,
-    };
-    stats.byDifficulty[difficulty].runs += 1;
-    stats.byDifficulty[difficulty].kills += Number(run.kills || 0);
-    stats.byDifficulty[difficulty].points += Number(run.scoreAwarded || 0);
-    if (won) stats.byDifficulty[difficulty].wins += 1;
-    else stats.byDifficulty[difficulty].losses += 1;
-  }
-
-  stats.kd = stats.totalDeaths > 0 ? Number((stats.totalKills / stats.totalDeaths).toFixed(2)) : stats.totalKills;
-  stats.winRate = stats.totalRuns > 0 ? Number(((stats.wins / stats.totalRuns) * 100).toFixed(1)) : 0;
-  stats.updatedAt = new Date().toISOString();
-
-  store.users[userId] = {
-    ...previous,
-    totalRuns: stats.totalRuns,
-    stats,
-  };
-}
-
-function hydrateDerivedStats(store) {
-  const ids = new Set((store.runs || []).map((r) => r.loggerId).filter(Boolean));
-  for (const id of ids) rebuildUserStats(store, id);
-  return store;
-}
-
-function readStore() {
-  try {
-    if (!fs.existsSync(STORE_PATH)) return defaultStore();
-    const raw = fs.readFileSync(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    const base = defaultStore();
-
-    const store = {
-      ...base,
-      ...parsed,
-      leaderboardMessage: parsed.leaderboardMessage || base.leaderboardMessage,
-      weekly: parsed.weekly || base.weekly,
-      monthly: parsed.monthly || base.monthly,
-      users: parsed.users || base.users,
-      runs: Array.isArray(parsed.runs) ? parsed.runs : [],
-      proofSessions: parsed.proofSessions || base.proofSessions,
-      history: parsed.history || base.history,
-      planets: parsed.planets || base.planets,
-    };
-
-    return hydrateDerivedStats(store);
-  } catch (e) {
-    console.error("[TRACKER] readStore failed:", e);
-    return defaultStore();
-  }
-}
-
-function writeStore(store) {
-  try {
-    hydrateDerivedStats(store);
-    fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), "utf8");
-  } catch (e) {
-    console.error("[TRACKER] writeStore failed:", e);
-  }
-}
-
-// -------------------------
-// Leaderboard
-// -------------------------
 function topN(obj, n) {
   const arr = Object.entries(obj || {}).map(([k, v]) => [k, Number(v || 0)]);
   arr.sort((a, b) => b[1] - a[1]);
@@ -577,9 +474,6 @@ async function updateLeaderboard(guild) {
   await ensureLeaderboardMessage(guild, store);
 }
 
-// -------------------------
-// Run display + controls
-// -------------------------
 function starsDisplay(n) {
   return "★".repeat(n) + "☆".repeat(5 - n);
 }
@@ -711,6 +605,10 @@ function applyRunScoreChange(store, run, newAwarded) {
   }
 
   run.scoreAwarded = newAwarded;
+
+  if (delta !== 0) {
+    playerStats.updateRunScore(run, oldAwarded, newAwarded);
+  }
 }
 
 async function refreshOpsBoardFromCache(client) {
@@ -735,7 +633,6 @@ function finalizeUnverified(store, run) {
 
   store.users[run.loggerId] = store.users[run.loggerId] || { unverifiedStreak: 0, totalRuns: 0 };
   store.users[run.loggerId].unverifiedStreak += 1;
-  rebuildUserStats(store, run.loggerId);
 }
 
 function isImageAttachment(att) {
@@ -745,9 +642,11 @@ function isImageAttachment(att) {
   return [".png", ".jpg", ".jpeg", ".webp"].some((ext) => url.endsWith(ext));
 }
 
-// -------------------------
-// Slash command
-// -------------------------
+function formatUnlockedMedals(unlocked) {
+  if (!Array.isArray(unlocked) || !unlocked.length) return null;
+  return unlocked.map((m) => `🏅 **${m.name}**`).join("\n");
+}
+
 const data = new SlashCommandBuilder()
   .setName("run")
   .setDescription("Log your mission run (Player Stats) for the Vanguard tracker.")
@@ -911,6 +810,8 @@ async function execute(interaction) {
   const enemy = interaction.options.getString("enemy", true);
   const difficulty = interaction.options.getInteger("difficulty", true);
   const missionType = interaction.options.getString("mission_type", true);
+  ensureMissionExists(missionType);
+
   const mainObjective = interaction.options.getString("main_objective", true);
   const missionRating = interaction.options.getInteger("mission_rating", true);
 
@@ -1008,28 +909,30 @@ async function execute(interaction) {
   }
 
   store.runs.push(run);
-  rebuildUserStats(store, userId);
+  store.users[userId].totalRuns += 1;
   writeStore(store);
 
-  await checkAndAwardMedals(interaction.client, interaction.guildId, userId).catch(console.error);
+  playerStats.recordRun(run);
+  const unlockedMedals = medalService.evaluateAndStore(userId);
+
   await orientationSystem.maybeAutoLogAAR(interaction.member).catch(console.error);
 
   await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
   await refreshOpsBoardFromCache(interaction.client).catch(() => {});
+
+  const medalText = formatUnlockedMedals(unlockedMedals);
 
   return interaction.reply({
     content:
       `✅ Logged **${runId}** on **${planet}** — ` +
       (requiresProof
         ? `proof is **required** before points are awarded.`
-        : `base score **${basePoints}** awarded now. Use proof for **x2**.`),
+        : `base score **${basePoints}** awarded now. Use proof for **x2**.`) +
+      (medalText ? `\n\n**New Medals Unlocked**\n${medalText}` : ""),
     ephemeral: true,
   });
 }
 
-// -------------------------
-// Buttons
-// -------------------------
 async function handleTrackerButton(interaction) {
   console.log("HANDLE BUTTON START:", interaction.customId);
   try {
@@ -1151,16 +1054,18 @@ async function handleTrackerButton(interaction) {
       }
 
       finalizeUnverified(store, run);
-      rebuildUserStats(store, run.loggerId);
       writeStore(store);
 
-      await checkAndAwardMedals(interaction.client, interaction.guildId, run.loggerId).catch(console.error);
+      const unlockedMedals = medalService.evaluateAndStore(run.loggerId);
 
       await editRunMessage(interaction.client, run).catch(() => {});
       await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
       await refreshOpsBoardFromCache(interaction.client).catch(() => {});
 
-      return interaction.editReply(`✔ Submitted without proof. (**${run.runId}**)`);
+      return interaction.editReply(
+        `✔ Submitted without proof. (**${run.runId}**)` +
+          (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+      );
     }
 
     if (action === "gv_delete") {
@@ -1180,8 +1085,9 @@ async function handleTrackerButton(interaction) {
 
       run.status = "deleted";
       delete store.proofSessions[run.runId];
-      rebuildUserStats(store, run.loggerId);
       writeStore(store);
+
+      playerStats.removeRun(run);
 
       try {
         const guild = await interaction.client.guilds.fetch(run.guildId);
@@ -1213,9 +1119,6 @@ async function handleTrackerButton(interaction) {
   }
 }
 
-// -------------------------
-// Edit modal
-// -------------------------
 async function handleTrackerModal(interaction) {
   await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
@@ -1309,24 +1212,24 @@ async function handleTrackerModal(interaction) {
     else newAwarded = 0;
 
     applyRunScoreChange(store, run, newAwarded);
-    rebuildUserStats(store, run.loggerId);
+
     writeStore(store);
 
-    await checkAndAwardMedals(interaction.client, interaction.guildId, run.loggerId).catch(console.error);
+    const unlockedMedals = medalService.evaluateAndStore(run.loggerId);
 
     await editRunMessage(interaction.client, run);
     await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
     await refreshOpsBoardFromCache(interaction.client).catch(() => {});
 
-    return interaction.editReply(`✏ Updated **${run.runId}**. New score awarded: **${run.scoreAwarded}**.`);
+    return interaction.editReply(
+      `✏ Updated **${run.runId}**. New score awarded: **${run.scoreAwarded}**.` +
+        (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+    );
   } catch {
     return interaction.editReply("Invalid edit format. Keep the comma-separated format shown in each box.");
   }
 }
 
-// -------------------------
-// Proof uploads
-// -------------------------
 async function handleTrackerProofMessage(message) {
   try {
     if (!message.guild || message.author.bot) return;
@@ -1380,25 +1283,24 @@ async function handleTrackerProofMessage(message) {
       run._planetProofCounted = true;
     }
 
-    rebuildUserStats(store, run.loggerId);
     writeStore(store);
 
-    await checkAndAwardMedals(message.client, message.guild.id, run.loggerId).catch(console.error);
+    const unlockedMedals = medalService.evaluateAndStore(run.loggerId);
 
     await editRunMessage(message.client, run);
     await ensureLeaderboardMessage(message.guild, store).catch(() => {});
     await refreshOpsBoardFromCache(message.client).catch(() => {});
     await message
-      .reply(`✅ Proof accepted for **${run.runId}** — score changed from **${previousAwarded}** to **${run.scoreAwarded}**.`)
+      .reply(
+        `✅ Proof accepted for **${run.runId}** — score changed from **${previousAwarded}** to **${run.scoreAwarded}**.` +
+          (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+      )
       .catch(() => {});
   } catch (e) {
     console.error("handleTrackerProofMessage error:", e);
   }
 }
 
-// -------------------------
-// Expiry
-// -------------------------
 async function expireSingleRun(client, store, run) {
   if (run.status === "deleted") return;
 
@@ -1406,12 +1308,10 @@ async function expireSingleRun(client, store, run) {
 
   if (Date.now() > run.proofExpireAt && run.status === "awaiting_proof") {
     finalizeUnverified(store, run);
-    rebuildUserStats(store, run.loggerId);
   }
 
   if (beforeState !== run.status || controlsState(run, Date.now()) === "none") {
     writeStore(store);
-    await checkAndAwardMedals(client, run.guildId, run.loggerId).catch(console.error);
     await editRunMessage(client, run).catch(() => {});
     await refreshOpsBoardFromCache(client).catch(() => {});
   }
@@ -1420,7 +1320,6 @@ async function expireSingleRun(client, store, run) {
 async function expireTrackerControls(client) {
   const store = readStore();
   let changed = false;
-  const touchedUsers = new Set();
 
   for (const run of store.runs) {
     if (run.status === "deleted") continue;
@@ -1429,7 +1328,6 @@ async function expireTrackerControls(client) {
 
     if (Date.now() > run.proofExpireAt && run.status === "awaiting_proof") {
       finalizeUnverified(store, run);
-      touchedUsers.add(run.loggerId);
       changed = true;
     }
 
@@ -1444,14 +1342,6 @@ async function expireTrackerControls(client) {
   }
 
   if (changed) {
-    for (const userId of touchedUsers) {
-      rebuildUserStats(store, userId);
-      const sampleRun = store.runs.find((r) => r.loggerId === userId && r.guildId);
-      if (sampleRun) {
-        await checkAndAwardMedals(client, sampleRun.guildId, userId).catch(console.error);
-      }
-    }
-
     writeStore(store);
 
     const guildIds = [...new Set(store.runs.map((r) => r.guildId))];
