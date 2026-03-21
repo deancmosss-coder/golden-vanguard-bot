@@ -1,6 +1,16 @@
+// =========================
+// index.js
+// CLEAN CORE FILE
+// No automated permission sync logic
+// =========================
+
 require("dotenv").config();
 
-const { getCommandListEmbed } = require("./embeds/commandList");
+const {
+  getPlayerCommandsEmbed,
+  getAdminCommandsEmbed,
+} = require("./embeds/commandList");
+
 const fs = require("fs");
 const path = require("path");
 const cron = require("node-cron");
@@ -13,6 +23,7 @@ const {
   ActionRowBuilder,
   Events,
   StringSelectMenuBuilder,
+  PermissionsBitField,
 } = require("discord.js");
 
 const { setupVoiceHubs } = require("./voiceHubs");
@@ -484,9 +495,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
+      // PLAYER COMMAND LIST
       if (interaction.commandName === "commands") {
         return interaction.reply({
-          embeds: [getCommandListEmbed()],
+          embeds: [getPlayerCommandsEmbed()],
+        });
+      }
+
+      // ADMIN COMMAND LIST
+      if (interaction.commandName === "admincommands") {
+        const hasAdminPerms =
+          interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator);
+
+        if (!hasAdminPerms) {
+          return interaction.reply({
+            content: "❌ You do not have permission to view this.",
+            ephemeral: true,
+          });
+        }
+
+        return interaction.reply({
+          embeds: [getAdminCommandsEmbed()],
+          ephemeral: true,
         });
       }
 
