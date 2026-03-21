@@ -1,63 +1,92 @@
 const { EmbedBuilder } = require("discord.js");
 
-function getCommandListEmbed() {
+// 🟡 PLAYER COMMANDS
+function getPlayerCommandsEmbed() {
   return new EmbedBuilder()
     .setColor(0xD4AF37)
     .setTitle("🟡 GOLDEN VANGUARD — COMMAND LIST")
     .setDescription("This is the list of commands that any user can use")
+
     .addFields(
       {
         name: "🪖 Squad System",
         value:
           "`/asktoplay` — (create a squad recruitment post)\n" +
-          "`/join` — (join a squad via button system)\n" +
-          "`/leave` — (leave a squad/session)\n" +
-          "`/session` — (view current squad details)",
+          "`/join` — (join a squad)\n" +
+          "`/leave` — (leave a squad)\n" +
+          "`/session` — (view squad)",
       },
       {
         name: "🛰️ War System",
         value:
-          "`/war` — (view current major order & war progress)\n" +
-          "`/warstatus` — (see planet progress & faction control)",
+          "`/war` — (view major order)\n" +
+          "`/warstatus` — (planet progress)",
       },
       {
         name: "📊 Player Stats",
         value:
-          "`/stats` — (view your personal stats)\n" +
-          "`/rank` — (check your current rank & progression)\n" +
-          "`/leaderboard` — (view top players)",
+          "`/stats` — (your stats)\n" +
+          "`/rank` — (your rank)\n" +
+          "`/leaderboard` — (top players)",
       },
       {
-        name: "📝 Reports & Logs",
+        name: "📝 Reports",
         value:
-          "`/aar` — (submit after action report)\n" +
-          "`/missions` — (view recent operations)",
+          "`/aar` — (submit report)\n" +
+          "`/missions` — (recent ops)",
       },
       {
         name: "📡 Server Tools",
         value:
-          "`/server` — (report a server issue)\n" +
-          "`/ping` — (ping for squad / teammates)",
-      },
-      {
-        name: "🔴 ADMIN / HIGH COMMAND",
-        value:
-          "`/promote` — (promote a user)\n" +
-          "`/demote` — (demote a user)\n" +
-          "`/assign` — (assign division)\n" +
-          "`/warupdate` — (update war board)\n" +
-          "`/resetleaderboard` — (reset stats)\n" +
-          "`/warn` — (warn user)\n" +
-          "`/mute` — (mute user)\n" +
-          "`/kick` — (kick user)\n" +
-          "`/ban` — (ban user)\n" +
-          "`/fixsession` — (fix session)\n" +
-          "`/log` — (log entry)",
+          "`/server` — (report issue)\n" +
+          "`/ping` — (find squad)",
       }
     )
+
     .setFooter({
       text: "Done reading? Head to #squad-lfg to deploy.",
     });
 }
 
-module.exports = { getCommandListEmbed };
+// 🔴 ADMIN COMMANDS
+function getAdminCommandsEmbed() {
+  return new EmbedBuilder()
+    .setColor(0xE74C3C)
+    .setTitle("🔴 HIGH COMMAND — ADMIN COMMANDS")
+    .setDescription("Restricted to High Command & Moderators")
+
+    .addFields(
+      {
+        name: "🧠 Rank Management",
+        value:
+          "`/promote` — promote user\n" +
+          "`/demote` — demote user\n" +
+          "`/assign` — assign division",
+      },
+      {
+        name: "🗺️ War Control",
+        value:
+          "`/warupdate` — refresh war board\n" +
+          "`/resetleaderboard` — reset stats",
+      },
+      {
+        name: "🧾 Moderation",
+        value:
+          "`/warn` — warn user\n" +
+          "`/mute` — mute user\n" +
+          "`/kick` — kick user\n" +
+          "`/ban` — ban user",
+      },
+      {
+        name: "🛠️ System Tools",
+        value:
+          "`/fixsession` — fix session\n" +
+          "`/log` — log entry",
+      }
+    );
+}
+
+module.exports = {
+  getPlayerCommandsEmbed,
+  getAdminCommandsEmbed,
+};
