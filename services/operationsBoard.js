@@ -116,9 +116,9 @@ function extractPlanetNames(warData) {
 function inferFactionFromText(text) {
   const t = String(text || "").toLowerCase();
 
-  if (t.includes("terminid") || t.includes("bugs") || t.includes("bug")) return "Terminids";
-  if (t.includes("automaton") || t.includes("bots") || t.includes("bot")) return "Automatons";
   if (t.includes("illuminate") || t.includes("squid") || t.includes("squids")) return "Illuminate";
+  if (t.includes("automaton") || t.includes("bots") || t.includes("bot")) return "Automatons";
+  if (t.includes("terminid") || t.includes("bugs") || t.includes("bug")) return "Terminids";
 
   return "Unknown";
 }
@@ -218,7 +218,7 @@ function formatNumberShort(num) {
   return String(n);
 }
 
-function progressBar(percent, size = 10) {
+function progressBar(percent, size = 12) {
   const p = Math.max(0, Math.min(100, Number(percent || 0)));
   const filled = Math.round((p / 100) * size);
   return "█".repeat(filled) + "░".repeat(size - filled);
@@ -255,72 +255,6 @@ function getTaskValue(task, desiredValueType) {
   return task.values[idx] ?? null;
 }
 
-function extractMoTaskLines(warData, majorOrder) {
-  const setting = majorOrder?.setting || {};
-  const tasks = Array.isArray(setting.tasks) ? setting.tasks : [];
-  if (!tasks.length) return ["_No objectives found._"];
-
-  const lines = [];
-
-  for (const task of tasks) {
-    const type = Number(task?.type || 0);
-
-    // type 3 appears to be kill objective
-    if (type === 3) {
-      const current = Number(majorOrder?.progress?.[1] || 0);
-      const target = Number(majorOrder?.progress?.[0] || 0);
-      const factionCode = Number(getTaskValue(task, 2) || 0);
-      const planetIndex = getTaskValue(task, 12);
-      const planetName =
-        resolvePlanetNameByIndex(warData, planetIndex) ||
-        extractPlanetNamesFromBrief(setting.overrideBrief || "")[0] ||
-        "Unknown Planet";
-
-      let faction = "Unknown";
-      if (factionCode === 3 || factionCode === 4) {
-        faction = inferFactionFromText(setting.overrideBrief || "");
-      } else if (factionCode === 1) {
-        faction = "Terminids";
-      } else if (factionCode === 2) {
-        faction = "Automatons";
-      } else if (factionCode === 4) {
-        faction = "Illuminate";
-      }
-
-      const percent = target > 0 ? ((current / target) * 100) : 0;
-
-      lines.push(
-        `• Kill **${formatNumberShort(target)}** ${faction} on **${planetName}**\n` +
-        `  ${progressBar(percent)} **${percent.toFixed(1)}%** (${formatNumberShort(current)}/${formatNumberShort(target)})`
-      );
-      continue;
-    }
-
-    // type 13 appears to be hold / defend planet objective
-    if (type === 13) {
-      const planetIndex = getTaskValue(task, 12);
-      const planetName =
-        resolvePlanetNameByIndex(warData, planetIndex) ||
-        extractPlanetNamesFromBrief(setting.overrideBrief || "")[1] ||
-        "Unknown Planet";
-
-      lines.push(`• Hold **${planetName}** when the order expires`);
-      continue;
-    }
-
-    // fallback
-    const rawPlanetIndex = getTaskValue(task, 12);
-    const planetName = resolvePlanetNameByIndex(warData, rawPlanetIndex);
-    if (planetName) {
-      lines.push(`• Objective on **${planetName}**`);
-    } else {
-      lines.push(`• Objective Type **${type}**`);
-    }
-  }
-
-  return lines.slice(0, 5);
-}
-
 function extractMoTargetPlanets(warData, majorOrder) {
   if (!majorOrder) return [];
 
@@ -343,11 +277,13 @@ function extractMoTargetPlanets(warData, majorOrder) {
 function getMoFaction(majorOrder) {
   if (!majorOrder) return "Unknown";
   const setting = majorOrder.setting || {};
-  return inferFactionFromText(
+  const faction = inferFactionFromText(
     [setting.overrideTitle, setting.overrideBrief, setting.taskDescription]
       .filter(Boolean)
       .join(" ")
   );
+
+  return faction === "Unknown" ? "Illuminate" : faction;
 }
 
 function getMoRewardText(majorOrder) {
@@ -367,6 +303,64 @@ function getMoExpiryText(majorOrder) {
   return `<t:${future}:R>`;
 }
 
+function extractMoTaskLines(warData, majorOrder, moFaction) {
+  const setting = majorOrder?.setting || {};
+  const tasks = Array.isArray(setting.tasks) ? setting.tasks : [];
+  if (!tasks.length) return ["_No objectives found._"];
+
+  const lines = [];
+
+  for (const task of tasks) {
+    const type = Number(task?.type || 0);
+
+    if (type === 3) {
+      const target = Number(majorOrder?.progress?.[0] || 0);
+      let current = Number(majorOrder?.progress?.[1] || 0);
+
+      const planetIndex = getTaskValue(task, 12);
+      const planetName =
+        resolvePlanetNameByIndex(warData, planetIndex) ||
+        extractPlanetNamesFromBrief(setting.overrideBrief || "")[0] ||
+        "Unknown Planet";
+
+      const faction = moFaction || "Illuminate";
+
+      // If the current progress is obviously tiny and unreliable, do not show fake percent.
+      if (current < 1000000 && target >= 100000000) {
+        lines.push(`• Kill **${formatNumberShort(target)} ${faction}** on **${planetName}**`);
+      } else {
+        const percent = target > 0 ? ((current / target) * 100) : 0;
+        lines.push(
+          `• Kill **${formatNumberShort(target)} ${faction}** on **${planetName}**\n` +
+          `  ${progressBar(percent)} **${percent.toFixed(1)}%** (${formatNumberShort(current)}/${formatNumberShort(target)})`
+        );
+      }
+      continue;
+    }
+
+    if (type === 13) {
+      const planetIndex = getTaskValue(task, 12);
+      const planetName =
+        resolvePlanetNameByIndex(warData, planetIndex) ||
+        extractPlanetNamesFromBrief(setting.overrideBrief || "")[1] ||
+        "Unknown Planet";
+
+      lines.push(`• Hold **${planetName}** when the order expires`);
+      continue;
+    }
+
+    const rawPlanetIndex = getTaskValue(task, 12);
+    const planetName = resolvePlanetNameByIndex(warData, rawPlanetIndex);
+    if (planetName) {
+      lines.push(`• Objective on **${planetName}**`);
+    } else {
+      lines.push(`• Objective Type **${type}**`);
+    }
+  }
+
+  return lines.slice(0, 5);
+}
+
 function buildMajorOrderText(warData, majorOrder) {
   if (!majorOrder) return "_No active major order found._";
 
@@ -377,7 +371,7 @@ function buildMajorOrderText(warData, majorOrder) {
   const faction = getMoFaction(majorOrder);
   const rewardText = getMoRewardText(majorOrder);
   const expiryText = getMoExpiryText(majorOrder);
-  const taskLines = extractMoTaskLines(warData, majorOrder);
+  const taskLines = extractMoTaskLines(warData, majorOrder, faction);
 
   return [
     `**${title}**`,
