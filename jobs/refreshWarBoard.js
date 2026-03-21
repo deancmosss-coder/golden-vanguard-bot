@@ -2,15 +2,24 @@ const { syncWarData } = require("../services/warSync");
 const { updateOperationsBoard } = require("../services/operationsBoard");
 
 async function refreshWarBoard(client) {
-  console.log("[WAR BOARD] refreshWarBoard started");
+  try {
+    console.log("[WAR BOARD] Refresh starting...");
 
-  const warData = await syncWarData();
+    // 🔁 ALWAYS pull fresh data from API
+    const warData = await syncWarData();
 
-  console.log("[WAR BOARD] Loaded cache keys:", Object.keys(warData || {}));
+    if (!warData) {
+      console.log("[WAR BOARD] No war data returned");
+      return;
+    }
 
-  await updateOperationsBoard(client, warData);
+    // 🧠 Update board with fresh data
+    await updateOperationsBoard(client, warData);
 
-  console.log("[WAR BOARD] refreshWarBoard finished");
+    console.log("[WAR BOARD] Refresh complete");
+  } catch (err) {
+    console.error("[WAR BOARD] Refresh failed:", err);
+  }
 }
 
 module.exports = { refreshWarBoard };
