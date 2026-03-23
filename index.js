@@ -242,9 +242,7 @@ function buildWelcomeEmbed(member, memberCount) {
     .setTitle("🛡 WELCOME TO THE GOLDEN VANGUARD 🛡")
     .setDescription(
       [
-        `Welcome ${member}!`,
-        "",
-        `${member.user.username}, you have entered the Golden Vanguard.`,
+        `Welcome ${member.user.username}, you have entered the Golden Vanguard!`,
         "",
         "The Golden Vanguard is a tactical squad-finding command hub built to:",
         "• Develop your playstyle",
