@@ -34,10 +34,8 @@ const CONFIG = {
   recruitRoleId: (process.env.ORIENTATION_RECRUIT_ROLE_ID || "").trim(),
   trooperRoleId: (process.env.ORIENTATION_TROOPER_ROLE_ID || "").trim(),
 
-  // ✅ NEW
   sergeantRoleId: (process.env.ORIENTATION_SERGEANT_ROLE_ID || "").trim(),
   seniorOfficerRoleId: (process.env.ORIENTATION_SENIOR_OFFICER_ROLE_ID || "").trim(),
-
   strikeCaptainRoleId: (process.env.ORIENTATION_STRIKE_CAPTAIN_ROLE_ID || "").trim(),
   highCommandRoleId: (process.env.ORIENTATION_HIGH_COMMAND_ROLE_ID || "").trim(),
   vanguardPrimeRoleId: (process.env.ORIENTATION_VANGUARD_PRIME_ROLE_ID || "").trim(),
@@ -52,7 +50,6 @@ const CONFIG = {
   minVcMinutes: Number(process.env.ORIENTATION_MIN_VC_MINUTES || 10),
 };
 
-// ✅ UPDATED APPROVERS (Sergeant+)
 CONFIG.approverRoleIds = [
   CONFIG.sergeantRoleId,
   CONFIG.seniorOfficerRoleId,
@@ -61,7 +58,6 @@ CONFIG.approverRoleIds = [
   CONFIG.vanguardPrimeRoleId,
 ].filter(Boolean);
 
-// ✅ UPDATED SUPERVISORS (Sergeant+)
 CONFIG.supervisorRoleIds = [
   CONFIG.sergeantRoleId,
   CONFIG.seniorOfficerRoleId,
@@ -176,7 +172,10 @@ function isApprover(member) {
 async function announcePromotion(client, member, approverMember) {
   if (!CONFIG.promotionAnnounceChannelId) return;
 
-  const channel = await client.channels.fetch(CONFIG.promotionAnnounceChannelId).catch(() => null);
+  const channel = await client.channels
+    .fetch(CONFIG.promotionAnnounceChannelId)
+    .catch(() => null);
+
   if (!channel?.isTextBased()) return;
 
   return channel.send({
@@ -198,14 +197,27 @@ async function announcePromotion(client, member, approverMember) {
    ========================= */
 async function approvePromotion(guild, targetUserId, approverMember, interaction = null) {
   const member = await guild.members.fetch(targetUserId).catch(() => null);
-  if (!member) return;
+
+  if (!member) {
+    if (interaction) {
+      await interaction.editReply({
+        content: "❌ Could not find that member.",
+        components: [],
+      }).catch(() => {});
+    }
+    return;
+  }
 
   if (CONFIG.recruitRoleId) {
-    await member.roles.remove(CONFIG.recruitRoleId).catch(() => {});
+    await member.roles.remove(CONFIG.recruitRoleId).catch((err) => {
+      console.error("[orientationSystem] Failed to remove recruit role:", err);
+    });
   }
 
   if (CONFIG.trooperRoleId) {
-    await member.roles.add(CONFIG.trooperRoleId).catch(() => {});
+    await member.roles.add(CONFIG.trooperRoleId).catch((err) => {
+      console.error("[orientationSystem] Failed to add trooper role:", err);
+    });
   }
 
   updateRecruit(targetUserId, {
@@ -214,10 +226,17 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     promotedBy: approverMember.id,
   });
 
-  await announcePromotion(guild.client, member, approverMember);
+  await announcePromotion(guild.client, member, approverMember).catch((err) => {
+    console.error("[orientationSystem] Failed to announce promotion:", err);
+  });
 
   if (interaction) {
-    await interaction.update({ components: [] }).catch(() => {});
+    await interaction.editReply({
+      content: `✅ ${member} has been approved and promoted to **Trooper**.`,
+      components: [],
+    }).catch((err) => {
+      console.error("[orientationSystem] Failed to edit deferred interaction reply:", err);
+    });
   }
 }
 
@@ -234,9 +253,15 @@ async function handleOrientationButton(interaction) {
       await interaction.reply({
         content: "Only Sergeant or higher can approve promotions.",
         ephemeral: true,
+      }).catch((err) => {
+        console.error("[orientationSystem] Failed to reply to non-approver:", err);
       });
       return true;
     }
+
+    await interaction.deferUpdate().catch((err) => {
+      console.error("[orientationSystem] Failed to defer button interaction:", err);
+    });
 
     const targetUserId = customId.split("_").pop();
     await approvePromotion(guild, targetUserId, member, interaction);
@@ -247,13 +272,75 @@ async function handleOrientationButton(interaction) {
 }
 
 /* =========================
-   VOICE TRACKING (UNCHANGED)
+   VOICE TRACKING
    ========================= */
 function handleVoiceStateUpdate(oldState, newState) {
   const guild = newState.guild || oldState.guild;
   if (!guild) return;
 
-  // existing logic stays
+  const member = newState.member || oldState.member;
+  if (!member || member.user?.bot) return;
+
+  const oldChannel = oldState.channel;
+  const newChannel = newState.channel;
+  const now = Date.now();
+
+  const session = activeVcSessions.get(member.id);
+
+  const isTrackedChannel = (channel) => {
+    if (!channel) return false;
+    if (!CONFIG.vcCategoryId) return true;
+    return channel.parentId === CONFIG.vcCategoryId;
+  };
+
+  if (!oldChannel && newChannel && isTrackedChannel(newChannel)) {
+    activeVcSessions.set(member.id, {
+      channelId: newChannel.id,
+      joinedAt: now,
+    });
+    return;
+  }
+
+  if (oldChannel && !newChannel && session) {
+    const minutes = Math.floor((now - session.joinedAt) / 60000);
+    activeVcSessions.delete(member.id);
+
+    if (minutes >= CONFIG.minVcMinutes) {
+      const recruit = ensureRecruit(member.id);
+      updateRecruit(member.id, {
+        deploymentComplete: true,
+        deploymentCompletedAt: new Date().toISOString(),
+        lastDeploymentChannelId: oldChannel.id,
+        lastSupervisorId: recruit.lastSupervisorId || null,
+      });
+    }
+    return;
+  }
+
+  if (oldChannel && newChannel && oldChannel.id !== newChannel.id) {
+    if (session) {
+      const minutes = Math.floor((now - session.joinedAt) / 60000);
+
+      if (minutes >= CONFIG.minVcMinutes && isTrackedChannel(oldChannel)) {
+        const recruit = ensureRecruit(member.id);
+        updateRecruit(member.id, {
+          deploymentComplete: true,
+          deploymentCompletedAt: new Date().toISOString(),
+          lastDeploymentChannelId: oldChannel.id,
+          lastSupervisorId: recruit.lastSupervisorId || null,
+        });
+      }
+    }
+
+    if (isTrackedChannel(newChannel)) {
+      activeVcSessions.set(member.id, {
+        channelId: newChannel.id,
+        joinedAt: now,
+      });
+    } else {
+      activeVcSessions.delete(member.id);
+    }
+  }
 }
 
 /* =========================
@@ -266,4 +353,7 @@ module.exports = {
   updateRecruit,
   handleOrientationButton,
   handleVoiceStateUpdate,
+  isRecruitMember,
+  isSupervisor,
+  isApprover,
 };
