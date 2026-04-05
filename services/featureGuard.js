@@ -1,214 +1,172 @@
-// services/featureRegistry.js
-const fs = require("fs");
-const path = require("path");
+// services/featureGuard.js
 const logger = require("./logger");
+const { sendAlert, sendErrorAlert } = require("./alertService");
+const registry = require("./featureRegistry");
 
-const DATA_DIR = path.join(__dirname, "..", "data");
-const STATE_PATH = path.join(DATA_DIR, "featureState.json");
+const DEFAULT_MAX_FAILURES = 3;
+const DEFAULT_RETRIES = 1;
 
-const DEFAULT_STATE = {
-  warboard: {
-    enabled: true,
-    failCount: 0,
-    lastError: null,
-    lastErrorAt: null,
-    lastSuccessAt: null,
-    pausedReason: null,
-  },
-  tracker: {
-    enabled: true,
-    failCount: 0,
-    lastError: null,
-    lastErrorAt: null,
-    lastSuccessAt: null,
-    pausedReason: null,
-  },
-  playerStats: {
-    enabled: true,
-    failCount: 0,
-    lastError: null,
-    lastErrorAt: null,
-    lastSuccessAt: null,
-    pausedReason: null,
-  },
-  askToPlay: {
-    enabled: true,
-    failCount: 0,
-    lastError: null,
-    lastErrorAt: null,
-    lastSuccessAt: null,
-    pausedReason: null,
-  },
-  orientation: {
-    enabled: true,
-    failCount: 0,
-    lastError: null,
-    lastErrorAt: null,
-    lastSuccessAt: null,
-    pausedReason: null,
-  },
-  voiceTracking: {
-    enabled: true,
-    failCount: 0,
-    lastError: null,
-    lastErrorAt: null,
-    lastSuccessAt: null,
-    pausedReason: null,
-  },
-  leaderboard: {
-    enabled: true,
-    failCount: 0,
-    lastError: null,
-    lastErrorAt: null,
-    lastSuccessAt: null,
-    pausedReason: null,
-  },
-};
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+async function runProtected(client, options = {}) {
+  const {
+    feature,
+    action = "Running protected feature",
+    location = "unknown",
+    likelyCause = "Unknown",
+    retries = DEFAULT_RETRIES,
+    retryDelayMs = 1000,
+    maxFailures = DEFAULT_MAX_FAILURES,
+    announceIsolation = false,
+    announceChannelId = null,
+    job,
+  } = options;
+
+  if (!feature || typeof job !== "function") {
+    throw new Error("runProtected requires both 'feature' and 'job'.");
   }
-}
 
-function cloneDefault() {
-  return JSON.parse(JSON.stringify(DEFAULT_STATE));
-}
+  if (!registry.isFeatureEnabled(feature)) {
+    logger.warn(`Skipped disabled feature: ${feature}`, {
+      feature,
+      location,
+    });
 
-function buildFeatureState(existing = {}) {
+    return {
+      ok: false,
+      skipped: true,
+      disabled: true,
+    };
+  }
+
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+    try {
+      const result = await job();
+
+      registry.registerSuccess(feature);
+
+      if (attempt > 1) {
+        logger.info(`Feature recovered after retry: ${feature}`, {
+          feature,
+          location,
+          attempt,
+        });
+
+        await sendAlert(client, {
+          title: `${feature} recovered`,
+          description: `The **${feature}** feature recovered successfully on retry ${attempt}.`,
+          severity: "success",
+          fields: [
+            { name: "Feature", value: feature, inline: true },
+            { name: "Location", value: location, inline: true },
+            { name: "Attempts", value: String(attempt), inline: true },
+          ],
+        });
+      }
+
+      return {
+        ok: true,
+        skipped: false,
+        disabled: false,
+        result,
+      };
+    } catch (err) {
+      lastError = err;
+      const featureState = registry.registerFailure(feature, err);
+
+      logger.error(`Protected feature failed: ${feature}`, err, {
+        feature,
+        location,
+        action,
+        attempt,
+        failCount: featureState.failCount,
+      });
+
+      if (attempt <= retries) {
+        await sendErrorAlert(client, `${feature} retrying`, err, {
+          feature,
+          location,
+          action,
+          likelyCause,
+          severity: "warning",
+        });
+
+        await delay(retryDelayMs);
+        continue;
+      }
+
+      if (featureState.failCount >= maxFailures) {
+        const pauseReason = `Disabled after ${featureState.failCount} consecutive failure(s).`;
+        registry.disableFeature(feature, pauseReason);
+
+        logger.warn(`Feature disabled after repeated failures: ${feature}`, {
+          feature,
+          location,
+          failCount: featureState.failCount,
+          pauseReason,
+        });
+
+        await sendErrorAlert(client, `${feature} isolated`, err, {
+          feature,
+          location,
+          action,
+          likelyCause,
+          severity: "critical",
+        });
+
+        await sendAlert(client, {
+          title: `${feature} paused`,
+          description:
+            `The **${feature}** feature has been temporarily disabled after repeated failures.\n\n` +
+            `Reason: ${pauseReason}`,
+          severity: "warning",
+          fields: [
+            { name: "Feature", value: feature, inline: true },
+            { name: "Location", value: location, inline: true },
+            { name: "Fail Count", value: String(featureState.failCount), inline: true },
+          ],
+        });
+
+        if (announceIsolation && announceChannelId) {
+          try {
+            const ch = await client.channels.fetch(announceChannelId).catch(() => null);
+            if (ch?.isTextBased()) {
+              await ch.send(
+                `⚠️ **Bot Notice**\nThe **${feature}** feature has been temporarily paused after repeated errors. Staff have been alerted.`
+              );
+            }
+          } catch (announceErr) {
+            logger.error("Failed to send isolation announcement", announceErr, {
+              feature,
+              location,
+              announceChannelId,
+            });
+          }
+        }
+      } else {
+        await sendErrorAlert(client, `${feature} failed`, err, {
+          feature,
+          location,
+          action,
+          likelyCause,
+          severity: "error",
+        });
+      }
+    }
+  }
+
   return {
-    enabled: existing.enabled ?? true,
-    failCount: existing.failCount ?? 0,
-    lastError: existing.lastError ?? null,
-    lastErrorAt: existing.lastErrorAt ?? null,
-    lastSuccessAt: existing.lastSuccessAt ?? null,
-    pausedReason: existing.pausedReason ?? null,
+    ok: false,
+    skipped: false,
+    disabled: !registry.isFeatureEnabled(feature),
+    error: lastError,
   };
 }
 
-function mergeState(existing = {}) {
-  const base = cloneDefault();
-
-  for (const [featureName, featureState] of Object.entries(existing || {})) {
-    base[featureName] = buildFeatureState(featureState);
-  }
-
-  return base;
-}
-
-function readState() {
-  try {
-    ensureDataDir();
-
-    if (!fs.existsSync(STATE_PATH)) {
-      const initial = cloneDefault();
-      fs.writeFileSync(STATE_PATH, JSON.stringify(initial, null, 2), "utf8");
-      return initial;
-    }
-
-    const raw = fs.readFileSync(STATE_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    return mergeState(parsed);
-  } catch (err) {
-    logger.error("Failed to read feature state", err, {
-      location: "featureRegistry.readState",
-    });
-    return cloneDefault();
-  }
-}
-
-function writeState(state) {
-  try {
-    ensureDataDir();
-    fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), "utf8");
-  } catch (err) {
-    logger.error("Failed to write feature state", err, {
-      location: "featureRegistry.writeState",
-    });
-  }
-}
-
-function ensureFeatureExists(featureName) {
-  const state = readState();
-
-  if (!state[featureName]) {
-    state[featureName] = buildFeatureState();
-    writeState(state);
-  }
-
-  return state;
-}
-
-function getAllFeatures() {
-  return readState();
-}
-
-function getFeature(featureName) {
-  const state = ensureFeatureExists(featureName);
-  return state[featureName];
-}
-
-function isFeatureEnabled(featureName) {
-  return Boolean(getFeature(featureName).enabled);
-}
-
-function registerSuccess(featureName) {
-  const state = ensureFeatureExists(featureName);
-
-  state[featureName].failCount = 0;
-  state[featureName].lastSuccessAt = new Date().toISOString();
-  state[featureName].pausedReason = null;
-
-  writeState(state);
-  return state[featureName];
-}
-
-function registerFailure(featureName, err) {
-  const state = ensureFeatureExists(featureName);
-
-  state[featureName].failCount += 1;
-  state[featureName].lastError = err?.message || String(err || "Unknown error");
-  state[featureName].lastErrorAt = new Date().toISOString();
-
-  writeState(state);
-  return state[featureName];
-}
-
-function disableFeature(featureName, reason = "Disabled after repeated failures") {
-  const state = ensureFeatureExists(featureName);
-
-  state[featureName].enabled = false;
-  state[featureName].pausedReason = reason;
-
-  writeState(state);
-  return state[featureName];
-}
-
-function enableFeature(featureName) {
-  const state = ensureFeatureExists(featureName);
-
-  state[featureName].enabled = true;
-  state[featureName].failCount = 0;
-  state[featureName].pausedReason = null;
-
-  writeState(state);
-  return state[featureName];
-}
-
-function resetFeature(featureName) {
-  const state = readState();
-  state[featureName] = buildFeatureState();
-  writeState(state);
-  return state[featureName];
-}
-
 module.exports = {
-  getAllFeatures,
-  getFeature,
-  isFeatureEnabled,
-  registerSuccess,
-  registerFailure,
-  disableFeature,
-  enableFeature,
-  resetFeature,
+  runProtected,
 };
