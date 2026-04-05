@@ -1,5 +1,7 @@
+// services/warSync.js
 const fs = require("fs");
 const path = require("path");
+const logger = require("./logger");
 const {
   getStatus,
   getInfo,
@@ -20,8 +22,14 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
 }
 
+function formatApiError(err) {
+  return err?.response?.status
+    ? `HTTP ${err.response.status}`
+    : err?.message || "Unknown error";
+}
+
 async function syncWarData() {
-  console.log("[WAR SYNC] Starting sync...");
+  logger.info("[WAR SYNC] Starting sync...");
 
   let status = null;
   let info = null;
@@ -29,39 +37,61 @@ async function syncWarData() {
   let planets = {};
   let majorOrders = [];
 
+  const failures = [];
+
   try {
     status = await getStatus();
-    console.log("[WAR SYNC] status OK");
+    logger.info("[WAR SYNC] status OK");
   } catch (err) {
-    console.error("[WAR SYNC] status failed:", err.response?.status || err.message);
+    failures.push(`status: ${formatApiError(err)}`);
+    logger.warn("[WAR SYNC] status failed", {
+      location: "services/warSync.js -> syncWarData",
+      error: formatApiError(err),
+    });
   }
 
   try {
     info = await getInfo();
-    console.log("[WAR SYNC] info OK");
+    logger.info("[WAR SYNC] info OK");
   } catch (err) {
-    console.error("[WAR SYNC] info failed:", err.response?.status || err.message);
+    failures.push(`info: ${formatApiError(err)}`);
+    logger.warn("[WAR SYNC] info failed", {
+      location: "services/warSync.js -> syncWarData",
+      error: formatApiError(err),
+    });
   }
 
   try {
     campaign = await getCampaign();
-    console.log("[WAR SYNC] campaign OK");
+    logger.info("[WAR SYNC] campaign OK");
   } catch (err) {
-    console.error("[WAR SYNC] campaign failed:", err.response?.status || err.message);
+    failures.push(`campaign: ${formatApiError(err)}`);
+    logger.warn("[WAR SYNC] campaign failed", {
+      location: "services/warSync.js -> syncWarData",
+      error: formatApiError(err),
+    });
   }
 
   try {
     planets = await getPlanets();
-    console.log("[WAR SYNC] planets OK");
+    logger.info("[WAR SYNC] planets OK");
   } catch (err) {
-    console.error("[WAR SYNC] planets failed:", err.response?.status || err.message);
+    failures.push(`planets: ${formatApiError(err)}`);
+    logger.warn("[WAR SYNC] planets failed", {
+      location: "services/warSync.js -> syncWarData",
+      error: formatApiError(err),
+    });
   }
 
   try {
     majorOrders = await getMajorOrders();
-    console.log("[WAR SYNC] majorOrders OK");
+    logger.info("[WAR SYNC] majorOrders OK");
   } catch (err) {
-    console.error("[WAR SYNC] majorOrders failed:", err.response?.status || err.message);
+    failures.push(`majorOrders: ${formatApiError(err)}`);
+    logger.warn("[WAR SYNC] majorOrders failed", {
+      location: "services/warSync.js -> syncWarData",
+      error: formatApiError(err),
+    });
   }
 
   const payload = {
@@ -75,8 +105,27 @@ async function syncWarData() {
 
   writeJson(CACHE_FILE, payload);
 
-  console.log("[WAR SYNC] Sync complete");
-  console.log("[WAR SYNC] MO count:", Array.isArray(majorOrders) ? majorOrders.length : 0);
+  logger.info("[WAR SYNC] Sync complete", {
+    majorOrderCount: Array.isArray(majorOrders) ? majorOrders.length : 0,
+    failures,
+  });
+
+  const hasAnyCoreData =
+    Boolean(status) ||
+    Boolean(info) ||
+    (Array.isArray(campaign) && campaign.length > 0) ||
+    (planets && Object.keys(planets).length > 0) ||
+    (Array.isArray(majorOrders) && majorOrders.length > 0);
+
+  if (!hasAnyCoreData) {
+    const err = new Error(
+      `War sync returned no usable data. Failures: ${failures.join(" | ") || "unknown"}`
+    );
+    logger.error("[WAR SYNC] No usable data returned", err, {
+      location: "services/warSync.js -> syncWarData",
+    });
+    throw err;
+  }
 
   return payload;
 }
