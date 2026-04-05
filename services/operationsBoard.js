@@ -1,6 +1,8 @@
+// services/operationsBoard.js
 const fs = require("fs");
 const path = require("path");
 const { EmbedBuilder } = require("discord.js");
+const logger = require("./logger");
 
 const BOARD_CONFIG = path.join(__dirname, "..", "data", "boardConfig.json");
 const TRACKER_STORE = path.join(__dirname, "..", "tracker_store.json");
@@ -8,13 +10,26 @@ const TRACKER_STORE = path.join(__dirname, "..", "tracker_store.json");
 function readJson(file, fallback = {}) {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
+  } catch (err) {
+    logger.warn("Failed to read JSON file, using fallback", {
+      location: "services/operationsBoard.js -> readJson",
+      file,
+      error: err.message,
+    });
     return fallback;
   }
 }
 
 function writeJson(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+  try {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    logger.error("Failed to write JSON file", err, {
+      location: "services/operationsBoard.js -> writeJson",
+      file,
+    });
+    throw err;
+  }
 }
 
 function topEntry(obj) {
@@ -391,14 +406,17 @@ function buildPlanetContribution(store) {
 }
 
 async function updateOperationsBoard(client, warData) {
-  console.log("[WAR BOARD] updateOperationsBoard started");
+  logger.info("[WAR BOARD] updateOperationsBoard started");
 
   const cfg = readJson(BOARD_CONFIG, {});
-  console.log("[WAR BOARD] boardConfig:", cfg);
 
   if (!cfg.channelId) {
-    console.log("[WAR BOARD] No channelId found in boardConfig.json");
-    return;
+    const err = new Error("No channelId found in boardConfig.json");
+    logger.error("[WAR BOARD] Missing board channel config", err, {
+      location: "services/operationsBoard.js -> updateOperationsBoard",
+      configPath: BOARD_CONFIG,
+    });
+    throw err;
   }
 
   const tracker = readJson(TRACKER_STORE, {});
@@ -411,21 +429,25 @@ async function updateOperationsBoard(client, warData) {
   const topEnemy = topEntry(weeklyEnemies);
 
   const channel = await client.channels.fetch(cfg.channelId).catch((err) => {
-    console.error("[WAR BOARD] Failed fetching channel:", err.message);
+    logger.error("[WAR BOARD] Failed fetching board channel", err, {
+      location: "services/operationsBoard.js -> updateOperationsBoard",
+      channelId: cfg.channelId,
+    });
     return null;
   });
 
   if (!channel) {
-    console.log("[WAR BOARD] Channel not found");
-    return;
+    throw new Error(`War board channel not found: ${cfg.channelId}`);
   }
 
   if (!channel.isTextBased?.()) {
-    console.log("[WAR BOARD] Channel is not text-based");
-    return;
+    throw new Error(`War board channel is not text-based: ${cfg.channelId}`);
   }
 
-  console.log("[WAR BOARD] Found channel:", channel.name);
+  logger.info("[WAR BOARD] Found board channel", {
+    channelId: channel.id,
+    channelName: channel.name,
+  });
 
   const majorOrder = getPrimaryMajorOrder(warData);
   const warMap = buildWarMapLines(warData);
@@ -505,46 +527,84 @@ async function updateOperationsBoard(client, warData) {
 
   if (cfg.messageId) {
     message = await channel.messages.fetch(cfg.messageId).catch((err) => {
-      console.error("[WAR BOARD] Failed fetching message:", err.message);
+      logger.warn("[WAR BOARD] Failed fetching existing board message", {
+        location: "services/operationsBoard.js -> updateOperationsBoard",
+        messageId: cfg.messageId,
+        error: err.message,
+      });
       return null;
     });
   }
 
   if (!message) {
-    console.log("[WAR BOARD] No valid message found. Sending new one...");
+    logger.info("[WAR BOARD] No valid board message found, sending new one");
+
     message = await channel.send({ embeds: [embed] }).catch((err) => {
-      console.error("[WAR BOARD] Failed sending new message:", err.message);
+      logger.error("[WAR BOARD] Failed sending new board message", err, {
+        location: "services/operationsBoard.js -> updateOperationsBoard",
+        channelId: channel.id,
+      });
       return null;
     });
 
-    if (!message) return;
+    if (!message) {
+      throw new Error("Failed to create new war board message");
+    }
 
     cfg.messageId = message.id;
     writeJson(BOARD_CONFIG, cfg);
-    console.log("[WAR BOARD] Created new board message:", message.id);
+
+    logger.info("[WAR BOARD] Created new board message", {
+      messageId: message.id,
+    });
+
     return;
   }
 
   if (message.author.id !== client.user.id) {
-    console.log("[WAR BOARD] Existing message belongs to a user, not the bot. Sending new one...");
+    logger.warn("[WAR BOARD] Existing message belongs to a user, sending replacement", {
+      location: "services/operationsBoard.js -> updateOperationsBoard",
+      messageId: message.id,
+      authorId: message.author.id,
+    });
+
     const newMessage = await channel.send({ embeds: [embed] }).catch((err) => {
-      console.error("[WAR BOARD] Failed sending replacement message:", err.message);
+      logger.error("[WAR BOARD] Failed sending replacement board message", err, {
+        location: "services/operationsBoard.js -> updateOperationsBoard",
+        channelId: channel.id,
+      });
       return null;
     });
 
-    if (!newMessage) return;
+    if (!newMessage) {
+      throw new Error("Failed to create replacement war board message");
+    }
 
     cfg.messageId = newMessage.id;
     writeJson(BOARD_CONFIG, cfg);
-    console.log("[WAR BOARD] Created replacement board message:", newMessage.id);
+
+    logger.info("[WAR BOARD] Created replacement board message", {
+      messageId: newMessage.id,
+    });
+
     return;
   }
 
-  await message.edit({ embeds: [embed] }).catch((err) => {
-    console.error("[WAR BOARD] Failed editing message:", err.message);
+  const edited = await message.edit({ embeds: [embed] }).catch((err) => {
+    logger.error("[WAR BOARD] Failed editing board message", err, {
+      location: "services/operationsBoard.js -> updateOperationsBoard",
+      messageId: message.id,
+    });
+    return null;
   });
 
-  console.log("[WAR BOARD] Edited existing board message");
+  if (!edited) {
+    throw new Error(`Failed to edit existing war board message: ${message.id}`);
+  }
+
+  logger.info("[WAR BOARD] Edited existing board message", {
+    messageId: message.id,
+  });
 }
 
 module.exports = { updateOperationsBoard };
