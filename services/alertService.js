@@ -93,7 +93,7 @@ async function sendAlert(client, options = {}) {
 
   try {
     await channel.send({
-      content: ping ? "<@&YOUR_STAFF_ROLE_IF_YOU_USE_ONE>" : undefined,
+      content: ping ? "<@&1482095139437547580>" : undefined,
       embeds: [embed],
     });
 
