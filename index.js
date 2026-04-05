@@ -4,6 +4,7 @@
 // No automated permission sync logic
 // Includes player VC time tracking
 // Fixed tracker store access
+// Added logging + alert foundation
 // =========================
 
 require("dotenv").config();
@@ -21,6 +22,13 @@ const {
   Events,
   StringSelectMenuBuilder,
 } = require("discord.js");
+
+const logger = require("./services/logger");
+const {
+  sendAlert,
+  sendErrorAlert,
+  sendStartupAlert,
+} = require("./services/alertService");
 
 const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
@@ -93,26 +101,30 @@ if (fs.existsSync(commandsPath)) {
   const files = fs.readdirSync(commandsPath).filter((f) => f.endsWith(".js"));
 
   for (const file of files) {
-    const mod = require(`./commands/${file}`);
+    try {
+      const mod = require(`./commands/${file}`);
 
-    if (mod?.data?.name && typeof mod.execute === "function") {
-      commands.set(mod.data.name, mod);
-    }
+      if (mod?.data?.name && typeof mod.execute === "function") {
+        commands.set(mod.data.name, mod);
+      }
 
-    if (mod?.adminData?.name && typeof mod.executeAdmin === "function") {
-      commands.set(mod.adminData.name, { execute: mod.executeAdmin });
+      if (mod?.adminData?.name && typeof mod.executeAdmin === "function") {
+        commands.set(mod.adminData.name, { execute: mod.executeAdmin });
+      }
+    } catch (err) {
+      logger.error("Failed to load command file", err, { file });
     }
   }
 
-  console.log(`✅ Loaded ${commands.size} slash command(s) from ./commands`);
+  logger.info(`Loaded ${commands.size} slash command(s) from ./commands`);
 }
 
 let enlistment = null;
 try {
   enlistment = require("./commands/enlistment.js");
-  console.log("✅ Loaded ./commands/enlistment.js (button handler enabled)");
+  logger.info("Loaded ./commands/enlistment.js (button handler enabled)");
 } catch {
-  console.log("ℹ️ No ./commands/enlistment.js found (enlistment buttons disabled).");
+  logger.info("No ./commands/enlistment.js found (enlistment buttons disabled).");
 }
 
 const sessions = new Map();
@@ -174,7 +186,7 @@ function readTrackerStore() {
       medals: parsed.medals || base.medals,
     };
   } catch (err) {
-    console.error("[INDEX] readTrackerStore failed:", err);
+    logger.error("readTrackerStore failed", err, { location: "index.js -> readTrackerStore" });
     return defaultTrackerStore();
   }
 }
@@ -183,7 +195,7 @@ function writeTrackerStore(store) {
   try {
     fs.writeFileSync(TRACKER_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
   } catch (err) {
-    console.error("[INDEX] writeTrackerStore failed:", err);
+    logger.error("writeTrackerStore failed", err, { location: "index.js -> writeTrackerStore" });
   }
 }
 
@@ -229,7 +241,19 @@ async function renameHostVcFromSession(session, guild) {
   try {
     await vc.setName(desired, "Auto rename from Ask to Play difficulty selection");
   } catch (err) {
-    console.error("[VC Rename] Failed:", err);
+    logger.error("VC rename failed", err, {
+      location: "index.js -> renameHostVcFromSession",
+      channelId: vc.id,
+      desiredName: desired,
+    });
+
+    await sendErrorAlert(client, "VC Rename Failed", err, {
+      feature: "ask-to-play",
+      location: "renameHostVcFromSession",
+      action: "Renaming host voice channel",
+      likelyCause: "Missing permission or invalid channel state.",
+      severity: "warning",
+    });
   }
 }
 
@@ -299,7 +323,18 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
     await orientationSystem.logNewRecruit(member);
   } catch (err) {
-    console.error("[WELCOME] Failed:", err);
+    logger.error("GuildMemberAdd failed", err, {
+      location: "index.js -> GuildMemberAdd",
+      memberId: member?.id,
+    });
+
+    await sendErrorAlert(client, "Welcome/Recruit Logging Failed", err, {
+      feature: "welcome-orientation",
+      location: "GuildMemberAdd",
+      action: "Welcoming new member / logging recruit",
+      likelyCause: "Channel issue, permissions, or orientation handler failure.",
+      severity: "warning",
+    });
   }
 });
 
@@ -465,7 +500,20 @@ client.on(Events.MessageCreate, async (message) => {
     session.messageId = sent.id;
     sessions.set(sent.id, session);
   } catch (err) {
-    console.error("[MessageCreate] error:", err);
+    logger.error("MessageCreate error", err, {
+      location: "index.js -> MessageCreate",
+      messageId: message?.id,
+      authorId: message?.author?.id,
+      channelId: message?.channel?.id,
+    });
+
+    await sendErrorAlert(client, "Message Handler Failed", err, {
+      feature: "ask-to-play",
+      location: "MessageCreate",
+      action: "Handling Ask-to-Play trigger",
+      likelyCause: "Command flow, channel access, or session build failure.",
+      severity: "warning",
+    });
   }
 });
 
@@ -622,7 +670,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
         }
       } catch (error) {
-        console.error("String select menu error:", error);
+        logger.error("String select menu error", error, {
+          location: "index.js -> InteractionCreate -> StringSelectMenu",
+          customId: interaction.customId,
+          userId: interaction.user?.id,
+        });
+
+        await sendErrorAlert(client, "Ask-to-Play Menu Failed", error, {
+          feature: "ask-to-play",
+          location: "StringSelectMenu",
+          action: "Updating faction/difficulty selection",
+          likelyCause: "Expired interaction, invalid session, or message edit issue.",
+          severity: "warning",
+        });
 
         if (interaction.deferred || interaction.replied) {
           return interaction
@@ -641,7 +701,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
   } catch (err) {
-    console.error("[InteractionCreate] error:", err);
+    logger.error("InteractionCreate error", err, {
+      location: "index.js -> InteractionCreate",
+      userId: interaction?.user?.id || null,
+      guildId: interaction?.guildId || null,
+      commandName: interaction?.isChatInputCommand?.() ? interaction.commandName : null,
+      customId:
+        interaction?.isButton?.() || interaction?.isStringSelectMenu?.()
+          ? interaction.customId
+          : null,
+    });
+
+    await sendErrorAlert(client, "Interaction Handler Failed", err, {
+      feature: "interaction-handler",
+      location: "InteractionCreate",
+      action: "Processing interaction",
+      likelyCause: "Command, button, or modal error.",
+      severity: "error",
+    });
 
     if (interaction?.isRepliable?.()) {
       try {
@@ -693,7 +770,20 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       if (changed) await updateAskMessage(session);
     }
   } catch (err) {
-    console.error("[VoiceStateUpdate] error:", err);
+    logger.error("VoiceStateUpdate error", err, {
+      location: "index.js -> VoiceStateUpdate",
+      oldChannelId: oldState?.channelId || null,
+      newChannelId: newState?.channelId || null,
+      userId: newState?.id || oldState?.id || null,
+    });
+
+    await sendErrorAlert(client, "Voice State Update Failed", err, {
+      feature: "voice-tracking",
+      location: "VoiceStateUpdate",
+      action: "Updating VC sessions / roster tracking",
+      likelyCause: "Voice session tracking or roster sync error.",
+      severity: "warning",
+    });
   }
 });
 
@@ -701,13 +791,30 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
    READY + TRACKER SCHEDULER
    ========================= */
 client.once(Events.ClientReady, async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
+  logger.info(`Logged in as ${client.user.tag}`, {
+    botId: client.user.id,
+  });
+
+  await sendStartupAlert(
+    client,
+    `Golden Vanguard bot is now online as **${client.user.tag}**`
+  );
 
   try {
     await refreshWarBoard(client);
-    console.log("✅ War board refreshed on startup");
+    logger.info("War board refreshed on startup");
   } catch (err) {
-    console.error("❌ War board startup refresh failed:", err);
+    logger.error("War board startup refresh failed", err, {
+      location: "index.js -> ClientReady -> refreshWarBoard",
+    });
+
+    await sendErrorAlert(client, "War Board Startup Refresh Failed", err, {
+      feature: "warboard",
+      location: "ClientReady",
+      action: "Refreshing war board on startup",
+      likelyCause: "Refresh job failed, missing channel, or bad data.",
+      severity: "error",
+    });
   }
 
   // Live war board refresh every 15 mins
@@ -717,7 +824,17 @@ client.once(Events.ClientReady, async () => {
       try {
         await refreshWarBoard(client);
       } catch (err) {
-        console.error("❌ War board scheduled refresh failed:", err);
+        logger.error("War board scheduled refresh failed", err, {
+          location: "index.js -> cron -> refreshWarBoard",
+        });
+
+        await sendErrorAlert(client, "War Board Scheduled Refresh Failed", err, {
+          feature: "warboard",
+          location: "cron refreshWarBoard",
+          action: "Scheduled war board refresh",
+          likelyCause: "Refresh job failed repeatedly or lost channel/data access.",
+          severity: "warning",
+        });
       }
     },
     { timezone: TRACKER_TZ }
@@ -727,7 +844,7 @@ client.once(Events.ClientReady, async () => {
   try {
     runCmd = require("./commands/run.js");
   } catch {
-    console.log("ℹ️ Tracker: ./commands/run.js not found (tracker scheduler disabled).");
+    logger.info("Tracker: ./commands/run.js not found (tracker scheduler disabled).");
     return;
   }
 
@@ -769,7 +886,20 @@ client.once(Events.ClientReady, async () => {
   for (const guild of client.guilds.cache.values()) {
     const store = readTrackerStore();
     if (typeof runCmd.ensureLeaderboardMessage === "function") {
-      await runCmd.ensureLeaderboardMessage(guild, store).catch(() => {});
+      await runCmd.ensureLeaderboardMessage(guild, store).catch(async (err) => {
+        logger.error("ensureLeaderboardMessage failed", err, {
+          location: "index.js -> ClientReady -> ensureLeaderboardMessage",
+          guildId: guild.id,
+        });
+
+        await sendErrorAlert(client, "Leaderboard Initialisation Failed", err, {
+          feature: "tracker",
+          location: "ensureLeaderboardMessage",
+          action: "Ensuring leaderboard message exists",
+          likelyCause: "Missing leaderboard channel or message permissions.",
+          severity: "warning",
+        });
+      });
     }
   }
 
@@ -782,7 +912,17 @@ client.once(Events.ClientReady, async () => {
           await runCmd.expireTrackerControls(client);
         }
       } catch (e) {
-        console.error("expireTrackerControls error:", e);
+        logger.error("expireTrackerControls error", e, {
+          location: "index.js -> cron -> expireTrackerControls",
+        });
+
+        await sendErrorAlert(client, "Tracker Control Expiry Failed", e, {
+          feature: "tracker",
+          location: "expireTrackerControls",
+          action: "Expiring tracker proof/edit controls",
+          likelyCause: "Tracker cleanup routine failed.",
+          severity: "warning",
+        });
       }
     },
     { timezone: TRACKER_TZ }
@@ -794,37 +934,52 @@ client.once(Events.ClientReady, async () => {
     `${sunM} ${sunH} * * 0`,
     async () => {
       for (const guild of client.guilds.cache.values()) {
-        const store = readTrackerStore();
-        const topP = topEntryLocal(store.weekly?.players);
-        const topD = topEntryLocal(store.weekly?.divisions);
-        const topE = topEntryLocal(store.weekly?.enemies);
+        try {
+          const store = readTrackerStore();
+          const topP = topEntryLocal(store.weekly?.players);
+          const topD = topEntryLocal(store.weekly?.divisions);
+          const topE = topEntryLocal(store.weekly?.enemies);
 
-        const ann = findTextChannelByName(guild, ANN_NAME);
-        if (!ann) continue;
+          const ann = findTextChannelByName(guild, ANN_NAME);
+          if (!ann) continue;
 
-        await ann.send({
-          content:
-            `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
-            `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-            `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-            `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-            `📌 Live leaderboard: **#${LB_NAME}**`,
-          allowedMentions: topP ? { users: [topP.key] } : undefined,
-        }).catch(() => {});
+          await ann.send({
+            content:
+              `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
+              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
+              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+              `📌 Live leaderboard: **#${LB_NAME}**`,
+            allowedMentions: topP ? { users: [topP.key] } : undefined,
+          }).catch(() => {});
 
-        store.history = store.history || { weeks: [] };
-        store.history.weeks.push({
-          monthKey: currentMonthKeyLocal(),
-          createdAt: new Date().toISOString(),
-          topPlayerId: topP?.key || null,
-          topPlayerPoints: topP?.val || 0,
-          topDivisionName: topD?.key || null,
-          topDivisionPoints: topD?.val || 0,
-          topEnemyName: topE?.key || null,
-          topEnemyPoints: topE?.val || 0,
-        });
+          store.history = store.history || { weeks: [] };
+          store.history.weeks.push({
+            monthKey: currentMonthKeyLocal(),
+            createdAt: new Date().toISOString(),
+            topPlayerId: topP?.key || null,
+            topPlayerPoints: topP?.val || 0,
+            topDivisionName: topD?.key || null,
+            topDivisionPoints: topD?.val || 0,
+            topEnemyName: topE?.key || null,
+            topEnemyPoints: topE?.val || 0,
+          });
 
-        writeTrackerStore(store);
+          writeTrackerStore(store);
+        } catch (err) {
+          logger.error("Weekly tracker announce failed", err, {
+            location: "index.js -> cron -> weekly announce",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Weekly Tracker Announcement Failed", err, {
+            feature: "tracker",
+            location: "weekly announce",
+            action: "Posting weekly results",
+            likelyCause: "Announcement channel missing or store read/write issue.",
+            severity: "warning",
+          });
+        }
       }
     },
     { timezone: TRACKER_TZ }
@@ -836,22 +991,47 @@ client.once(Events.ClientReady, async () => {
     `${monM} ${monH} * * 1`,
     async () => {
       for (const guild of client.guilds.cache.values()) {
-        const store = readTrackerStore();
-        store.weekly = { players: {}, divisions: {}, enemies: {} };
-        writeTrackerStore(store);
+        try {
+          const store = readTrackerStore();
+          store.weekly = { players: {}, divisions: {}, enemies: {} };
+          writeTrackerStore(store);
 
-        if (typeof runCmd.updateLeaderboard === "function") {
-          await runCmd.updateLeaderboard(guild).catch(() => {});
-        } else if (typeof runCmd.ensureLeaderboardMessage === "function") {
-          const freshStore = readTrackerStore();
-          await runCmd.ensureLeaderboardMessage(guild, freshStore).catch(() => {});
+          if (typeof runCmd.updateLeaderboard === "function") {
+            await runCmd.updateLeaderboard(guild).catch(() => {});
+          } else if (typeof runCmd.ensureLeaderboardMessage === "function") {
+            const freshStore = readTrackerStore();
+            await runCmd.ensureLeaderboardMessage(guild, freshStore).catch(() => {});
+          }
+        } catch (err) {
+          logger.error("Weekly tracker reset failed", err, {
+            location: "index.js -> cron -> weekly reset",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Weekly Tracker Reset Failed", err, {
+            feature: "tracker",
+            location: "weekly reset",
+            action: "Resetting weekly tracker data",
+            likelyCause: "Store write error or leaderboard refresh failure.",
+            severity: "warning",
+          });
         }
       }
 
       try {
         playerStats.resetWeeklyProfiles();
       } catch (err) {
-        console.error("[PLAYER STATS] Weekly profile reset failed:", err);
+        logger.error("Player stats weekly profile reset failed", err, {
+          location: "index.js -> cron -> playerStats.resetWeeklyProfiles",
+        });
+
+        await sendErrorAlert(client, "Weekly Player Stats Reset Failed", err, {
+          feature: "player-stats",
+          location: "resetWeeklyProfiles",
+          action: "Resetting weekly player profiles",
+          likelyCause: "Player stats reset routine failed.",
+          severity: "warning",
+        });
       }
     },
     { timezone: TRACKER_TZ }
@@ -864,25 +1044,40 @@ client.once(Events.ClientReady, async () => {
       if (!isLastDayOfMonthLondon()) return;
 
       for (const guild of client.guilds.cache.values()) {
-        const store = readTrackerStore();
-        const monthKey = store.monthly?.monthKey || currentMonthKeyLocal();
+        try {
+          const store = readTrackerStore();
+          const monthKey = store.monthly?.monthKey || currentMonthKeyLocal();
 
-        const topP = topEntryLocal(store.monthly?.players);
-        const topD = topEntryLocal(store.monthly?.divisions);
-        const topE = topEntryLocal(store.monthly?.enemies);
+          const topP = topEntryLocal(store.monthly?.players);
+          const topD = topEntryLocal(store.monthly?.divisions);
+          const topE = topEntryLocal(store.monthly?.enemies);
 
-        const ann = findTextChannelByName(guild, ANN_NAME);
-        if (!ann) continue;
+          const ann = findTextChannelByName(guild, ANN_NAME);
+          if (!ann) continue;
 
-        await ann.send({
-          content:
-            `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
-            `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-            `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-            `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-            `📌 Leaderboards: **#${LB_NAME}**`,
-          allowedMentions: topP ? { users: [topP.key] } : undefined,
-        }).catch(() => {});
+          await ann.send({
+            content:
+              `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
+              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
+              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+              `📌 Leaderboards: **#${LB_NAME}**`,
+            allowedMentions: topP ? { users: [topP.key] } : undefined,
+          }).catch(() => {});
+        } catch (err) {
+          logger.error("Monthly tracker announce failed", err, {
+            location: "index.js -> cron -> monthly announce",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Monthly Tracker Announcement Failed", err, {
+            feature: "tracker",
+            location: "monthly announce",
+            action: "Posting monthly results",
+            likelyCause: "Announcement channel missing or store issue.",
+            severity: "warning",
+          });
+        }
       }
     },
     { timezone: TRACKER_TZ }
@@ -893,31 +1088,172 @@ client.once(Events.ClientReady, async () => {
     "5 0 1 * *",
     async () => {
       for (const guild of client.guilds.cache.values()) {
-        const store = readTrackerStore();
-        store.monthly = {
-          monthKey: currentMonthKeyLocal(),
-          players: {},
-          divisions: {},
-          enemies: {},
-        };
-        writeTrackerStore(store);
+        try {
+          const store = readTrackerStore();
+          store.monthly = {
+            monthKey: currentMonthKeyLocal(),
+            players: {},
+            divisions: {},
+            enemies: {},
+          };
+          writeTrackerStore(store);
+        } catch (err) {
+          logger.error("Monthly tracker reset failed", err, {
+            location: "index.js -> cron -> monthly reset",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Monthly Tracker Reset Failed", err, {
+            feature: "tracker",
+            location: "monthly reset",
+            action: "Resetting monthly tracker data",
+            likelyCause: "Store write error.",
+            severity: "warning",
+          });
+        }
       }
 
       try {
         playerStats.resetMonthlyProfiles();
       } catch (err) {
-        console.error("[PLAYER STATS] Monthly profile reset failed:", err);
+        logger.error("Player stats monthly profile reset failed", err, {
+          location: "index.js -> cron -> playerStats.resetMonthlyProfiles",
+        });
+
+        await sendErrorAlert(client, "Monthly Player Stats Reset Failed", err, {
+          feature: "player-stats",
+          location: "resetMonthlyProfiles",
+          action: "Resetting monthly player profiles",
+          likelyCause: "Player stats reset routine failed.",
+          severity: "warning",
+        });
       }
     },
     { timezone: TRACKER_TZ }
   );
 
-  console.log(`✅ Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
-  console.log(
-    `✅ Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
+  logger.info(`Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
+  logger.info(
+    `Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
   );
-  console.log(`✅ Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
-  console.log(`✅ War: 15m board refresh (${TRACKER_TZ})`);
+  logger.info(`Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
+  logger.info(`War: 15m board refresh (${TRACKER_TZ})`);
 });
 
-client.login(TOKEN);
+/* =========================
+   DISCORD CLIENT ERROR/WARN
+   ========================= */
+client.on(Events.Error, async (err) => {
+  logger.error("Discord Client Error", err, {
+    location: "client.on(Events.Error)",
+  });
+
+  await sendErrorAlert(client, "Discord Client Error", err, {
+    feature: "discord-client",
+    location: "client.on(Events.Error)",
+    action: "Discord client runtime error",
+    likelyCause: "Discord.js runtime issue or connection/client failure.",
+    severity: "error",
+  });
+});
+
+client.on(Events.Warn, (warning) => {
+  logger.warn("Discord Client Warning", {
+    location: "client.on(Events.Warn)",
+    warning,
+  });
+});
+
+/* =========================
+   GLOBAL PROCESS HANDLERS
+   ========================= */
+process.on("unhandledRejection", async (reason) => {
+  const err =
+    reason instanceof Error ? reason : new Error(String(reason || "Unknown rejection"));
+
+  logger.error("Unhandled Promise Rejection", err, {
+    location: "process.on(unhandledRejection)",
+  });
+
+  try {
+    await sendErrorAlert(client, "Unhandled Promise Rejection", err, {
+      feature: "global-process",
+      location: "process.on(unhandledRejection)",
+      action: "Unhandled async failure",
+      likelyCause: "A promise rejected without a catch handler.",
+      severity: "critical",
+    });
+  } catch (alertErr) {
+    logger.error("Failed to send unhandledRejection alert", alertErr, {
+      location: "process.on(unhandledRejection)",
+    });
+  }
+});
+
+process.on("uncaughtException", async (err) => {
+  logger.error("Uncaught Exception", err, {
+    location: "process.on(uncaughtException)",
+  });
+
+  try {
+    await sendErrorAlert(client, "Uncaught Exception", err, {
+      feature: "global-process",
+      location: "process.on(uncaughtException)",
+      action: "Unexpected crash-level error",
+      likelyCause: "A synchronous error was thrown and not caught.",
+      severity: "critical",
+    });
+  } catch (alertErr) {
+    logger.error("Failed to send uncaughtException alert", alertErr, {
+      location: "process.on(uncaughtException)",
+    });
+  }
+});
+
+/* =========================
+   CLEAN SHUTDOWN
+   ========================= */
+async function shutdown(signal) {
+  logger.warn(`Shutdown signal received: ${signal}`, {
+    location: "shutdown()",
+  });
+
+  try {
+    if (client.isReady()) {
+      await sendAlert(client, {
+        title: "Bot Shutdown",
+        description: `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
+        severity: "warning",
+      });
+    }
+  } catch (err) {
+    logger.error("Failed to send shutdown alert", err, {
+      location: "shutdown()",
+    });
+  }
+
+  try {
+    client.destroy();
+  } catch (err) {
+    logger.error("Failed to destroy Discord client cleanly", err, {
+      location: "shutdown()",
+    });
+  }
+
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+/* =========================
+   LOGIN
+   ========================= */
+client.login(TOKEN).catch((err) => {
+  logger.error("Failed to login bot", err, {
+    location: "client.login",
+  });
+
+  console.error("❌ Bot login failed:", err);
+  process.exit(1);
+});
