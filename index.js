@@ -5,6 +5,7 @@
 // Includes player VC time tracking
 // Fixed tracker store access
 // Added logging + alert foundation
+// Added feature guard system
 // =========================
 
 require("dotenv").config();
@@ -29,6 +30,8 @@ const {
   sendErrorAlert,
   sendStartupAlert,
 } = require("./services/alertService");
+const registry = require("./services/featureRegistry");
+const { runProtected } = require("./services/featureGuard");
 
 const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
@@ -248,7 +251,7 @@ async function renameHostVcFromSession(session, guild) {
     });
 
     await sendErrorAlert(client, "VC Rename Failed", err, {
-      feature: "ask-to-play",
+      feature: "askToPlay",
       location: "renameHostVcFromSession",
       action: "Renaming host voice channel",
       likelyCause: "Missing permission or invalid channel state.",
@@ -329,7 +332,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     });
 
     await sendErrorAlert(client, "Welcome/Recruit Logging Failed", err, {
-      feature: "welcome-orientation",
+      feature: "orientation",
       location: "GuildMemberAdd",
       action: "Welcoming new member / logging recruit",
       likelyCause: "Channel issue, permissions, or orientation handler failure.",
@@ -508,7 +511,7 @@ client.on(Events.MessageCreate, async (message) => {
     });
 
     await sendErrorAlert(client, "Message Handler Failed", err, {
-      feature: "ask-to-play",
+      feature: "askToPlay",
       location: "MessageCreate",
       action: "Handling Ask-to-Play trigger",
       likelyCause: "Command flow, channel access, or session build failure.",
@@ -677,7 +680,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
 
         await sendErrorAlert(client, "Ask-to-Play Menu Failed", error, {
-          feature: "ask-to-play",
+          feature: "askToPlay",
           location: "StringSelectMenu",
           action: "Updating faction/difficulty selection",
           likelyCause: "Expired interaction, invalid session, or message edit issue.",
@@ -713,7 +716,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     });
 
     await sendErrorAlert(client, "Interaction Handler Failed", err, {
-      feature: "interaction-handler",
+      feature: "askToPlay",
       location: "InteractionCreate",
       action: "Processing interaction",
       likelyCause: "Command, button, or modal error.",
@@ -737,7 +740,46 @@ client.on(Events.InteractionCreate, async (interaction) => {
    ========================= */
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
-    orientationSystem.handleVoiceStateUpdate(oldState, newState);
+    if (registry.isFeatureEnabled("orientation")) {
+      try {
+        orientationSystem.handleVoiceStateUpdate(oldState, newState);
+        registry.registerSuccess("orientation");
+      } catch (err) {
+        const state = registry.registerFailure("orientation", err);
+
+        logger.error("Orientation voice update failed", err, {
+          location: "index.js -> VoiceStateUpdate -> orientationSystem.handleVoiceStateUpdate",
+          failCount: state.failCount,
+        });
+
+        if (state.failCount >= 3) {
+          registry.disableFeature("orientation", "Disabled after repeated voice update failures.");
+
+          await sendErrorAlert(client, "orientation isolated", err, {
+            feature: "orientation",
+            location: "VoiceStateUpdate",
+            action: "Handling orientation voice update",
+            likelyCause: "Orientation VC tracking failed repeatedly.",
+            severity: "critical",
+          });
+
+          await sendAlert(client, {
+            title: "orientation paused",
+            description:
+              "The **orientation** feature has been temporarily disabled after repeated voice update failures.",
+            severity: "warning",
+          });
+        } else {
+          await sendErrorAlert(client, "orientation failed", err, {
+            feature: "orientation",
+            location: "VoiceStateUpdate",
+            action: "Handling orientation voice update",
+            likelyCause: "Orientation VC tracking failed.",
+            severity: "warning",
+          });
+        }
+      }
+    }
 
     // ===== PLAYER VC TIME TRACKING =====
     if (!oldState.channelId && newState.channelId) {
@@ -778,7 +820,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     });
 
     await sendErrorAlert(client, "Voice State Update Failed", err, {
-      feature: "voice-tracking",
+      feature: "voiceTracking",
       location: "VoiceStateUpdate",
       action: "Updating VC sessions / roster tracking",
       likelyCause: "Voice session tracking or roster sync error.",
@@ -800,42 +842,36 @@ client.once(Events.ClientReady, async () => {
     `Golden Vanguard bot is now online as **${client.user.tag}**`
   );
 
-  try {
-    await refreshWarBoard(client);
-    logger.info("War board refreshed on startup");
-  } catch (err) {
-    logger.error("War board startup refresh failed", err, {
-      location: "index.js -> ClientReady -> refreshWarBoard",
-    });
-
-    await sendErrorAlert(client, "War Board Startup Refresh Failed", err, {
-      feature: "warboard",
-      location: "ClientReady",
-      action: "Refreshing war board on startup",
-      likelyCause: "Refresh job failed, missing channel, or bad data.",
-      severity: "error",
-    });
-  }
+  await runProtected(client, {
+    feature: "warboard",
+    action: "Refreshing war board on startup",
+    location: "index.js -> ClientReady -> refreshWarBoard",
+    likelyCause: "Refresh job failed, missing channel, or bad data.",
+    retries: 1,
+    retryDelayMs: 2000,
+    maxFailures: 3,
+    job: async () => {
+      await refreshWarBoard(client);
+      logger.info("War board refreshed on startup");
+    },
+  });
 
   // Live war board refresh every 15 mins
   cron.schedule(
     "*/15 * * * *",
     async () => {
-      try {
-        await refreshWarBoard(client);
-      } catch (err) {
-        logger.error("War board scheduled refresh failed", err, {
-          location: "index.js -> cron -> refreshWarBoard",
-        });
-
-        await sendErrorAlert(client, "War Board Scheduled Refresh Failed", err, {
-          feature: "warboard",
-          location: "cron refreshWarBoard",
-          action: "Scheduled war board refresh",
-          likelyCause: "Refresh job failed repeatedly or lost channel/data access.",
-          severity: "warning",
-        });
-      }
+      await runProtected(client, {
+        feature: "warboard",
+        action: "Scheduled war board refresh",
+        location: "index.js -> cron -> refreshWarBoard",
+        likelyCause: "Refresh job failed repeatedly or lost channel/data access.",
+        retries: 1,
+        retryDelayMs: 3000,
+        maxFailures: 3,
+        job: async () => {
+          await refreshWarBoard(client);
+        },
+      });
     },
     { timezone: TRACKER_TZ }
   );
@@ -893,7 +929,7 @@ client.once(Events.ClientReady, async () => {
         });
 
         await sendErrorAlert(client, "Leaderboard Initialisation Failed", err, {
-          feature: "tracker",
+          feature: "leaderboard",
           location: "ensureLeaderboardMessage",
           action: "Ensuring leaderboard message exists",
           likelyCause: "Missing leaderboard channel or message permissions.",
@@ -1018,21 +1054,17 @@ client.once(Events.ClientReady, async () => {
         }
       }
 
-      try {
-        playerStats.resetWeeklyProfiles();
-      } catch (err) {
-        logger.error("Player stats weekly profile reset failed", err, {
-          location: "index.js -> cron -> playerStats.resetWeeklyProfiles",
-        });
-
-        await sendErrorAlert(client, "Weekly Player Stats Reset Failed", err, {
-          feature: "player-stats",
-          location: "resetWeeklyProfiles",
-          action: "Resetting weekly player profiles",
-          likelyCause: "Player stats reset routine failed.",
-          severity: "warning",
-        });
-      }
+      await runProtected(client, {
+        feature: "playerStats",
+        action: "Resetting weekly player profiles",
+        location: "index.js -> cron -> playerStats.resetWeeklyProfiles",
+        likelyCause: "Player stats reset routine failed.",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          playerStats.resetWeeklyProfiles();
+        },
+      });
     },
     { timezone: TRACKER_TZ }
   );
@@ -1113,21 +1145,17 @@ client.once(Events.ClientReady, async () => {
         }
       }
 
-      try {
-        playerStats.resetMonthlyProfiles();
-      } catch (err) {
-        logger.error("Player stats monthly profile reset failed", err, {
-          location: "index.js -> cron -> playerStats.resetMonthlyProfiles",
-        });
-
-        await sendErrorAlert(client, "Monthly Player Stats Reset Failed", err, {
-          feature: "player-stats",
-          location: "resetMonthlyProfiles",
-          action: "Resetting monthly player profiles",
-          likelyCause: "Player stats reset routine failed.",
-          severity: "warning",
-        });
-      }
+      await runProtected(client, {
+        feature: "playerStats",
+        action: "Resetting monthly player profiles",
+        location: "index.js -> cron -> playerStats.resetMonthlyProfiles",
+        likelyCause: "Player stats reset routine failed.",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          playerStats.resetMonthlyProfiles();
+        },
+      });
     },
     { timezone: TRACKER_TZ }
   );
