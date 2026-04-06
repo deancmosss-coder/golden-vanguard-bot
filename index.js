@@ -6,7 +6,7 @@
 // Fixed tracker store access
 // Added logging + alert foundation
 // Added feature guard system
-// Added success tracking fix
+// Added success tracking integration
 // =========================
 
 require("dotenv").config();
@@ -451,8 +451,6 @@ async function updateAskMessage(session) {
     components: buildAskComponents(session),
     allowedMentions: ASK_ROLE_ID ? { roles: [ASK_ROLE_ID], users: [] } : undefined,
   });
-
-  registry.registerSuccess("askToPlay");
 }
 
 /* =========================
@@ -506,7 +504,6 @@ client.on(Events.MessageCreate, async (message) => {
 
     session.messageId = sent.id;
     sessions.set(sent.id, session);
-
     registry.registerSuccess("askToPlay");
   } catch (err) {
     logger.error("MessageCreate error", err, {
@@ -555,7 +552,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       ];
 
       if (validDivisionButtons.includes(interaction.customId)) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         const member = interaction.member;
         if (!member) {
@@ -571,7 +568,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         if (interaction.customId === "division_leave") {
-          registry.registerSuccess("orientation");
+          registry.registerSuccess("askToPlay");
           return interaction.editReply("You have left your current division.");
         }
 
@@ -603,7 +600,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         await member.roles.add(roleId);
-        registry.registerSuccess("orientation");
+        registry.registerSuccess("askToPlay");
         return interaction.editReply(`You are now enlisted in **${divisionName}**.`);
       }
     }
@@ -627,7 +624,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const runCmd = require("./commands/run.js");
       return runProtected(client, {
         feature: "tracker",
-        action: "Tracker edit modal",
+        action: "Tracker modal interaction",
         location: "index.js -> InteractionCreate -> Tracker Modal",
         likelyCause: "Tracker modal failure",
         retries: 0,
@@ -642,11 +639,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const cmd = commands.get(interaction.commandName);
       if (!cmd) return;
 
-      const trackerCommands = new Set(["run", "mission", "medals", "profile", "stats", "leaderboard"]);
-      const featureName = trackerCommands.has(interaction.commandName) ? "tracker" : "orientation";
-
       return runProtected(client, {
-        feature: featureName,
+        feature: interaction.commandName === "run" ? "tracker" : "commands",
         action: `Executing /${interaction.commandName}`,
         location: "index.js -> InteractionCreate -> ChatInputCommand",
         likelyCause: "Command execution failure",
@@ -654,6 +648,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         maxFailures: 3,
         job: async () => {
           await cmd.execute(interaction);
+
+          if (interaction.commandName === "run") {
+            registry.registerSuccess("tracker");
+            registry.registerSuccess("leaderboard");
+          } else {
+            registry.registerSuccess("commands");
+          }
         },
       });
     }
@@ -670,11 +671,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!session) {
         if (interaction.deferred || interaction.replied) {
           return interaction
-            .followUp({ content: "Session expired.", ephemeral: true })
+            .followUp({ content: "Session expired.", flags: 64 })
             .catch(() => {});
         }
 
-        return interaction.reply({ content: "Session expired.", ephemeral: true }).catch(() => {});
+        return interaction.reply({ content: "Session expired.", flags: 64 }).catch(() => {});
       }
 
       if (interaction.user.id !== session.ownerId) {
@@ -682,7 +683,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction
             .followUp({
               content: "Only the host can set faction/difficulty.",
-              ephemeral: true,
+              flags: 64,
             })
             .catch(() => {});
         }
@@ -690,13 +691,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction
           .reply({
             content: "Only the host can set faction/difficulty.",
-            ephemeral: true,
+            flags: 64,
           })
           .catch(() => {});
       }
 
       try {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         if (interaction.customId === FACTION_SELECT_ID) {
           session.faction = interaction.values[0];
@@ -748,7 +749,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction
           .reply({
             content: "❌ Something went wrong while updating the session.",
-            ephemeral: true,
+            flags: 64,
           })
           .catch(() => {});
       }
@@ -776,9 +777,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction?.isRepliable?.()) {
       try {
         if (interaction.deferred || interaction.replied) {
-          await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+          await interaction.followUp({ content: "Something went wrong.", flags: 64 });
         } else {
-          await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+          await interaction.reply({ content: "Something went wrong.", flags: 64 });
         }
       } catch {}
     }
@@ -833,20 +834,17 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
     if (!oldState.channelId && newState.channelId) {
       playerStats.startVoiceSession(newState.id);
-      registry.registerSuccess("voiceTracking");
       registry.registerSuccess("playerStats");
     }
 
     if (oldState.channelId && !newState.channelId) {
       playerStats.endVoiceSession(oldState.id);
-      registry.registerSuccess("voiceTracking");
       registry.registerSuccess("playerStats");
     }
 
     if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
       playerStats.endVoiceSession(oldState.id);
       playerStats.startVoiceSession(newState.id);
-      registry.registerSuccess("voiceTracking");
       registry.registerSuccess("playerStats");
     }
 
@@ -911,10 +909,10 @@ client.once(Events.ClientReady, async () => {
     job: async () => {
       await refreshWarBoard(client);
       logger.info("War board refreshed on startup");
+      registry.registerSuccess("warboard");
     },
   });
 
-  // Live war board refresh every 15 mins
   cron.schedule(
     "*/15 * * * *",
     async () => {
@@ -928,6 +926,7 @@ client.once(Events.ClientReady, async () => {
         maxFailures: 3,
         job: async () => {
           await refreshWarBoard(client);
+          registry.registerSuccess("warboard");
         },
       });
     },
@@ -976,7 +975,6 @@ client.once(Events.ClientReady, async () => {
     return t.d === 1;
   }
 
-  // Ensure leaderboard message exists for every guild
   for (const guild of client.guilds.cache.values()) {
     const store = readTrackerStore();
     if (typeof runCmd.ensureLeaderboardMessage === "function") {
@@ -999,7 +997,6 @@ client.once(Events.ClientReady, async () => {
     }
   }
 
-  // Expire proof/edit controls every 2 mins
   cron.schedule(
     "*/2 * * * *",
     async () => {
@@ -1025,7 +1022,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Weekly announce Sunday
   const [sunH, sunM] = SUNDAY_ANNOUNCE_TIME.split(":").map(Number);
   cron.schedule(
     `${sunM} ${sunH} * * 0`,
@@ -1084,7 +1080,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Weekly reset Monday
   const [monH, monM] = MONDAY_RESET_TIME.split(":").map(Number);
   cron.schedule(
     `${monM} ${monH} * * 1`,
@@ -1129,13 +1124,13 @@ client.once(Events.ClientReady, async () => {
         maxFailures: 3,
         job: async () => {
           playerStats.resetWeeklyProfiles();
+          registry.registerSuccess("playerStats");
         },
       });
     },
     { timezone: TRACKER_TZ }
   );
 
-  // Monthly announce on last day
   cron.schedule(
     "55 23 * * *",
     async () => {
@@ -1184,7 +1179,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Monthly reset on 1st
   cron.schedule(
     "5 0 1 * *",
     async () => {
@@ -1224,6 +1218,7 @@ client.once(Events.ClientReady, async () => {
         maxFailures: 3,
         job: async () => {
           playerStats.resetMonthlyProfiles();
+          registry.registerSuccess("playerStats");
         },
       });
     },
@@ -1238,9 +1233,6 @@ client.once(Events.ClientReady, async () => {
   logger.info(`War: 15m board refresh (${TRACKER_TZ})`);
 });
 
-/* =========================
-   DISCORD CLIENT ERROR/WARN
-   ========================= */
 client.on(Events.Error, async (err) => {
   logger.error("Discord Client Error", err, {
     location: "client.on(Events.Error)",
@@ -1262,9 +1254,6 @@ client.on(Events.Warn, (warning) => {
   });
 });
 
-/* =========================
-   GLOBAL PROCESS HANDLERS
-   ========================= */
 process.on("unhandledRejection", async (reason) => {
   const err =
     reason instanceof Error ? reason : new Error(String(reason || "Unknown rejection"));
@@ -1308,9 +1297,6 @@ process.on("uncaughtException", async (err) => {
   }
 });
 
-/* =========================
-   CLEAN SHUTDOWN
-   ========================= */
 async function shutdown(signal) {
   logger.warn(`Shutdown signal received: ${signal}`, {
     location: "shutdown()",
@@ -1344,9 +1330,6 @@ async function shutdown(signal) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-/* =========================
-   LOGIN
-   ========================= */
 client.login(TOKEN).catch((err) => {
   logger.error("Failed to login bot", err, {
     location: "client.login",
