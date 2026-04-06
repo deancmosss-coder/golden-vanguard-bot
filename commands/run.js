@@ -666,10 +666,19 @@ const data = new SlashCommandBuilder()
       .addChoices(...ENEMIES.map((e) => ({ name: e, value: e })))
   )
   .addIntegerOption((o) =>
-    o.setName("difficulty").setDescription("Difficulty 1–10").setRequired(true).setMinValue(1).setMaxValue(10)
+    o
+      .setName("difficulty")
+      .setDescription("Difficulty 1–10")
+      .setRequired(true)
+      .setMinValue(1)
+      .setMaxValue(10)
   )
   .addStringOption((o) =>
-    o.setName("mission_type").setDescription("Mission type").setRequired(true).setAutocomplete(true)
+    o
+      .setName("mission_type")
+      .setDescription("Mission type")
+      .setRequired(true)
+      .setAutocomplete(true)
   )
   .addStringOption((o) =>
     o
@@ -739,16 +748,36 @@ const data = new SlashCommandBuilder()
       )
   )
   .addIntegerOption((o) =>
-    o.setName("divers_missing").setDescription("Divers missing on extraction (0–4)").setRequired(true).setMinValue(0).setMaxValue(4)
+    o
+      .setName("divers_missing")
+      .setDescription("Divers missing on extraction (0–4)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(4)
   )
   .addIntegerOption((o) =>
-    o.setName("kills").setDescription("Your kills (Player Stats)").setRequired(true).setMinValue(0).setMaxValue(9999)
+    o
+      .setName("kills")
+      .setDescription("Your kills (Player Stats)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(9999)
   )
   .addIntegerOption((o) =>
-    o.setName("deaths").setDescription("Your deaths (Player Stats)").setRequired(true).setMinValue(0).setMaxValue(9999)
+    o
+      .setName("deaths")
+      .setDescription("Your deaths (Player Stats)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(9999)
   )
   .addIntegerOption((o) =>
-    o.setName("accidentals").setDescription("Your accidentals/teamkills (Player Stats)").setRequired(true).setMinValue(0).setMaxValue(9999)
+    o
+      .setName("accidentals")
+      .setDescription("Your accidentals/teamkills (Player Stats)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(9999)
   );
 
 async function autocomplete(interaction) {
@@ -781,11 +810,15 @@ async function autocomplete(interaction) {
     console.error("RUN AUTOCOMPLETE ERROR:", err);
     try {
       return interaction.respond([{ name: "Other", value: "Other" }]);
-    } catch {}
+    } catch {
+      return null;
+    }
   }
 }
 
 async function execute(interaction) {
+  await interaction.deferReply({ flags: 64 }).catch(() => {});
+
   const store = readStore();
   ensureCurrentMonth(store);
 
@@ -800,9 +833,9 @@ async function execute(interaction) {
   );
 
   if (hasLockedPending) {
-    return interaction.reply({
-      content: "🛑 You already have a proof-required run waiting for screenshots. Finish or delete it before logging another run.",
-      ephemeral: true,
+    return interaction.editReply({
+      content:
+        "🛑 You already have a proof-required run waiting for screenshots. Finish or delete it before logging another run.",
     });
   }
 
@@ -916,38 +949,37 @@ async function execute(interaction) {
   const unlockedMedals = medalService.evaluateAndStore(userId);
 
   await orientationSystem.maybeAutoLogAAR(interaction.member).catch(console.error);
-
   await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
   await refreshOpsBoardFromCache(interaction.client).catch(() => {});
 
   const medalText = formatUnlockedMedals(unlockedMedals);
 
-  return interaction.reply({
+  return interaction.editReply({
     content:
       `✅ Logged **${runId}** on **${planet}** — ` +
       (requiresProof
         ? `proof is **required** before points are awarded.`
         : `base score **${basePoints}** awarded now. Use proof for **x2**.`) +
       (medalText ? `\n\n**New Medals Unlocked**\n${medalText}` : ""),
-    ephemeral: true,
   });
 }
 
 async function handleTrackerButton(interaction) {
   console.log("HANDLE BUTTON START:", interaction.customId);
+
   try {
     const store = readStore();
     const [action, runId] = String(interaction.customId || "").split(":");
     const run = store.runs.find((r) => r.runId === runId && r.guildId === interaction.guildId);
 
     if (!run || run.status === "deleted") {
-      return interaction.reply({ content: "Run not found.", ephemeral: true }).catch(() => {});
+      return interaction.reply({ content: "Run not found.", flags: 64 }).catch(() => {});
     }
 
     if (interaction.user.id !== run.loggerId) {
       return interaction.reply({
         content: "Only the diver who submitted this run can use these buttons.",
-        ephemeral: true,
+        flags: 64,
       }).catch(() => {});
     }
 
@@ -958,7 +990,7 @@ async function handleTrackerButton(interaction) {
         await editRunMessage(interaction.client, run).catch(() => {});
         return interaction.reply({
           content: "The edit window has expired.",
-          ephemeral: true,
+          flags: 64,
         }).catch(() => {});
       }
 
@@ -1007,7 +1039,7 @@ async function handleTrackerButton(interaction) {
       return interaction.showModal(modal);
     }
 
-    await interaction.deferReply({ ephemeral: true }).catch(() => {});
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
 
     if (action === "gv_proof_add") {
       if (now > run.proofExpireAt) {
@@ -1039,7 +1071,9 @@ async function handleTrackerButton(interaction) {
 
     if (action === "gv_proof_skip") {
       if (run.requiresProof) {
-        return interaction.editReply("🛑 Proof is required after 5 unverified runs. You must use **Add Proof (x2)**.");
+        return interaction.editReply(
+          "🛑 Proof is required after 5 unverified runs. You must use **Add Proof (x2)**."
+        );
       }
 
       if (now > run.proofExpireAt) {
@@ -1064,7 +1098,9 @@ async function handleTrackerButton(interaction) {
 
       return interaction.editReply(
         `✔ Submitted without proof. (**${run.runId}**)` +
-          (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+          (unlockedMedals.length
+            ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}`
+            : "")
       );
     }
 
@@ -1092,7 +1128,9 @@ async function handleTrackerButton(interaction) {
       try {
         const guild = await interaction.client.guilds.fetch(run.guildId);
         const ch = await guild.channels.fetch(run.aarChannelId).catch(() => null);
-        const msg = ch?.isTextBased?.() ? await ch.messages.fetch(run.aarMessageId).catch(() => null) : null;
+        const msg = ch?.isTextBased?.()
+          ? await ch.messages.fetch(run.aarMessageId).catch(() => null)
+          : null;
         if (msg) await msg.delete().catch(() => {});
       } catch (err) {
         console.error("DELETE MESSAGE ERROR:", err);
@@ -1100,7 +1138,9 @@ async function handleTrackerButton(interaction) {
 
       await ensureLeaderboardMessage(interaction.guild, store).catch(() => {});
       await refreshOpsBoardFromCache(interaction.client).catch(() => {});
-      return interaction.editReply(`🗑 Deleted **${run.runId}** and removed **${removedScore}** point(s).`);
+      return interaction.editReply(
+        `🗑 Deleted **${run.runId}** and removed **${removedScore}** point(s).`
+      );
     }
 
     return interaction.editReply("Unknown action.");
@@ -1113,14 +1153,16 @@ async function handleTrackerButton(interaction) {
       }
       return interaction.reply({
         content: "Button action failed. Check bot console.",
-        ephemeral: true,
+        flags: 64,
       });
-    } catch {}
+    } catch {
+      return null;
+    }
   }
 }
 
 async function handleTrackerModal(interaction) {
-  await interaction.deferReply({ ephemeral: true }).catch(() => {});
+  await interaction.deferReply({ flags: 64 }).catch(() => {});
 
   const runId = interaction.customId.split(":")[1];
   const store = readStore();
@@ -1137,13 +1179,34 @@ async function handleTrackerModal(interaction) {
   const missions = readMissionList();
 
   try {
-    const [mainObjectiveRaw, ratingRaw, diversRaw] = interaction.fields.getTextInputValue("basic").split(",").map((s) => s.trim());
-    const [sideRaw, outRaw] = interaction.fields.getTextInputValue("objectives").split(",").map((s) => s.trim());
-    const [fortRaw, hviRaw] = interaction.fields.getTextInputValue("d10").split(",").map((s) => s.trim());
-    const [killsRaw, deathsRaw, accRaw] = interaction.fields.getTextInputValue("combat").split(",").map((s) => s.trim());
-    const [enemyRaw, missionTypeRaw] = interaction.fields.getTextInputValue("meta").split(",").map((s) => s.trim());
+    const [mainObjectiveRaw, ratingRaw, diversRaw] = interaction.fields
+      .getTextInputValue("basic")
+      .split(",")
+      .map((s) => s.trim());
 
-    const mainObjective = mainObjectiveRaw === "Yes" || mainObjectiveRaw === "No" ? mainObjectiveRaw : null;
+    const [sideRaw, outRaw] = interaction.fields
+      .getTextInputValue("objectives")
+      .split(",")
+      .map((s) => s.trim());
+
+    const [fortRaw, hviRaw] = interaction.fields
+      .getTextInputValue("d10")
+      .split(",")
+      .map((s) => s.trim());
+
+    const [killsRaw, deathsRaw, accRaw] = interaction.fields
+      .getTextInputValue("combat")
+      .split(",")
+      .map((s) => s.trim());
+
+    const [enemyRaw, missionTypeRaw] = interaction.fields
+      .getTextInputValue("meta")
+      .split(",")
+      .map((s) => s.trim());
+
+    const mainObjective =
+      mainObjectiveRaw === "Yes" || mainObjectiveRaw === "No" ? mainObjectiveRaw : null;
+
     const missionRating = clamp(ratingRaw, 1, 5);
     const diversMissing = clamp(diversRaw, 0, 4);
 
@@ -1164,7 +1227,9 @@ async function handleTrackerModal(interaction) {
     if (!["Yes", "No", NA_VALUE].includes(hviExtracted)) hviExtracted = NA_VALUE;
 
     if (!mainObjective || !enemy || !missionType) {
-      return interaction.editReply("Invalid edit values. Use exact values like `Yes,5,0` and a valid enemy/mission type.");
+      return interaction.editReply(
+        "Invalid edit values. Use exact values like `Yes,5,0` and a valid enemy/mission type."
+      );
     }
 
     if (run.difficulty !== 10 || enemy === "Illuminate") {
@@ -1208,11 +1273,16 @@ async function handleTrackerModal(interaction) {
 
     let newAwarded = 0;
     if (run.status === "proof_applied") newAwarded = run.basePoints * 2;
-    else if (run.status === "submitted_without_proof" || (run.status === "awaiting_proof" && !run.requiresProof)) newAwarded = run.basePoints;
-    else newAwarded = 0;
+    else if (
+      run.status === "submitted_without_proof" ||
+      (run.status === "awaiting_proof" && !run.requiresProof)
+    ) {
+      newAwarded = run.basePoints;
+    } else {
+      newAwarded = 0;
+    }
 
     applyRunScoreChange(store, run, newAwarded);
-
     writeStore(store);
 
     const unlockedMedals = medalService.evaluateAndStore(run.loggerId);
@@ -1223,10 +1293,14 @@ async function handleTrackerModal(interaction) {
 
     return interaction.editReply(
       `✏ Updated **${run.runId}**. New score awarded: **${run.scoreAwarded}**.` +
-        (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+        (unlockedMedals.length
+          ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}`
+          : "")
     );
   } catch {
-    return interaction.editReply("Invalid edit format. Keep the comma-separated format shown in each box.");
+    return interaction.editReply(
+      "Invalid edit format. Keep the comma-separated format shown in each box."
+    );
   }
 }
 
@@ -1271,7 +1345,10 @@ async function handleTrackerProofMessage(message) {
     run.proofDeclined = false;
     run.status = "proof_applied";
 
-    store.users[run.loggerId] = store.users[run.loggerId] || { unverifiedStreak: 0, totalRuns: 0 };
+    store.users[run.loggerId] = store.users[run.loggerId] || {
+      unverifiedStreak: 0,
+      totalRuns: 0,
+    };
     store.users[run.loggerId].unverifiedStreak = 0;
 
     const previousAwarded = Number(run.scoreAwarded || 0);
@@ -1290,12 +1367,12 @@ async function handleTrackerProofMessage(message) {
     await editRunMessage(message.client, run);
     await ensureLeaderboardMessage(message.guild, store).catch(() => {});
     await refreshOpsBoardFromCache(message.client).catch(() => {});
-    await message
-      .reply(
-        `✅ Proof accepted for **${run.runId}** — score changed from **${previousAwarded}** to **${run.scoreAwarded}**.` +
-          (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
-      )
-      .catch(() => {});
+    await message.reply(
+      `✅ Proof accepted for **${run.runId}** — score changed from **${previousAwarded}** to **${run.scoreAwarded}**.` +
+        (unlockedMedals.length
+          ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}`
+          : "")
+    ).catch(() => {});
   } catch (e) {
     console.error("handleTrackerProofMessage error:", e);
   }
