@@ -6,6 +6,7 @@
 // Fixed tracker store access
 // Added logging + alert foundation
 // Added feature guard system
+// Added success tracking fix
 // =========================
 
 require("dotenv").config();
@@ -325,6 +326,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     }
 
     await orientationSystem.logNewRecruit(member);
+    registry.registerSuccess("orientation");
   } catch (err) {
     logger.error("GuildMemberAdd failed", err, {
       location: "index.js -> GuildMemberAdd",
@@ -449,6 +451,8 @@ async function updateAskMessage(session) {
     components: buildAskComponents(session),
     allowedMentions: ASK_ROLE_ID ? { roles: [ASK_ROLE_ID], users: [] } : undefined,
   });
+
+  registry.registerSuccess("askToPlay");
 }
 
 /* =========================
@@ -502,6 +506,8 @@ client.on(Events.MessageCreate, async (message) => {
 
     session.messageId = sent.id;
     sessions.set(sent.id, session);
+
+    registry.registerSuccess("askToPlay");
   } catch (err) {
     logger.error("MessageCreate error", err, {
       location: "index.js -> MessageCreate",
@@ -521,25 +527,6 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 /* =========================
-   INTERACTION HELPERS
-   ========================= */
-async function safeReply(interaction, content, useFollowUp = false) {
-  try {
-    if (useFollowUp && (interaction.deferred || interaction.replied)) {
-      return await interaction.followUp({ content, flags: 64 });
-    }
-
-    if (interaction.deferred || interaction.replied) {
-      return await interaction.editReply({ content });
-    }
-
-    return await interaction.reply({ content, flags: 64 });
-  } catch {
-    return null;
-  }
-}
-
-/* =========================
    INTERACTIONS
    ========================= */
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -552,7 +539,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isButton()) {
       const handled = await orientationSystem.handleOrientationButton(interaction);
-      if (handled) return;
+      if (handled) {
+        registry.registerSuccess("orientation");
+        return;
+      }
     }
 
     if (interaction.isButton()) {
@@ -565,7 +555,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       ];
 
       if (validDivisionButtons.includes(interaction.customId)) {
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply({ ephemeral: true });
 
         const member = interaction.member;
         if (!member) {
@@ -581,6 +571,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         if (interaction.customId === "division_leave") {
+          registry.registerSuccess("orientation");
           return interaction.editReply("You have left your current division.");
         }
 
@@ -612,28 +603,65 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         await member.roles.add(roleId);
+        registry.registerSuccess("orientation");
         return interaction.editReply(`You are now enlisted in **${divisionName}**.`);
       }
     }
 
     if (interaction.isButton() && interaction.customId?.startsWith("gv_")) {
       const runCmd = require("./commands/run.js");
-      return runCmd.handleTrackerButton(interaction);
+      return runProtected(client, {
+        feature: "tracker",
+        action: "Tracker button interaction",
+        location: "index.js -> InteractionCreate -> Tracker Button",
+        likelyCause: "Tracker button failure",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await runCmd.handleTrackerButton(interaction);
+        },
+      });
     }
 
     if (interaction.isModalSubmit() && interaction.customId?.startsWith("gv_run_edit:")) {
       const runCmd = require("./commands/run.js");
-      return runCmd.handleTrackerModal(interaction);
+      return runProtected(client, {
+        feature: "tracker",
+        action: "Tracker edit modal",
+        location: "index.js -> InteractionCreate -> Tracker Modal",
+        likelyCause: "Tracker modal failure",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await runCmd.handleTrackerModal(interaction);
+        },
+      });
     }
 
     if (interaction.isChatInputCommand()) {
       const cmd = commands.get(interaction.commandName);
       if (!cmd) return;
-      return cmd.execute(interaction);
+
+      const trackerCommands = new Set(["run", "mission", "medals", "profile", "stats", "leaderboard"]);
+      const featureName = trackerCommands.has(interaction.commandName) ? "tracker" : "orientation";
+
+      return runProtected(client, {
+        feature: featureName,
+        action: `Executing /${interaction.commandName}`,
+        location: "index.js -> InteractionCreate -> ChatInputCommand",
+        likelyCause: "Command execution failure",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await cmd.execute(interaction);
+        },
+      });
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("enlist:") && enlistment) {
-      return enlistment.handleButton(interaction);
+      const result = await enlistment.handleButton(interaction);
+      registry.registerSuccess("orientation");
+      return result;
     }
 
     if (interaction.isStringSelectMenu()) {
@@ -642,11 +670,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!session) {
         if (interaction.deferred || interaction.replied) {
           return interaction
-            .followUp({ content: "Session expired.", flags: 64 })
+            .followUp({ content: "Session expired.", ephemeral: true })
             .catch(() => {});
         }
 
-        return interaction.reply({ content: "Session expired.", flags: 64 }).catch(() => {});
+        return interaction.reply({ content: "Session expired.", ephemeral: true }).catch(() => {});
       }
 
       if (interaction.user.id !== session.ownerId) {
@@ -654,7 +682,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction
             .followUp({
               content: "Only the host can set faction/difficulty.",
-              flags: 64,
+              ephemeral: true,
             })
             .catch(() => {});
         }
@@ -662,17 +690,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction
           .reply({
             content: "Only the host can set faction/difficulty.",
-            flags: 64,
+            ephemeral: true,
           })
           .catch(() => {});
       }
 
       try {
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply({ ephemeral: true });
 
         if (interaction.customId === FACTION_SELECT_ID) {
           session.faction = interaction.values[0];
           await updateAskMessage(session);
+          registry.registerSuccess("askToPlay");
 
           return interaction.editReply({
             content: `✅ Faction set to **${session.faction}**`,
@@ -686,6 +715,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (interaction.guild) {
             await renameHostVcFromSession(session, interaction.guild);
           }
+
+          registry.registerSuccess("askToPlay");
 
           return interaction.editReply({
             content: `✅ Difficulty set to **${session.difficulty}**`,
@@ -717,7 +748,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction
           .reply({
             content: "❌ Something went wrong while updating the session.",
-            flags: 64,
+            ephemeral: true,
           })
           .catch(() => {});
       }
@@ -745,9 +776,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction?.isRepliable?.()) {
       try {
         if (interaction.deferred || interaction.replied) {
-          await interaction.followUp({ content: "Something went wrong.", flags: 64 });
+          await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
         } else {
-          await interaction.reply({ content: "Something went wrong.", flags: 64 });
+          await interaction.reply({ content: "Something went wrong.", ephemeral: true });
         }
       } catch {}
     }
@@ -802,15 +833,21 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
     if (!oldState.channelId && newState.channelId) {
       playerStats.startVoiceSession(newState.id);
+      registry.registerSuccess("voiceTracking");
+      registry.registerSuccess("playerStats");
     }
 
     if (oldState.channelId && !newState.channelId) {
       playerStats.endVoiceSession(oldState.id);
+      registry.registerSuccess("voiceTracking");
+      registry.registerSuccess("playerStats");
     }
 
     if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
       playerStats.endVoiceSession(oldState.id);
       playerStats.startVoiceSession(newState.id);
+      registry.registerSuccess("voiceTracking");
+      registry.registerSuccess("playerStats");
     }
 
     const guild = newState.guild || oldState.guild;
@@ -827,7 +864,10 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       if (!touchedHost && !touchedVc) continue;
 
       const changed = syncRosterFromVc(session, vc);
-      if (changed) await updateAskMessage(session);
+      if (changed) {
+        await updateAskMessage(session);
+        registry.registerSuccess("askToPlay");
+      }
     }
   } catch (err) {
     logger.error("VoiceStateUpdate error", err, {
@@ -874,6 +914,7 @@ client.once(Events.ClientReady, async () => {
     },
   });
 
+  // Live war board refresh every 15 mins
   cron.schedule(
     "*/15 * * * *",
     async () => {
@@ -914,385 +955,3 @@ client.once(Events.ClientReady, async () => {
   }
 
   function londonParts(date = new Date()) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: TRACKER_TZ,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(date);
-
-    return {
-      y: Number(parts.find((p) => p.type === "year").value),
-      m: Number(parts.find((p) => p.type === "month").value),
-      d: Number(parts.find((p) => p.type === "day").value),
-    };
-  }
-
-  function isLastDayOfMonthLondon() {
-    const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const t = londonParts(tomorrow);
-    return t.d === 1;
-  }
-
-  for (const guild of client.guilds.cache.values()) {
-    const store = readTrackerStore();
-    if (typeof runCmd.ensureLeaderboardMessage === "function") {
-      await runCmd.ensureLeaderboardMessage(guild, store).catch(async (err) => {
-        logger.error("ensureLeaderboardMessage failed", err, {
-          location: "index.js -> ClientReady -> ensureLeaderboardMessage",
-          guildId: guild.id,
-        });
-
-        await sendErrorAlert(client, "Leaderboard Initialisation Failed", err, {
-          feature: "leaderboard",
-          location: "ensureLeaderboardMessage",
-          action: "Ensuring leaderboard message exists",
-          likelyCause: "Missing leaderboard channel or message permissions.",
-          severity: "warning",
-        });
-      });
-    }
-  }
-
-  cron.schedule(
-    "*/2 * * * *",
-    async () => {
-      try {
-        if (typeof runCmd.expireTrackerControls === "function") {
-          await runCmd.expireTrackerControls(client);
-        }
-      } catch (e) {
-        logger.error("expireTrackerControls error", e, {
-          location: "index.js -> cron -> expireTrackerControls",
-        });
-
-        await sendErrorAlert(client, "Tracker Control Expiry Failed", e, {
-          feature: "tracker",
-          location: "expireTrackerControls",
-          action: "Expiring tracker proof/edit controls",
-          likelyCause: "Tracker cleanup routine failed.",
-          severity: "warning",
-        });
-      }
-    },
-    { timezone: TRACKER_TZ }
-  );
-
-  const [sunH, sunM] = SUNDAY_ANNOUNCE_TIME.split(":").map(Number);
-  cron.schedule(
-    `${sunM} ${sunH} * * 0`,
-    async () => {
-      for (const guild of client.guilds.cache.values()) {
-        try {
-          const store = readTrackerStore();
-          const topP = topEntryLocal(store.weekly?.players);
-          const topD = topEntryLocal(store.weekly?.divisions);
-          const topE = topEntryLocal(store.weekly?.enemies);
-
-          const ann = findTextChannelByName(guild, ANN_NAME);
-          if (!ann) continue;
-
-          await ann.send({
-            content:
-              `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
-              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-              `📌 Live leaderboard: **#${LB_NAME}**`,
-            allowedMentions: topP ? { users: [topP.key] } : undefined,
-          }).catch(() => {});
-
-          store.history = store.history || { weeks: [] };
-          store.history.weeks.push({
-            monthKey: currentMonthKeyLocal(),
-            createdAt: new Date().toISOString(),
-            topPlayerId: topP?.key || null,
-            topPlayerPoints: topP?.val || 0,
-            topDivisionName: topD?.key || null,
-            topDivisionPoints: topD?.val || 0,
-            topEnemyName: topE?.key || null,
-            topEnemyPoints: topE?.val || 0,
-          });
-
-          writeTrackerStore(store);
-        } catch (err) {
-          logger.error("Weekly tracker announce failed", err, {
-            location: "index.js -> cron -> weekly announce",
-            guildId: guild.id,
-          });
-
-          await sendErrorAlert(client, "Weekly Tracker Announcement Failed", err, {
-            feature: "tracker",
-            location: "weekly announce",
-            action: "Posting weekly results",
-            likelyCause: "Announcement channel missing or store read/write issue.",
-            severity: "warning",
-          });
-        }
-      }
-    },
-    { timezone: TRACKER_TZ }
-  );
-
-  const [monH, monM] = MONDAY_RESET_TIME.split(":").map(Number);
-  cron.schedule(
-    `${monM} ${monH} * * 1`,
-    async () => {
-      for (const guild of client.guilds.cache.values()) {
-        try {
-          const store = readTrackerStore();
-          store.weekly = { players: {}, divisions: {}, enemies: {} };
-          writeTrackerStore(store);
-
-          if (typeof runCmd.updateLeaderboard === "function") {
-            await runCmd.updateLeaderboard(guild).catch(() => {});
-          } else if (typeof runCmd.ensureLeaderboardMessage === "function") {
-            const freshStore = readTrackerStore();
-            await runCmd.ensureLeaderboardMessage(guild, freshStore).catch(() => {});
-          }
-        } catch (err) {
-          logger.error("Weekly tracker reset failed", err, {
-            location: "index.js -> cron -> weekly reset",
-            guildId: guild.id,
-          });
-
-          await sendErrorAlert(client, "Weekly Tracker Reset Failed", err, {
-            feature: "tracker",
-            location: "weekly reset",
-            action: "Resetting weekly tracker data",
-            likelyCause: "Store write error or leaderboard refresh failure.",
-            severity: "warning",
-          });
-        }
-      }
-
-      await runProtected(client, {
-        feature: "playerStats",
-        action: "Resetting weekly player profiles",
-        location: "index.js -> cron -> playerStats.resetWeeklyProfiles",
-        likelyCause: "Player stats reset routine failed.",
-        retries: 0,
-        maxFailures: 3,
-        job: async () => {
-          playerStats.resetWeeklyProfiles();
-        },
-      });
-    },
-    { timezone: TRACKER_TZ }
-  );
-
-  cron.schedule(
-    "55 23 * * *",
-    async () => {
-      if (!isLastDayOfMonthLondon()) return;
-
-      for (const guild of client.guilds.cache.values()) {
-        try {
-          const store = readTrackerStore();
-          const monthKey = store.monthly?.monthKey || currentMonthKeyLocal();
-
-          const topP = topEntryLocal(store.monthly?.players);
-          const topD = topEntryLocal(store.monthly?.divisions);
-          const topE = topEntryLocal(store.monthly?.enemies);
-
-          const ann = findTextChannelByName(guild, ANN_NAME);
-          if (!ann) continue;
-
-          await ann.send({
-            content:
-              `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
-              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-              `📌 Leaderboards: **#${LB_NAME}**`,
-            allowedMentions: topP ? { users: [topP.key] } : undefined,
-          }).catch(() => {});
-        } catch (err) {
-          logger.error("Monthly tracker announce failed", err, {
-            location: "index.js -> cron -> monthly announce",
-            guildId: guild.id,
-          });
-
-          await sendErrorAlert(client, "Monthly Tracker Announcement Failed", err, {
-            feature: "tracker",
-            location: "monthly announce",
-            action: "Posting monthly results",
-            likelyCause: "Announcement channel missing or store issue.",
-            severity: "warning",
-          });
-        }
-      }
-    },
-    { timezone: TRACKER_TZ }
-  );
-
-  cron.schedule(
-    "5 0 1 * *",
-    async () => {
-      for (const guild of client.guilds.cache.values()) {
-        try {
-          const store = readTrackerStore();
-          store.monthly = {
-            monthKey: currentMonthKeyLocal(),
-            players: {},
-            divisions: {},
-            enemies: {},
-          };
-          writeTrackerStore(store);
-        } catch (err) {
-          logger.error("Monthly tracker reset failed", err, {
-            location: "index.js -> cron -> monthly reset",
-            guildId: guild.id,
-          });
-
-          await sendErrorAlert(client, "Monthly Tracker Reset Failed", err, {
-            feature: "tracker",
-            location: "monthly reset",
-            action: "Resetting monthly tracker data",
-            likelyCause: "Store write error.",
-            severity: "warning",
-          });
-        }
-      }
-
-      await runProtected(client, {
-        feature: "playerStats",
-        action: "Resetting monthly player profiles",
-        location: "index.js -> cron -> playerStats.resetMonthlyProfiles",
-        likelyCause: "Player stats reset routine failed.",
-        retries: 0,
-        maxFailures: 3,
-        job: async () => {
-          playerStats.resetMonthlyProfiles();
-        },
-      });
-    },
-    { timezone: TRACKER_TZ }
-  );
-
-  logger.info(`Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
-  logger.info(
-    `Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
-  );
-  logger.info(`Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
-  logger.info(`War: 15m board refresh (${TRACKER_TZ})`);
-});
-
-/* =========================
-   DISCORD CLIENT ERROR/WARN
-   ========================= */
-client.on(Events.Error, async (err) => {
-  logger.error("Discord Client Error", err, {
-    location: "client.on(Events.Error)",
-  });
-
-  await sendErrorAlert(client, "Discord Client Error", err, {
-    feature: "discord-client",
-    location: "client.on(Events.Error)",
-    action: "Discord client runtime error",
-    likelyCause: "Discord.js runtime issue or connection/client failure.",
-    severity: "error",
-  });
-});
-
-client.on(Events.Warn, (warning) => {
-  logger.warn("Discord Client Warning", {
-    location: "client.on(Events.Warn)",
-    warning,
-  });
-});
-
-/* =========================
-   GLOBAL PROCESS HANDLERS
-   ========================= */
-process.on("unhandledRejection", async (reason) => {
-  const err =
-    reason instanceof Error ? reason : new Error(String(reason || "Unknown rejection"));
-
-  logger.error("Unhandled Promise Rejection", err, {
-    location: "process.on(unhandledRejection)",
-  });
-
-  try {
-    await sendErrorAlert(client, "Unhandled Promise Rejection", err, {
-      feature: "global-process",
-      location: "process.on(unhandledRejection)",
-      action: "Unhandled async failure",
-      likelyCause: "A promise rejected without a catch handler.",
-      severity: "critical",
-    });
-  } catch (alertErr) {
-    logger.error("Failed to send unhandledRejection alert", alertErr, {
-      location: "process.on(unhandledRejection)",
-    });
-  }
-});
-
-process.on("uncaughtException", async (err) => {
-  logger.error("Uncaught Exception", err, {
-    location: "process.on(uncaughtException)",
-  });
-
-  try {
-    await sendErrorAlert(client, "Uncaught Exception", err, {
-      feature: "global-process",
-      location: "process.on(uncaughtException)",
-      action: "Unexpected crash-level error",
-      likelyCause: "A synchronous error was thrown and not caught.",
-      severity: "critical",
-    });
-  } catch (alertErr) {
-    logger.error("Failed to send uncaughtException alert", alertErr, {
-      location: "process.on(uncaughtException)",
-    });
-  }
-});
-
-/* =========================
-   CLEAN SHUTDOWN
-   ========================= */
-async function shutdown(signal) {
-  logger.warn(`Shutdown signal received: ${signal}`, {
-    location: "shutdown()",
-  });
-
-  try {
-    if (client.isReady()) {
-      await sendAlert(client, {
-        title: "Bot Shutdown",
-        description: `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
-        severity: "warning",
-      });
-    }
-  } catch (err) {
-    logger.error("Failed to send shutdown alert", err, {
-      location: "shutdown()",
-    });
-  }
-
-  try {
-    client.destroy();
-  } catch (err) {
-    logger.error("Failed to destroy Discord client cleanly", err, {
-      location: "shutdown()",
-    });
-  }
-
-  process.exit(0);
-}
-
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-/* =========================
-   LOGIN
-   ========================= */
-client.login(TOKEN).catch((err) => {
-  logger.error("Failed to login bot", err, {
-    location: "client.login",
-  });
-
-  console.error("❌ Bot login failed:", err);
-  process.exit(1);
-});
