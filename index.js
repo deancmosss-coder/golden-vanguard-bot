@@ -521,6 +521,25 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 /* =========================
+   INTERACTION HELPERS
+   ========================= */
+async function safeReply(interaction, content, useFollowUp = false) {
+  try {
+    if (useFollowUp && (interaction.deferred || interaction.replied)) {
+      return await interaction.followUp({ content, flags: 64 });
+    }
+
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply({ content });
+    }
+
+    return await interaction.reply({ content, flags: 64 });
+  } catch {
+    return null;
+  }
+}
+
+/* =========================
    INTERACTIONS
    ========================= */
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -546,7 +565,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       ];
 
       if (validDivisionButtons.includes(interaction.customId)) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         const member = interaction.member;
         if (!member) {
@@ -623,11 +642,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!session) {
         if (interaction.deferred || interaction.replied) {
           return interaction
-            .followUp({ content: "Session expired.", ephemeral: true })
+            .followUp({ content: "Session expired.", flags: 64 })
             .catch(() => {});
         }
 
-        return interaction.reply({ content: "Session expired.", ephemeral: true }).catch(() => {});
+        return interaction.reply({ content: "Session expired.", flags: 64 }).catch(() => {});
       }
 
       if (interaction.user.id !== session.ownerId) {
@@ -635,7 +654,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction
             .followUp({
               content: "Only the host can set faction/difficulty.",
-              ephemeral: true,
+              flags: 64,
             })
             .catch(() => {});
         }
@@ -643,13 +662,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction
           .reply({
             content: "Only the host can set faction/difficulty.",
-            ephemeral: true,
+            flags: 64,
           })
           .catch(() => {});
       }
 
       try {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         if (interaction.customId === FACTION_SELECT_ID) {
           session.faction = interaction.values[0];
@@ -698,7 +717,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction
           .reply({
             content: "❌ Something went wrong while updating the session.",
-            ephemeral: true,
+            flags: 64,
           })
           .catch(() => {});
       }
@@ -726,9 +745,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction?.isRepliable?.()) {
       try {
         if (interaction.deferred || interaction.replied) {
-          await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+          await interaction.followUp({ content: "Something went wrong.", flags: 64 });
         } else {
-          await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+          await interaction.reply({ content: "Something went wrong.", flags: 64 });
         }
       } catch {}
     }
@@ -781,7 +800,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       }
     }
 
-    // ===== PLAYER VC TIME TRACKING =====
     if (!oldState.channelId && newState.channelId) {
       playerStats.startVoiceSession(newState.id);
     }
@@ -856,7 +874,6 @@ client.once(Events.ClientReady, async () => {
     },
   });
 
-  // Live war board refresh every 15 mins
   cron.schedule(
     "*/15 * * * *",
     async () => {
@@ -918,7 +935,6 @@ client.once(Events.ClientReady, async () => {
     return t.d === 1;
   }
 
-  // Ensure leaderboard message exists for every guild
   for (const guild of client.guilds.cache.values()) {
     const store = readTrackerStore();
     if (typeof runCmd.ensureLeaderboardMessage === "function") {
@@ -939,7 +955,6 @@ client.once(Events.ClientReady, async () => {
     }
   }
 
-  // Expire proof/edit controls every 2 mins
   cron.schedule(
     "*/2 * * * *",
     async () => {
@@ -964,7 +979,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Weekly announce Sunday
   const [sunH, sunM] = SUNDAY_ANNOUNCE_TIME.split(":").map(Number);
   cron.schedule(
     `${sunM} ${sunH} * * 0`,
@@ -1021,7 +1035,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Weekly reset Monday
   const [monH, monM] = MONDAY_RESET_TIME.split(":").map(Number);
   cron.schedule(
     `${monM} ${monH} * * 1`,
@@ -1069,7 +1082,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Monthly announce on last day
   cron.schedule(
     "55 23 * * *",
     async () => {
@@ -1115,7 +1127,6 @@ client.once(Events.ClientReady, async () => {
     { timezone: TRACKER_TZ }
   );
 
-  // Monthly reset on 1st
   cron.schedule(
     "5 0 1 * *",
     async () => {
