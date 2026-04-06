@@ -104,6 +104,53 @@ function saveDb(db) {
 }
 
 /* =========================
+   INTERACTION HELPERS
+   ========================= */
+async function safeDeferredEphemeral(interaction, content) {
+  try {
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply({ content });
+    }
+
+    await interaction.deferReply({ flags: 64 });
+    return await interaction.editReply({ content });
+  } catch (err) {
+    try {
+      return await interaction.followUp({ content, flags: 64 });
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function safeAcknowledgeForMessageUpdate(interaction) {
+  try {
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function safeUpdatePromotionMessage(interaction, footerText) {
+  try {
+    const updatedEmbed = EmbedBuilder.from(
+      interaction.message?.embeds?.[0] || new EmbedBuilder()
+    ).setFooter({ text: footerText });
+
+    if (interaction.message?.editable) {
+      await interaction.message.edit({
+        embeds: [updatedEmbed],
+        components: [],
+      });
+    }
+  } catch (err) {
+    console.error("[orientationSystem] safeUpdatePromotionMessage error:", err);
+  }
+}
+
+/* =========================
    RECRUIT MODEL
    ========================= */
 function defaultRecruitRecord(userId) {
@@ -492,13 +539,10 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
   await announcePromotion(guild.client, member, approverMember).catch(console.error);
 
   if (interaction) {
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Approved by ${approverMember.displayName}` });
-
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: [],
-    }).catch(console.error);
+    await safeUpdatePromotionMessage(
+      interaction,
+      `Approved by ${approverMember.displayName}`
+    );
   }
 
   await member.send(
@@ -522,13 +566,10 @@ async function moreTraining(guild, targetUserId, approverMember, interaction = n
   );
 
   if (interaction) {
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Returned for more training by ${approverMember.displayName}` });
-
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: [],
-    }).catch(console.error);
+    await safeUpdatePromotionMessage(
+      interaction,
+      `Returned for more training by ${approverMember.displayName}`
+    );
   }
 
   await member.send(
@@ -552,13 +593,10 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
   );
 
   if (interaction) {
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Denied by ${approverMember.displayName}` });
-
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: [],
-    }).catch(console.error);
+    await safeUpdatePromotionMessage(
+      interaction,
+      `Denied by ${approverMember.displayName}`
+    );
   }
 
   await member.send(
@@ -595,31 +633,42 @@ async function handleOrientationButton(interaction) {
     customId.startsWith("orientation_deny_")
   ) {
     if (!isApprover(member)) {
-      await interaction.reply({
-        content: "Only Sergeant or higher can approve or review recruit promotions.",
-        ephemeral: true,
-      });
+      await safeDeferredEphemeral(
+        interaction,
+        "Only Sergeant or higher can approve or review recruit promotions."
+      );
       return true;
     }
 
     const targetUserId = customId.split("_").pop();
     if (!targetUserId) {
-      await interaction.reply({ content: "Invalid promotion target.", ephemeral: true });
+      await safeDeferredEphemeral(interaction, "Invalid promotion target.");
       return true;
     }
 
+    await safeAcknowledgeForMessageUpdate(interaction);
+
     if (customId.startsWith("orientation_approve_")) {
-      await approvePromotion(guild, targetUserId, member, interaction);
+      const result = await approvePromotion(guild, targetUserId, member, interaction);
+      if (!result.ok) {
+        await safeDeferredEphemeral(interaction, "Could not approve this promotion.");
+      }
       return true;
     }
 
     if (customId.startsWith("orientation_more_training_")) {
-      await moreTraining(guild, targetUserId, member, interaction);
+      const result = await moreTraining(guild, targetUserId, member, interaction);
+      if (!result.ok) {
+        await safeDeferredEphemeral(interaction, "Could not return this recruit for more training.");
+      }
       return true;
     }
 
     if (customId.startsWith("orientation_deny_")) {
-      await denyPromotion(guild, targetUserId, member, interaction);
+      const result = await denyPromotion(guild, targetUserId, member, interaction);
+      if (!result.ok) {
+        await safeDeferredEphemeral(interaction, "Could not deny this promotion.");
+      }
       return true;
     }
   }
@@ -627,50 +676,48 @@ async function handleOrientationButton(interaction) {
   ensureRecruit(member.id);
 
   if (!isRecruitMember(member)) {
-    await interaction.reply({
-      content: "This orientation panel is for Recruits only.",
-      ephemeral: true,
-    });
+    await safeDeferredEphemeral(interaction, "This orientation panel is for Recruits only.");
     return true;
   }
 
   if (customId === "orientation_guide") {
+    await interaction.deferReply({ flags: 64 });
     markGuideRead(member.id);
     await logProgress(member, "Guide reviewed");
-    await interaction.reply({
+    await interaction.editReply({
       content: `✅ Marked as complete.\n\n${buildProgressText(member.id)}`,
-      ephemeral: true,
     });
     return true;
   }
 
   if (customId === "orientation_laws") {
+    await interaction.deferReply({ flags: 64 });
     markLawsRead(member.id);
     await logProgress(member, "Community laws reviewed");
-    await interaction.reply({
+    await interaction.editReply({
       content: `✅ Marked as complete.\n\n${buildProgressText(member.id)}`,
-      ephemeral: true,
     });
     return true;
   }
 
   if (customId === "orientation_divisions") {
+    await interaction.deferReply({ flags: 64 });
     markDivisionsRead(member.id);
     await logProgress(member, "Divisions reviewed");
-    await interaction.reply({
+    await interaction.editReply({
       content: `✅ Marked as complete.\n\n${buildProgressText(member.id)}`,
-      ephemeral: true,
     });
     return true;
   }
 
   if (customId === "orientation_request_promotion") {
+    await interaction.deferReply({ flags: 64 });
+
     const recruit = ensureRecruit(member.id);
 
     if (recruit.promoted) {
-      await interaction.reply({
+      await interaction.editReply({
         content: "You have already been promoted to Trooper.",
-        ephemeral: true,
       });
       return true;
     }
@@ -678,33 +725,29 @@ async function handleOrientationButton(interaction) {
     if (!isComplete(member.id)) {
       const missing = getMissingSteps(member.id).map((x) => `• ${x}`).join("\n");
 
-      await interaction.reply({
+      await interaction.editReply({
         content: `You are not ready for promotion yet.\n\nMissing steps:\n${missing}\n\n${buildProgressText(member.id)}`,
-        ephemeral: true,
       });
       return true;
     }
 
     if (recruit.promotionRequested) {
-      await interaction.reply({
+      await interaction.editReply({
         content: "Your promotion request has already been sent for review.",
-        ephemeral: true,
       });
       return true;
     }
 
     const result = await sendPromotionRequest(member);
     if (!result.ok) {
-      await interaction.reply({
+      await interaction.editReply({
         content: "I could not send your promotion request.",
-        ephemeral: true,
       });
       return true;
     }
 
-    await interaction.reply({
+    await interaction.editReply({
       content: "⭐ Your promotion request has been sent for review.",
-      ephemeral: true,
     });
     return true;
   }
