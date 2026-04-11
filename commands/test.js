@@ -1,23 +1,18 @@
 // =========================
 // commands/test.js
-// FIXED VERSION (interaction-safe)
+// MOBILE FRIENDLY VERSION
 // =========================
 
 const {
   SlashCommandBuilder,
   EmbedBuilder,
-  AttachmentBuilder,
   PermissionFlagsBits,
 } = require("discord.js");
 
-const fs = require("fs");
-const path = require("path");
 const {
   runAllTests,
   testSystem,
   summarise,
-  formatSingleFeatureResults,
-  formatAllResults,
 } = require("../services/testRunner");
 
 const VALID_FEATURES = [
@@ -32,8 +27,11 @@ const VALID_FEATURES = [
   "all",
 ];
 
-function buildSummaryEmbed(title, summary, feature = null) {
-  return new EmbedBuilder()
+function buildEmbed(title, results, summary) {
+  const failed = results.filter((r) => !r.ok);
+  const passed = results.filter((r) => r.ok);
+
+  const embed = new EmbedBuilder()
     .setColor(summary.failed > 0 ? 0xe67e22 : 0x2ecc71)
     .setTitle(title)
     .addFields(
@@ -41,20 +39,22 @@ function buildSummaryEmbed(title, summary, feature = null) {
       { name: "Failed", value: String(summary.failed), inline: true },
       { name: "Total", value: String(summary.total), inline: true }
     )
-    .setTimestamp()
-    .setFooter({ text: "Golden Vanguard Test System" });
-}
-
-function buildDetailEmbed(feature, results) {
-  const lines = results.map(
-    (item) => `${item.ok ? "✅" : "❌"} ${item.name} — ${item.details}`
-  );
-
-  return new EmbedBuilder()
-    .setColor(results.some((r) => !r.ok) ? 0xe67e22 : 0x2ecc71)
-    .setTitle(`Test Results — ${feature}`)
-    .setDescription(lines.join("\n").slice(0, 4000))
     .setTimestamp();
+
+  // 🔴 Show ONLY failures (clean)
+  if (failed.length > 0) {
+    embed.addFields({
+      name: "❌ Issues Found",
+      value: failed
+        .map((f) => `• **${f.name}** → ${f.details}`)
+        .join("\n")
+        .slice(0, 1024),
+    });
+  } else {
+    embed.setDescription("✅ No issues found.");
+  }
+
+  return embed;
 }
 
 const adminData = new SlashCommandBuilder()
@@ -82,14 +82,6 @@ const adminData = new SlashCommandBuilder()
 async function executeAdmin(interaction) {
   const feature = interaction.options.getString("feature", true).toLowerCase();
 
-  if (!VALID_FEATURES.includes(feature)) {
-    return interaction.reply({
-      content: "Invalid feature.",
-      flags: 64,
-    });
-  }
-
-  // 🔥 CRITICAL FIX → reply immediately (NOT defer)
   await interaction.reply({
     content: "🧪 Running tests...",
     flags: 64,
@@ -98,57 +90,28 @@ async function executeAdmin(interaction) {
   try {
     if (feature === "all") {
       const resultsByFeature = await runAllTests(interaction.guild);
+
+      const allResults = Object.values(resultsByFeature).flat();
       const summary = summarise(resultsByFeature);
-
-      const reportText = formatAllResults(resultsByFeature);
-      const reportPath = path.join(
-        __dirname,
-        "..",
-        "data",
-        `test-report-${interaction.guildId}.md`
-      );
-
-      fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-      fs.writeFileSync(reportPath, reportText, "utf8");
-
-      const file = new AttachmentBuilder(reportPath);
 
       return interaction.editReply({
         content: "",
-        embeds: [buildSummaryEmbed("Full System Test Complete", summary)],
-        files: [file],
+        embeds: [buildEmbed("Full System Test", allResults, summary)],
       });
     }
 
     const results = await testSystem(interaction.guild, feature);
     const summary = summarise(results);
 
-    const reportText = formatSingleFeatureResults(feature, results);
-    const reportPath = path.join(
-      __dirname,
-      "..",
-      "data",
-      `test-${feature}-${interaction.guildId}.md`
-    );
-
-    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, reportText, "utf8");
-
-    const file = new AttachmentBuilder(reportPath);
-
     return interaction.editReply({
       content: "",
-      embeds: [
-        buildSummaryEmbed("Feature Test Complete", summary),
-        buildDetailEmbed(feature, results),
-      ],
-      files: [file],
+      embeds: [buildEmbed(`Test — ${feature}`, results, summary)],
     });
   } catch (err) {
-    console.error("TEST COMMAND ERROR:", err);
+    console.error(err);
 
     return interaction.editReply({
-      content: "❌ Test failed unexpectedly. Check logs.",
+      content: "❌ Test failed unexpectedly.",
     });
   }
 }
