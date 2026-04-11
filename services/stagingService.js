@@ -5,9 +5,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const {
-  getAllManagedFeatureNames,
-} = require("./managedFeatureStore");
+const { getAllManagedFeatureNames } = require("./managedFeatureStore");
 
 const DATA_PATH = path.join(__dirname, "..", "data", "stagingState.json");
 const VALID_STAGES = ["live", "staging", "dev", "frozen"];
