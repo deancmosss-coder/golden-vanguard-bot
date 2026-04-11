@@ -1,6 +1,7 @@
 // =========================
 // commands/stage.js
 // STRICT ADMIN-ONLY STAGING SYSTEM
+// DYNAMIC FEATURE AUTOCOMPLETE
 // =========================
 
 const {
@@ -10,8 +11,8 @@ const {
 } = require("discord.js");
 
 const {
-  VALID_FEATURES,
   VALID_STAGES,
+  getAvailableFeatures,
   getFeatureStage,
   listFeatureStages,
   setFeatureStage,
@@ -113,11 +114,6 @@ function buildAuditEmbed(entries) {
     .setTimestamp();
 }
 
-const featureChoices = VALID_FEATURES.map((feature) => ({
-  name: feature,
-  value: feature,
-}));
-
 const stageChoices = VALID_STAGES.map((stage) => ({
   name: stage,
   value: stage,
@@ -132,7 +128,7 @@ const adminData = new SlashCommandBuilder()
       .setName("status")
       .setDescription("View one feature stage.")
       .addStringOption((o) =>
-        o.setName("feature").setDescription("Feature name").setRequired(true).addChoices(...featureChoices)
+        o.setName("feature").setDescription("Feature name").setRequired(true).setAutocomplete(true)
       )
   )
   .addSubcommand((sub) =>
@@ -143,7 +139,7 @@ const adminData = new SlashCommandBuilder()
       .setName("set")
       .setDescription("Set the stage for a feature.")
       .addStringOption((o) =>
-        o.setName("feature").setDescription("Feature name").setRequired(true).addChoices(...featureChoices)
+        o.setName("feature").setDescription("Feature name").setRequired(true).setAutocomplete(true)
       )
       .addStringOption((o) =>
         o.setName("stage").setDescription("Target stage").setRequired(true).addChoices(...stageChoices)
@@ -160,7 +156,7 @@ const adminData = new SlashCommandBuilder()
       .setName("version")
       .setDescription("Update feature version.")
       .addStringOption((o) =>
-        o.setName("feature").setDescription("Feature name").setRequired(true).addChoices(...featureChoices)
+        o.setName("feature").setDescription("Feature name").setRequired(true).setAutocomplete(true)
       )
       .addStringOption((o) =>
         o.setName("value").setDescription("Version value").setRequired(true)
@@ -174,7 +170,7 @@ const adminData = new SlashCommandBuilder()
       .setName("notes")
       .setDescription("Update feature rollout notes.")
       .addStringOption((o) =>
-        o.setName("feature").setDescription("Feature name").setRequired(true).addChoices(...featureChoices)
+        o.setName("feature").setDescription("Feature name").setRequired(true).setAutocomplete(true)
       )
       .addStringOption((o) =>
         o.setName("value").setDescription("Notes").setRequired(true)
@@ -183,6 +179,25 @@ const adminData = new SlashCommandBuilder()
   .addSubcommand((sub) =>
     sub.setName("audit").setDescription("View recent stage audit entries.")
   );
+
+async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== "feature") {
+    return interaction.respond([]);
+  }
+
+  const q = String(focused.value || "").toLowerCase();
+
+  const choices = getAvailableFeatures()
+    .filter((feature) => feature.toLowerCase().includes(q))
+    .slice(0, 25)
+    .map((feature) => ({
+      name: feature,
+      value: feature,
+    }));
+
+  return interaction.respond(choices);
+}
 
 async function executeAdmin(interaction) {
   const sub = interaction.options.getSubcommand();
@@ -285,5 +300,6 @@ async function executeAdmin(interaction) {
 
 module.exports = {
   adminData,
+  autocomplete,
   executeAdmin,
 };
