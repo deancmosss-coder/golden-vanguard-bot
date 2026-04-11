@@ -2,6 +2,7 @@
 // commands/review.js
 // DISCOVERY + UPGRADE REVIEW COMMAND
 // STRICT ADMIN ONLY
+// PHASE 2: PROMOTION FLOW
 // =========================
 
 const {
@@ -14,6 +15,8 @@ const {
   getPendingReviews,
   getApprovedReviews,
   getDeclinedReviews,
+  getStagingReviews,
+  getLiveReviews,
   getAllReviews,
   getReview,
   getRecentAudit,
@@ -21,6 +24,8 @@ const {
   scanForReviews,
   approveReview,
   declineReview,
+  promoteReviewToStaging,
+  promoteReviewToLive,
 } = require("../services/discoveryReviewService");
 
 function relTime(iso) {
@@ -64,8 +69,12 @@ function buildSingleReviewEmbed(item) {
 
   return new EmbedBuilder()
     .setColor(
-      item.status === "approved"
+      item.status === "live"
         ? 0x2ecc71
+        : item.status === "staging"
+        ? 0x3498db
+        : item.status === "approved"
+        ? 0x27ae60
         : item.status === "declined"
         ? 0xe74c3c
         : 0xf1c40f
@@ -80,6 +89,8 @@ function buildSingleReviewEmbed(item) {
       { name: "Progress", value: progress.bar, inline: false },
       { name: "Detected", value: relTime(item.detectedAt), inline: true },
       { name: "Approved", value: relTime(item.approvedAt), inline: true },
+      { name: "Staging", value: relTime(item.stagingAt), inline: true },
+      { name: "Live", value: relTime(item.liveAt), inline: true },
       { name: "Declined", value: relTime(item.declinedAt), inline: true }
     )
     .setFooter({ text: "Golden Vanguard Discovery Review" })
@@ -126,6 +137,12 @@ const adminData = new SlashCommandBuilder()
     sub.setName("approved").setDescription("View all approved review items.")
   )
   .addSubcommand((sub) =>
+    sub.setName("staging").setDescription("View all staging review items.")
+  )
+  .addSubcommand((sub) =>
+    sub.setName("live").setDescription("View all live review items.")
+  )
+  .addSubcommand((sub) =>
     sub.setName("declined").setDescription("View all declined review items.")
   )
   .addSubcommand((sub) =>
@@ -156,6 +173,22 @@ const adminData = new SlashCommandBuilder()
       )
   )
   .addSubcommand((sub) =>
+    sub
+      .setName("promote-staging")
+      .setDescription("Promote an approved review to staging.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("promote-live")
+      .setDescription("Promote a staging review to live.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
     sub.setName("audit").setDescription("View discovery review audit.")
   );
 
@@ -170,41 +203,43 @@ async function executeAdmin(interaction) {
       await scanForReviews(interaction.client, actor);
 
       return interaction.editReply({
-        embeds: [
-          buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f),
-        ],
+        embeds: [buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f)],
       });
     }
 
     if (sub === "pending") {
       return interaction.editReply({
-        embeds: [
-          buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f),
-        ],
+        embeds: [buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f)],
       });
     }
 
     if (sub === "approved") {
       return interaction.editReply({
-        embeds: [
-          buildReviewListEmbed("Approved Review Items", getApprovedReviews(), 0x2ecc71),
-        ],
+        embeds: [buildReviewListEmbed("Approved Review Items", getApprovedReviews(), 0x27ae60)],
+      });
+    }
+
+    if (sub === "staging") {
+      return interaction.editReply({
+        embeds: [buildReviewListEmbed("Staging Review Items", getStagingReviews(), 0x3498db)],
+      });
+    }
+
+    if (sub === "live") {
+      return interaction.editReply({
+        embeds: [buildReviewListEmbed("Live Review Items", getLiveReviews(), 0x2ecc71)],
       });
     }
 
     if (sub === "declined") {
       return interaction.editReply({
-        embeds: [
-          buildReviewListEmbed("Declined Review Items", getDeclinedReviews(), 0xe74c3c),
-        ],
+        embeds: [buildReviewListEmbed("Declined Review Items", getDeclinedReviews(), 0xe74c3c)],
       });
     }
 
     if (sub === "all") {
       return interaction.editReply({
-        embeds: [
-          buildReviewListEmbed("All Review Items", getAllReviews(), 0x3498db),
-        ],
+        embeds: [buildReviewListEmbed("All Review Items", getAllReviews(), 0x95a5a6)],
       });
     }
 
@@ -233,6 +268,24 @@ async function executeAdmin(interaction) {
     if (sub === "decline") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await declineReview(interaction.client, reviewId, actor);
+
+      return interaction.editReply({
+        embeds: [buildSingleReviewEmbed(item)],
+      });
+    }
+
+    if (sub === "promote-staging") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await promoteReviewToStaging(interaction.client, reviewId, actor);
+
+      return interaction.editReply({
+        embeds: [buildSingleReviewEmbed(item)],
+      });
+    }
+
+    if (sub === "promote-live") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await promoteReviewToLive(interaction.client, reviewId, actor);
 
       return interaction.editReply({
         embeds: [buildSingleReviewEmbed(item)],
@@ -281,6 +334,22 @@ async function handleButton(interaction) {
 
     if (action === "decline") {
       const item = await declineReview(interaction.client, reviewId, actor);
+      await interaction.editReply({
+        embeds: [buildSingleReviewEmbed(item)],
+      });
+      return true;
+    }
+
+    if (action === "promote_staging") {
+      const item = await promoteReviewToStaging(interaction.client, reviewId, actor);
+      await interaction.editReply({
+        embeds: [buildSingleReviewEmbed(item)],
+      });
+      return true;
+    }
+
+    if (action === "promote_live") {
+      const item = await promoteReviewToLive(interaction.client, reviewId, actor);
       await interaction.editReply({
         embeds: [buildSingleReviewEmbed(item)],
       });
