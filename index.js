@@ -907,6 +907,15 @@ client.once(Events.ClientReady, async () => {
     });
   }, 60 * 60 * 1000);
 
+  // Orientation VC sweep so deployment completes even with no new VC events
+  setInterval(() => {
+    orientationSystem.scanAllTrackedGuilds(client).catch((err) => {
+      logger.error("Orientation VC sweep failed", err, {
+        location: "index.js -> ClientReady -> setInterval(scanAllTrackedGuilds)",
+      });
+    });
+  }, 60 * 1000);
+
   await runProtected(client, {
     feature: "warboard",
     action: "Refreshing war board on startup",
