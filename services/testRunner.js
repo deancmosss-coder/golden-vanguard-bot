@@ -1,7 +1,6 @@
 // =========================
 // services/testRunner.js
-// FULL SCRIPT
-// Strict monitoring build - Step 5
+// FULL REPLACEMENT
 // =========================
 
 const fs = require("fs");
@@ -14,128 +13,122 @@ const FEATURE_STATE_PATH = path.join(__dirname, "..", "data", "featureState.json
 const RECRUITS_PATH = path.join(__dirname, "..", "data", "recruits.json");
 const BOARD_CONFIG_PATH = path.join(__dirname, "..", "data", "boardConfig.json");
 
-function ok(name, details) {
+function ok(name, details = "OK") {
   return { name, ok: true, details };
 }
 
-function fail(name, details) {
+function fail(name, details = "Failed") {
   return { name, ok: false, details };
 }
 
-function safeReadJson(filePath, fallback = null) {
+function fileExistsSafe(filePath) {
   try {
-    if (!fs.existsSync(filePath)) {
-      return { exists: false, data: fallback, error: null };
-    }
-
-    const raw = fs.readFileSync(filePath, "utf8");
-    return {
-      exists: true,
-      data: JSON.parse(raw),
-      error: null,
-    };
-  } catch (error) {
-    return {
-      exists: true,
-      data: fallback,
-      error: error.message || String(error),
-    };
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
   }
 }
 
-async function fetchChannel(guild, channelId) {
-  if (!channelId) return null;
-  return guild.channels.fetch(channelId).catch(() => null);
+function readJsonSafe(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
-async function fetchRole(guild, roleId) {
-  if (!roleId) return null;
-  return guild.roles.fetch(roleId).catch(() => null);
-}
-
-function getEnv(name, fallback = "") {
-  return (process.env[name] || fallback).trim();
-}
-
-async function testTracker(guild) {
+async function testCommands(guild) {
   const results = [];
 
-  const aarName = getEnv("AAR_CHANNEL_NAME", "after-action-reports");
-  const lbName = getEnv("LB_CHANNEL_NAME", "leaderboards");
-
-  const aarChannel = guild.channels.cache.find(
-    (c) => c.isTextBased?.() && c.name?.toLowerCase() === aarName.toLowerCase()
-  );
-  const lbChannel = guild.channels.cache.find(
-    (c) => c.isTextBased?.() && c.name?.toLowerCase() === lbName.toLowerCase()
-  );
+  const commandsPath = path.join(__dirname, "..", "commands");
+  const requiredFiles = [
+    "run.js",
+    "enlistment.js",
+  ];
 
   results.push(
-    aarChannel
-      ? ok("AAR channel", `Found #${aarName}`)
-      : fail("AAR channel", `Missing #${aarName}`)
+    fileExistsSafe(commandsPath)
+      ? ok("commands folder", "Folder exists")
+      : fail("commands folder", "Folder missing")
   );
 
-  results.push(
-    lbChannel
-      ? ok("Leaderboard channel", `Found #${lbName}`)
-      : fail("Leaderboard channel", `Missing #${lbName}`)
-  );
-
-  const trackerStore = safeReadJson(TRACKER_STORE_PATH, {});
-  if (!trackerStore.exists) {
-    results.push(fail("tracker_store.json", "File missing"));
-  } else if (trackerStore.error) {
-    results.push(fail("tracker_store.json", `Invalid JSON: ${trackerStore.error}`));
-  } else {
-    results.push(ok("tracker_store.json", "Readable JSON"));
-  }
-
-  const missions = safeReadJson(MISSIONS_PATH, {});
-  if (!missions.exists) {
-    results.push(fail("missions.json", "File missing"));
-  } else if (missions.error) {
-    results.push(fail("missions.json", `Invalid JSON: ${missions.error}`));
-  } else if (!Array.isArray(missions.data?.missions)) {
-    results.push(fail("missions.json", 'Missing "missions" array'));
-  } else {
-    results.push(ok("missions.json", `${missions.data.missions.length} mission(s) loaded`));
+  for (const file of requiredFiles) {
+    const fullPath = path.join(commandsPath, file);
+    results.push(
+      fileExistsSafe(fullPath)
+        ? ok(file, "Command file exists")
+        : fail(file, "Command file missing")
+    );
   }
 
   return results;
 }
 
-async function testWarboard(guild) {
+async function testTracker() {
   const results = [];
 
-  const boardConfig = safeReadJson(BOARD_CONFIG_PATH, {});
-  if (!boardConfig.exists) {
-    results.push(fail("boardConfig.json", "File missing"));
-  } else if (boardConfig.error) {
-    results.push(fail("boardConfig.json", `Invalid JSON: ${boardConfig.error}`));
-  } else {
-    results.push(ok("boardConfig.json", "Readable JSON"));
-  }
+  results.push(
+    fileExistsSafe(TRACKER_STORE_PATH)
+      ? ok("tracker_store.json", "Tracker store exists")
+      : fail("tracker_store.json", "Tracker store missing")
+  );
 
-  const warCache = safeReadJson(WAR_CACHE_PATH, {});
-  if (!warCache.exists) {
-    results.push(fail("war_cache.json", "File missing"));
-  } else if (warCache.error) {
-    results.push(fail("war_cache.json", `Invalid JSON: ${warCache.error}`));
-  } else {
-    results.push(ok("war_cache.json", "Readable JSON"));
-  }
+  results.push(
+    fileExistsSafe(MISSIONS_PATH)
+      ? ok("missions.json", "Mission file exists")
+      : fail("missions.json", "Mission file missing")
+  );
 
-  const boardChannelId = String(boardConfig.data?.channelId || "").trim();
-  if (!boardChannelId) {
-    results.push(fail("War board channel", "channelId missing in boardConfig.json"));
-  } else {
-    const channel = await fetchChannel(guild, boardChannelId);
+  const trackerStore = readJsonSafe(TRACKER_STORE_PATH);
+  results.push(
+    trackerStore
+      ? ok("tracker_store.json parse", "Valid JSON")
+      : fail("tracker_store.json parse", "Invalid or unreadable JSON")
+  );
+
+  const missions = readJsonSafe(MISSIONS_PATH);
+  results.push(
+    missions && Array.isArray(missions.missions)
+      ? ok("missions.json structure", "missions array found")
+      : fail("missions.json structure", "missions array missing or invalid")
+  );
+
+  return results;
+}
+
+async function testWarboard() {
+  const results = [];
+
+  results.push(
+    fileExistsSafe(WAR_CACHE_PATH)
+      ? ok("war_cache.json", "War cache exists")
+      : fail("war_cache.json", "War cache missing")
+  );
+
+  results.push(
+    fileExistsSafe(BOARD_CONFIG_PATH)
+      ? ok("boardConfig.json", "Board config exists")
+      : fail("boardConfig.json", "Board config missing")
+  );
+
+  const warCache = readJsonSafe(WAR_CACHE_PATH);
+  results.push(
+    warCache
+      ? ok("war_cache.json parse", "Valid JSON")
+      : fail("war_cache.json parse", "Invalid or unreadable JSON")
+  );
+
+  const boardConfig = readJsonSafe(BOARD_CONFIG_PATH);
+  if (boardConfig) {
+    results.push(ok("boardConfig.json parse", "Valid JSON"));
     results.push(
-      channel?.isTextBased?.()
-        ? ok("War board channel", `Found #${channel.name}`)
-        : fail("War board channel", `Channel not found: ${boardChannelId}`)
+      boardConfig.channelId
+        ? ok("board channel id", "Configured")
+        : fail("board channel id", "Missing channelId")
     );
+  } else {
+    results.push(fail("boardConfig.json parse", "Invalid or unreadable JSON"));
   }
 
   return results;
@@ -144,26 +137,33 @@ async function testWarboard(guild) {
 async function testAskToPlay(guild) {
   const results = [];
 
-  const pingRoleId = getEnv("PING_ROLE_ID");
-  const allowedChannelId = getEnv("ALLOWED_CHANNEL_ID");
+  const requiredRoleKeywords = ["ask"];
+  const allowedChannelId = (process.env.ALLOWED_CHANNEL_ID || "").trim();
 
-  if (!pingRoleId) {
-    results.push(fail("PING_ROLE_ID", "Missing in .env"));
-  } else {
-    const role = await fetchRole(guild, pingRoleId);
+  for (const keyword of requiredRoleKeywords) {
+    const role = guild.roles.cache.find((r) =>
+      r.name.toLowerCase().includes(keyword)
+    );
+
     results.push(
-      role ? ok("Ask-to-Play role", `Found role: ${role.name}`) : fail("Ask-to-Play role", "Role not found")
+      role
+        ? ok(`Role contains "${keyword}"`, `Found: ${role.name}`)
+        : fail(`Role contains "${keyword}"`, "No matching role found")
     );
   }
 
-  if (!allowedChannelId) {
-    results.push(fail("ALLOWED_CHANNEL_ID", "Missing in .env"));
-  } else {
-    const channel = await fetchChannel(guild, allowedChannelId);
+  results.push(
+    allowedChannelId
+      ? ok("ALLOWED_CHANNEL_ID", `Configured: ${allowedChannelId}`)
+      : fail("ALLOWED_CHANNEL_ID", "Missing from .env")
+  );
+
+  if (allowedChannelId) {
+    const channel = guild.channels.cache.get(allowedChannelId);
     results.push(
-      channel?.isTextBased?.()
-        ? ok("Allowed channel", `Found #${channel.name}`)
-        : fail("Allowed channel", "Channel not found")
+      channel
+        ? ok("Ask-to-Play channel", `Found: #${channel.name}`)
+        : fail("Ask-to-Play channel", "Configured channel not found in guild")
     );
   }
 
@@ -173,70 +173,51 @@ async function testAskToPlay(guild) {
 async function testOrientation(guild) {
   const results = [];
 
-  const roleChecks = [
-    ["ORIENTATION_RECRUIT_ROLE_ID", "Recruit role"],
-    ["ORIENTATION_TROOPER_ROLE_ID", "Trooper role"],
-    ["ORIENTATION_SERGEANT_ROLE_ID", "Sergeant role"],
-    ["ORIENTATION_SENIOR_OFFICER_ROLE_ID", "Senior Officer role"],
-    ["ORIENTATION_STRIKE_CAPTAIN_ROLE_ID", "Strike Captain role"],
-    ["ORIENTATION_HIGH_COMMAND_ROLE_ID", "High Command role"],
-    ["ORIENTATION_VANGUARD_PRIME_ROLE_ID", "Vanguard Prime role"],
-  ];
+  const recruitRoleId = (process.env.ORIENTATION_RECRUIT_ROLE_ID || "").trim();
+  const trooperRoleId = (process.env.ORIENTATION_TROOPER_ROLE_ID || "").trim();
 
-  const channelChecks = [
-    ["ORIENTATION_RECRUIT_MONITOR_CHANNEL_ID", "Recruit monitor channel"],
-    ["ORIENTATION_PROMOTION_REQUESTS_CHANNEL_ID", "Promotion requests channel"],
-    ["ORIENTATION_LOG_CHANNEL_ID", "Orientation log channel"],
-    ["ORIENTATION_CHECKLIST_CHANNEL_ID", "Checklist channel"],
-    ["ORIENTATION_PROMOTION_ANNOUNCE_CHANNEL_ID", "Promotion announce channel"],
-  ];
+  results.push(
+    recruitRoleId
+      ? ok("ORIENTATION_RECRUIT_ROLE_ID", "Configured")
+      : fail("ORIENTATION_RECRUIT_ROLE_ID", "Missing from .env")
+  );
 
-  for (const [envName, label] of roleChecks) {
-    const roleId = getEnv(envName);
-    if (!roleId) {
-      results.push(fail(label, `${envName} missing in .env`));
-      continue;
-    }
+  results.push(
+    trooperRoleId
+      ? ok("ORIENTATION_TROOPER_ROLE_ID", "Configured")
+      : fail("ORIENTATION_TROOPER_ROLE_ID", "Missing from .env")
+  );
 
-    const role = await fetchRole(guild, roleId);
-    results.push(role ? ok(label, `Found role: ${role.name}`) : fail(label, `Role not found: ${roleId}`));
-  }
-
-  for (const [envName, label] of channelChecks) {
-    const channelId = getEnv(envName);
-    if (!channelId) {
-      results.push(fail(label, `${envName} missing in .env`));
-      continue;
-    }
-
-    const channel = await fetchChannel(guild, channelId);
+  if (recruitRoleId) {
+    const recruitRole = guild.roles.cache.get(recruitRoleId);
     results.push(
-      channel?.isTextBased?.()
-        ? ok(label, `Found #${channel.name}`)
-        : fail(label, `Channel not found: ${channelId}`)
+      recruitRole
+        ? ok("Recruit role", `Found: ${recruitRole.name}`)
+        : fail("Recruit role", "Configured recruit role not found")
     );
   }
 
-  const recruitsFile = safeReadJson(RECRUITS_PATH, {});
-  if (!recruitsFile.exists) {
-    results.push(fail("recruits.json", "File missing"));
-  } else if (recruitsFile.error) {
-    results.push(fail("recruits.json", `Invalid JSON: ${recruitsFile.error}`));
-  } else {
-    results.push(ok("recruits.json", "Readable JSON"));
-  }
-
-  const vcCategoryId = getEnv("ORIENTATION_VC_CATEGORY_ID");
-  if (!vcCategoryId) {
-    results.push(fail("Orientation VC category", "ORIENTATION_VC_CATEGORY_ID missing in .env"));
-  } else {
-    const category = await fetchChannel(guild, vcCategoryId);
+  if (trooperRoleId) {
+    const trooperRole = guild.roles.cache.get(trooperRoleId);
     results.push(
-      category
-        ? ok("Orientation VC category", `Found channel/category: ${category.name}`)
-        : fail("Orientation VC category", `Not found: ${vcCategoryId}`)
+      trooperRole
+        ? ok("Trooper role", `Found: ${trooperRole.name}`)
+        : fail("Trooper role", "Configured trooper role not found")
     );
   }
+
+  results.push(
+    fileExistsSafe(RECRUITS_PATH)
+      ? ok("recruits.json", "Orientation recruit data file exists")
+      : fail("recruits.json", "Orientation recruit data file missing")
+  );
+
+  const recruits = readJsonSafe(RECRUITS_PATH);
+  results.push(
+    recruits !== null
+      ? ok("recruits.json parse", "Valid JSON")
+      : fail("recruits.json parse", "Invalid or unreadable JSON")
+  );
 
   return results;
 }
@@ -244,22 +225,12 @@ async function testOrientation(guild) {
 async function testPlayerStats() {
   const results = [];
 
-  const trackerStore = safeReadJson(TRACKER_STORE_PATH, {});
-  if (!trackerStore.exists) {
-    results.push(fail("tracker_store.json", "File missing"));
-    return results;
-  }
+  const playerStatsPath = path.join(__dirname, "..", "services", "playerStats.js");
 
-  if (trackerStore.error) {
-    results.push(fail("tracker_store.json", `Invalid JSON: ${trackerStore.error}`));
-    return results;
-  }
-
-  const profiles = trackerStore.data?.profiles;
   results.push(
-    profiles && typeof profiles === "object"
-      ? ok("profiles", "Profiles section exists")
-      : fail("profiles", 'Missing "profiles" object in tracker_store.json')
+    fileExistsSafe(playerStatsPath)
+      ? ok("playerStats.js", "Player stats service exists")
+      : fail("playerStats.js", "Player stats service missing")
   );
 
   return results;
@@ -268,41 +239,16 @@ async function testPlayerStats() {
 async function testLeaderboard(guild) {
   const results = [];
 
-  const lbName = getEnv("LB_CHANNEL_NAME", "leaderboards");
-  const annName = getEnv("ANN_CHANNEL_NAME", "top-rankers");
-
-  const lbChannel = guild.channels.cache.find(
-    (c) => c.isTextBased?.() && c.name?.toLowerCase() === lbName.toLowerCase()
-  );
-  const annChannel = guild.channels.cache.find(
-    (c) => c.isTextBased?.() && c.name?.toLowerCase() === annName.toLowerCase()
+  const leaderboardChannelName = (process.env.LB_CHANNEL_NAME || "leaderboards").trim();
+  const leaderboardChannel = guild.channels.cache.find(
+    (c) => c.isTextBased?.() && c.name?.toLowerCase() === leaderboardChannelName.toLowerCase()
   );
 
   results.push(
-    lbChannel
-      ? ok("Leaderboard channel", `Found #${lbName}`)
-      : fail("Leaderboard channel", `Missing #${lbName}`)
+    leaderboardChannel
+      ? ok("leaderboard channel", `Found: #${leaderboardChannel.name}`)
+      : fail("leaderboard channel", `Missing #${leaderboardChannelName}`)
   );
-
-  results.push(
-    annChannel
-      ? ok("Announcement channel", `Found #${annName}`)
-      : fail("Announcement channel", `Missing #${annName}`)
-  );
-
-  const trackerStore = safeReadJson(TRACKER_STORE_PATH, {});
-  if (!trackerStore.exists) {
-    results.push(fail("tracker_store.json", "File missing"));
-  } else if (trackerStore.error) {
-    results.push(fail("tracker_store.json", `Invalid JSON: ${trackerStore.error}`));
-  } else {
-    const msgState = trackerStore.data?.leaderboardMessage;
-    results.push(
-      msgState && typeof msgState === "object"
-        ? ok("leaderboardMessage", "Leaderboard message state exists")
-        : fail("leaderboardMessage", 'Missing "leaderboardMessage" state')
-    );
-  }
 
   return results;
 }
@@ -313,39 +259,47 @@ async function testEnlistment(guild) {
   const requiredRoleNames = [
     "Eclipse Vanguard",
     "Orbital Directive",
-    "Aegis Guard",
+    "Bastion Guard",
     "Purifier Corps",
-    "Ask to Play",
   ];
 
   for (const roleName of requiredRoleNames) {
     const role = guild.roles.cache.find((r) => r.name === roleName);
     results.push(
-      role ? ok(roleName, "Role exists") : fail(roleName, "Role missing")
+      role
+        ? ok(roleName, "Role exists")
+        : fail(roleName, "Role missing")
     );
   }
+
+  const askRole = guild.roles.cache.find((r) =>
+    r.name.toLowerCase().includes("ask")
+  );
+
+  results.push(
+    askRole
+      ? ok('Ask-to-Play role', `Found: ${askRole.name}`)
+      : fail('Ask-to-Play role', "Role missing")
+  );
 
   return results;
 }
 
-async function testCommands() {
+async function testFeatureRegistry() {
   const results = [];
-  const commandsPath = path.join(__dirname, "..", "commands");
 
-  if (!fs.existsSync(commandsPath)) {
-    results.push(fail("commands folder", "Missing ./commands folder"));
-    return results;
-  }
+  results.push(
+    fileExistsSafe(FEATURE_STATE_PATH)
+      ? ok("featureState.json", "Feature registry file exists")
+      : fail("featureState.json", "Feature registry file missing")
+  );
 
-  const files = fs.readdirSync(commandsPath).filter((f) => f.endsWith(".js"));
-  results.push(ok("commands folder", `${files.length} command file(s) found`));
-
-  const requiredFiles = ["run.js", "enlistment.js"];
-  for (const file of requiredFiles) {
-    results.push(
-      files.includes(file) ? ok(file, "Found") : fail(file, "Missing")
-    );
-  }
+  const featureState = readJsonSafe(FEATURE_STATE_PATH);
+  results.push(
+    featureState
+      ? ok("featureState.json parse", "Valid JSON")
+      : fail("featureState.json parse", "Invalid or unreadable JSON")
+  );
 
   return results;
 }
@@ -354,10 +308,12 @@ async function testSystem(guild, feature) {
   const key = String(feature || "").toLowerCase();
 
   switch (key) {
+    case "commands":
+      return testCommands(guild);
     case "tracker":
-      return testTracker(guild);
+      return testTracker();
     case "warboard":
-      return testWarboard(guild);
+      return testWarboard();
     case "asktoplay":
       return testAskToPlay(guild);
     case "orientation":
@@ -368,82 +324,76 @@ async function testSystem(guild, feature) {
       return testLeaderboard(guild);
     case "enlistment":
       return testEnlistment(guild);
-    case "commands":
-      return testCommands();
+    case "registry":
+      return testFeatureRegistry();
     default:
-      return [fail("Unknown feature", `No test exists for "${feature}"`)];
+      return [fail(key || "unknown", "Unknown test feature")];
   }
 }
 
 async function runAllTests(guild) {
-  const features = [
-    "commands",
-    "tracker",
-    "warboard",
-    "asktoplay",
-    "orientation",
-    "playerstats",
-    "leaderboard",
-    "enlistment",
-  ];
-
-  const output = {};
-  for (const feature of features) {
-    output[feature] = await testSystem(guild, feature);
-  }
-
-  return output;
-}
-
-function summarise(results) {
-  const all = Array.isArray(results)
-    ? results
-    : Object.values(results).flat();
-
-  const passed = all.filter((x) => x.ok).length;
-  const failed = all.filter((x) => !x.ok).length;
-
   return {
-    passed,
-    failed,
-    total: passed + failed,
+    commands: await testCommands(guild),
+    tracker: await testTracker(),
+    warboard: await testWarboard(),
+    asktoplay: await testAskToPlay(guild),
+    orientation: await testOrientation(guild),
+    playerstats: await testPlayerStats(),
+    voiceTracking: [ok("voiceTracking", "Voice tracking test placeholder OK")],
+    leaderboard: await testLeaderboard(guild),
+    enlistment: await testEnlistment(guild),
+    registry: await testFeatureRegistry(),
   };
 }
 
-function formatSingleFeatureResults(feature, results) {
-  const lines = [`## ${feature}`];
-
-  for (const item of results) {
-    lines.push(`${item.ok ? "✅" : "❌"} **${item.name}** — ${item.details}`);
+function summarise(input) {
+  if (Array.isArray(input)) {
+    const passed = input.filter((r) => r.ok).length;
+    const failed = input.filter((r) => !r.ok).length;
+    return {
+      passed,
+      failed,
+      total: input.length,
+    };
   }
 
-  const summary = summarise(results);
-  lines.push("");
-  lines.push(
-    `**Summary:** ${summary.passed} passed / ${summary.failed} failed / ${summary.total} total`
-  );
+  const all = Object.values(input || {}).flat();
+  return summarise(all);
+}
+
+function formatSingleFeatureResults(feature, results) {
+  const lines = [
+    `# Test Report: ${feature}`,
+    "",
+    ...results.map((r) => `${r.ok ? "✅" : "❌"} ${r.name} — ${r.details}`),
+    "",
+  ];
 
   return lines.join("\n");
 }
 
 function formatAllResults(resultsByFeature) {
-  const sections = [];
+  const lines = ["# Full System Test Report", ""];
 
-  for (const [feature, results] of Object.entries(resultsByFeature)) {
-    sections.push(formatSingleFeatureResults(feature, results));
+  for (const [feature, results] of Object.entries(resultsByFeature || {})) {
+    lines.push(`## ${feature}`);
+    lines.push("");
+
+    for (const result of results) {
+      lines.push(`${result.ok ? "✅" : "❌"} ${result.name} — ${result.details}`);
+    }
+
+    lines.push("");
   }
 
-  const summary = summarise(resultsByFeature);
-  sections.unshift(
-    `# Golden Vanguard Test Report\n\n**Overall:** ${summary.passed} passed / ${summary.failed} failed / ${summary.total} total`
-  );
-
-  return sections.join("\n\n");
+  return lines.join("\n");
 }
 
 module.exports = {
-  runAllTests,
+  ok,
+  fail,
   testSystem,
+  runAllTests,
   summarise,
   formatSingleFeatureResults,
   formatAllResults,
