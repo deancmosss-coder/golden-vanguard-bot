@@ -32,6 +32,8 @@ function createDefault() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       notes: "Core managed feature",
+      detectedFrom: null,
+      detectedType: null,
     };
   }
 
@@ -121,7 +123,7 @@ function addManagedFeature(name, meta = {}) {
   state.features[clean] = {
     name: clean,
     approved: true,
-    source: meta.source || "discovered",
+    source: meta.source || state.features[clean]?.source || "discovered",
     createdAt: state.features[clean]?.createdAt || now,
     updatedAt: now,
     notes: meta.notes || state.features[clean]?.notes || "",
