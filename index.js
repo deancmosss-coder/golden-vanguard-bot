@@ -8,6 +8,7 @@
 // Added feature guard system
 // Added success tracking integration
 // Added review discovery button support
+// PHASE 2: AUTO DISCOVERY SCAN
 // =========================
 
 require("dotenv").config();
@@ -39,6 +40,7 @@ const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
 const orientationSystem = require("./services/orientationSystem");
 const playerStats = require("./services/playerStats");
+const { scanForReviews } = require("./services/discoveryReviewService");
 
 // ===== ENV =====
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -55,6 +57,8 @@ const TRACKER_TZ = process.env.TRACKER_TIMEZONE || "Europe/London";
 const SUNDAY_ANNOUNCE_TIME = (process.env.SUNDAY_ANNOUNCE_TIME || "23:00").trim();
 const MONDAY_RESET_TIME =
   (process.env.MONDAY_RESET_TIME || process.env.MONDAY_RESET || "00:00").trim();
+
+const DISCOVERY_SCAN_CRON = (process.env.DISCOVERY_SCAN_CRON || "*/10 * * * *").trim();
 
 const TRIGGER_TEXT = "@ask to play";
 const MAX_SQUAD = 4;
@@ -930,6 +934,19 @@ client.once(Events.ClientReady, async () => {
     },
   });
 
+  await runProtected(client, {
+    feature: "registry",
+    action: "Startup discovery scan",
+    location: "index.js -> ClientReady -> scanForReviews",
+    likelyCause: "Discovery scan failed on startup.",
+    retries: 0,
+    maxFailures: 3,
+    job: async () => {
+      await scanForReviews(client, "System Startup");
+      registry.registerSuccess("registry");
+    },
+  });
+
   cron.schedule(
     "*/15 * * * *",
     async () => {
@@ -944,6 +961,25 @@ client.once(Events.ClientReady, async () => {
         job: async () => {
           await refreshWarBoard(client);
           registry.registerSuccess("warboard");
+        },
+      });
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  cron.schedule(
+    DISCOVERY_SCAN_CRON,
+    async () => {
+      await runProtected(client, {
+        feature: "registry",
+        action: "Scheduled discovery scan",
+        location: "index.js -> cron -> scanForReviews",
+        likelyCause: "Discovery scan failed on schedule.",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await scanForReviews(client, "Scheduled Scan");
+          registry.registerSuccess("registry");
         },
       });
     },
@@ -1251,6 +1287,7 @@ client.once(Events.ClientReady, async () => {
   );
   logger.info(`Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
   logger.info(`War: 15m board refresh (${TRACKER_TZ})`);
+  logger.info(`Discovery: ${DISCOVERY_SCAN_CRON} (${TRACKER_TZ})`);
 });
 
 /* =========================
