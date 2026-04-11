@@ -1,7 +1,7 @@
 // =========================
 // services/discoveryReviewService.js
 // AUTO DISCOVERY + UPGRADE REVIEW SYSTEM
-// PHASE 2: AUTO SCAN + PROMOTION FLOW
+// PHASE 3: ROLLBACK + FREEZE + LIVE ANNOUNCEMENTS
 // =========================
 
 const fs = require("fs");
@@ -20,6 +20,7 @@ const stagingService = require("./stagingService");
 const STATE_PATH = path.join(__dirname, "..", "data", "discoveryReviewState.json");
 
 const BOT_STATUS_CHANNEL_ID = (process.env.BOT_STATUS_CHANNEL_ID || "").trim();
+const BOT_RELEASE_CHANNEL_ID = (process.env.BOT_RELEASE_CHANNEL_ID || "").trim();
 
 function createDefaultState() {
   return {
@@ -118,6 +119,10 @@ function getLiveReviews() {
   return getReviewsByStatus("live");
 }
 
+function getFrozenReviews() {
+  return getReviewsByStatus("frozen");
+}
+
 function progressBar(percent) {
   const value = Math.max(0, Math.min(Number(percent) || 0, 100));
   const total = 10;
@@ -152,6 +157,11 @@ function buildReviewProgress(item) {
   if (item.status === "declined") {
     percent = 0;
     label = "Declined";
+  }
+
+  if (item.status === "frozen") {
+    percent = 10;
+    label = "Frozen";
   }
 
   return {
@@ -267,9 +277,19 @@ function createReviewCard(review) {
       "",
       `**Current Stage:** ${review.stage || "dev"}`,
       `**Enabled By Default:** No`,
+      `**Frozen:** ${review.frozen ? "Yes" : "No"}`,
       `**Notes:** ${review.notes || "Auto-detected review pending approval."}`,
     ].join("\n"),
   };
+}
+
+async function sendReleaseAnnouncement(client, payload) {
+  if (!BOT_RELEASE_CHANNEL_ID) return null;
+
+  const channel = await client.channels.fetch(BOT_RELEASE_CHANNEL_ID).catch(() => null);
+  if (!channel?.isTextBased?.()) return null;
+
+  return channel.send(payload).catch(() => null);
 }
 
 async function postOrUpdateReviewCard(client, reviewId) {
@@ -296,6 +316,8 @@ async function postOrUpdateReviewCard(client, reviewId) {
         ? 0x27ae60
         : review.status === "declined"
         ? 0xe74c3c
+        : review.status === "frozen"
+        ? 0x95a5a6
         : 0xf1c40f
     )
     .setTitle(card.title)
@@ -320,23 +342,61 @@ async function postOrUpdateReviewCard(client, reviewId) {
     ];
   }
 
-  if (review.status === "approved") {
+  if (review.status === "approved" && !review.frozen) {
     components = [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`review:promote_staging:${review.reviewId}`)
           .setLabel("Promote to Staging")
-          .setStyle(ButtonStyle.Primary)
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`review:freeze:${review.reviewId}`)
+          .setLabel("Freeze")
+          .setStyle(ButtonStyle.Secondary)
       ),
     ];
   }
 
-  if (review.status === "staging") {
+  if (review.status === "staging" && !review.frozen) {
     components = [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`review:promote_live:${review.reviewId}`)
           .setLabel("Promote to Live")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`review:rollback_approved:${review.reviewId}`)
+          .setLabel("Rollback to Approved")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`review:freeze:${review.reviewId}`)
+          .setLabel("Freeze")
+          .setStyle(ButtonStyle.Secondary)
+      ),
+    ];
+  }
+
+  if (review.status === "live" && !review.frozen) {
+    components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`review:rollback_staging:${review.reviewId}`)
+          .setLabel("Rollback to Staging")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`review:freeze:${review.reviewId}`)
+          .setLabel("Freeze")
+          .setStyle(ButtonStyle.Secondary)
+      ),
+    ];
+  }
+
+  if (review.frozen || review.status === "frozen") {
+    components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`review:unfreeze:${review.reviewId}`)
+          .setLabel("Unfreeze")
           .setStyle(ButtonStyle.Success)
       ),
     ];
@@ -413,6 +473,12 @@ function upsertReview(state, payload) {
     stagingBy: null,
     liveAt: null,
     liveBy: null,
+    rollbackAt: null,
+    rollbackBy: null,
+    rollbackTarget: null,
+    frozen: false,
+    frozenAt: null,
+    frozenBy: null,
   };
 
   return state.reviews[reviewId];
@@ -539,6 +605,7 @@ async function approveReview(client, reviewId, actor = "Unknown") {
 
   if (!review) throw new Error("Review not found.");
   if (review.status !== "pending") throw new Error("Review is no longer pending.");
+  if (review.frozen) throw new Error("Review is frozen.");
 
   review.status = "approved";
   review.approvedAt = new Date().toISOString();
@@ -615,6 +682,7 @@ async function promoteReviewToStaging(client, reviewId, actor = "Unknown") {
   if (review.status !== "approved") {
     throw new Error("Only approved reviews can be promoted to staging.");
   }
+  if (review.frozen) throw new Error("Review is frozen.");
 
   review.status = "staging";
   review.stage = "staging";
@@ -653,6 +721,7 @@ async function promoteReviewToLive(client, reviewId, actor = "Unknown") {
   if (review.status !== "staging") {
     throw new Error("Only staging reviews can be promoted to live.");
   }
+  if (review.frozen) throw new Error("Review is frozen.");
 
   review.status = "live";
   review.stage = "live";
@@ -680,11 +749,190 @@ async function promoteReviewToLive(client, reviewId, actor = "Unknown") {
   writeState(state);
   await postOrUpdateReviewCard(client, reviewId).catch(() => null);
 
+  await sendReleaseAnnouncement(client, {
+    content: [
+      "🚀 **FEATURE PROMOTED LIVE**",
+      "",
+      `Feature: **${review.feature}**`,
+      `Review ID: **${review.reviewId}**`,
+      `Type: **${review.kind}**`,
+      `Promoted by: **${actor}**`,
+      "",
+      "Status: **LIVE**",
+    ].join("\n"),
+  });
+
+  return review;
+}
+
+async function rollbackReviewToStaging(client, reviewId, actor = "Unknown") {
+  const state = readState();
+  const review = state.reviews[reviewId];
+
+  if (!review) throw new Error("Review not found.");
+  if (review.status !== "live") {
+    throw new Error("Only live reviews can be rolled back to staging.");
+  }
+
+  review.status = "staging";
+  review.stage = "staging";
+  review.rollbackAt = new Date().toISOString();
+  review.rollbackBy = actor;
+  review.rollbackTarget = "staging";
+  review.updatedAt = new Date().toISOString();
+
+  stagingService.setFeatureStage(
+    review.feature,
+    "staging",
+    actor,
+    `Rolled back to staging from live review ${reviewId}`
+  );
+
+  registry.disableFeature(review.feature, "Rolled back from live to staging.");
+
+  addAuditEntry(state, {
+    action: "rollback_to_staging",
+    actor,
+    feature: review.feature,
+    reviewId,
+    kind: review.kind,
+  });
+
+  writeState(state);
+  await postOrUpdateReviewCard(client, reviewId).catch(() => null);
+
+  await sendReleaseAnnouncement(client, {
+    content: [
+      "⚠️ **FEATURE ROLLED BACK**",
+      "",
+      `Feature: **${review.feature}**`,
+      `Review ID: **${review.reviewId}**`,
+      `Rolled back by: **${actor}**`,
+      "",
+      "Rollback target: **STAGING**",
+    ].join("\n"),
+  });
+
+  return review;
+}
+
+async function rollbackReviewToApproved(client, reviewId, actor = "Unknown") {
+  const state = readState();
+  const review = state.reviews[reviewId];
+
+  if (!review) throw new Error("Review not found.");
+  if (review.status !== "staging") {
+    throw new Error("Only staging reviews can be rolled back to approved.");
+  }
+
+  review.status = "approved";
+  review.stage = "dev";
+  review.rollbackAt = new Date().toISOString();
+  review.rollbackBy = actor;
+  review.rollbackTarget = "approved";
+  review.updatedAt = new Date().toISOString();
+
+  stagingService.setFeatureStage(
+    review.feature,
+    "dev",
+    actor,
+    `Rolled back to approved/dev state from staging review ${reviewId}`
+  );
+
+  registry.disableFeature(review.feature, "Rolled back from staging to approved/dev.");
+
+  addAuditEntry(state, {
+    action: "rollback_to_approved",
+    actor,
+    feature: review.feature,
+    reviewId,
+    kind: review.kind,
+  });
+
+  writeState(state);
+  await postOrUpdateReviewCard(client, reviewId).catch(() => null);
+
+  await sendReleaseAnnouncement(client, {
+    content: [
+      "⚠️ **FEATURE ROLLED BACK**",
+      "",
+      `Feature: **${review.feature}**`,
+      `Review ID: **${review.reviewId}**`,
+      `Rolled back by: **${actor}**`,
+      "",
+      "Rollback target: **APPROVED / DEV**",
+    ].join("\n"),
+  });
+
+  return review;
+}
+
+async function freezeReview(client, reviewId, actor = "Unknown") {
+  const state = readState();
+  const review = state.reviews[reviewId];
+
+  if (!review) throw new Error("Review not found.");
+  if (review.frozen) throw new Error("Review is already frozen.");
+
+  review.frozen = true;
+  review.frozenAt = new Date().toISOString();
+  review.frozenBy = actor;
+  review.updatedAt = new Date().toISOString();
+
+  if (review.status === "pending") {
+    review.status = "frozen";
+  }
+
+  stagingService.setFeatureNotes(
+    review.feature,
+    `Frozen by ${actor} at ${review.frozenAt}`
+  );
+
+  addAuditEntry(state, {
+    action: "freeze_review",
+    actor,
+    feature: review.feature,
+    reviewId,
+    kind: review.kind,
+  });
+
+  writeState(state);
+  await postOrUpdateReviewCard(client, reviewId).catch(() => null);
+
+  return review;
+}
+
+async function unfreezeReview(client, reviewId, actor = "Unknown") {
+  const state = readState();
+  const review = state.reviews[reviewId];
+
+  if (!review) throw new Error("Review not found.");
+  if (!review.frozen) throw new Error("Review is not frozen.");
+
+  review.frozen = false;
+  review.updatedAt = new Date().toISOString();
+
+  if (review.status === "frozen") {
+    review.status = "pending";
+  }
+
+  addAuditEntry(state, {
+    action: "unfreeze_review",
+    actor,
+    feature: review.feature,
+    reviewId,
+    kind: review.kind,
+  });
+
+  writeState(state);
+  await postOrUpdateReviewCard(client, reviewId).catch(() => null);
+
   return review;
 }
 
 module.exports = {
   BOT_STATUS_CHANNEL_ID,
+  BOT_RELEASE_CHANNEL_ID,
   getReview,
   getAllReviews,
   getReviewsByStatus,
@@ -693,6 +941,7 @@ module.exports = {
   getDeclinedReviews,
   getStagingReviews,
   getLiveReviews,
+  getFrozenReviews,
   getRecentAudit,
   buildReviewProgress,
   scanForReviews,
@@ -700,5 +949,9 @@ module.exports = {
   declineReview,
   promoteReviewToStaging,
   promoteReviewToLive,
+  rollbackReviewToStaging,
+  rollbackReviewToApproved,
+  freezeReview,
+  unfreezeReview,
   postOrUpdateReviewCard,
 };
