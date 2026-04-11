@@ -5,9 +5,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const {
-  getAllManagedFeatureNames,
-} = require("./managedFeatureStore");
+const { getAllManagedFeatureNames } = require("./managedFeatureStore");
 
 const DATA_PATH = path.join(__dirname, "..", "data", "featureState.json");
 
