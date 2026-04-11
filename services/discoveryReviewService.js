@@ -1,7 +1,7 @@
 // =========================
 // services/discoveryReviewService.js
 // AUTO DISCOVERY + UPGRADE REVIEW SYSTEM
-// PHASE 3: ROLLBACK + FREEZE + LIVE ANNOUNCEMENTS
+// PHASE 3 + PATCH NOTES
 // =========================
 
 const fs = require("fs");
@@ -16,6 +16,7 @@ const {
 
 const registry = require("./featureRegistry");
 const stagingService = require("./stagingService");
+const patchNotes = require("./patchNotesService");
 
 const STATE_PATH = path.join(__dirname, "..", "data", "discoveryReviewState.json");
 
@@ -192,6 +193,7 @@ function inferFeatureName(filePath) {
   if (/^warSync$/i.test(name)) name = "warboard";
   if (/^operationsBoard$/i.test(name)) name = "warboard";
   if (/^review$/i.test(name)) name = "registry";
+  if (/^patch$/i.test(name)) name = "registry";
 
   name = name.charAt(0).toLowerCase() + name.slice(1);
   return sanitiseFeatureName(name);
@@ -738,6 +740,12 @@ async function promoteReviewToLive(client, reviewId, actor = "Unknown") {
 
   registry.enableFeature(review.feature);
 
+  if (review.kind === "new_feature") {
+    patchNotes.addNewFeature(review.feature);
+  } else {
+    patchNotes.addUpdate(review.feature);
+  }
+
   addAuditEntry(state, {
     action: "promoted_to_live",
     actor,
@@ -761,6 +769,8 @@ async function promoteReviewToLive(client, reviewId, actor = "Unknown") {
       "Status: **LIVE**",
     ].join("\n"),
   });
+
+  await patchNotes.publishPatch(client, BOT_RELEASE_CHANNEL_ID);
 
   return review;
 }
@@ -789,6 +799,7 @@ async function rollbackReviewToStaging(client, reviewId, actor = "Unknown") {
   );
 
   registry.disableFeature(review.feature, "Rolled back from live to staging.");
+  patchNotes.addRollback(review.feature);
 
   addAuditEntry(state, {
     action: "rollback_to_staging",
@@ -812,6 +823,8 @@ async function rollbackReviewToStaging(client, reviewId, actor = "Unknown") {
       "Rollback target: **STAGING**",
     ].join("\n"),
   });
+
+  await patchNotes.publishPatch(client, BOT_RELEASE_CHANNEL_ID);
 
   return review;
 }
@@ -840,6 +853,7 @@ async function rollbackReviewToApproved(client, reviewId, actor = "Unknown") {
   );
 
   registry.disableFeature(review.feature, "Rolled back from staging to approved/dev.");
+  patchNotes.addRollback(review.feature);
 
   addAuditEntry(state, {
     action: "rollback_to_approved",
@@ -864,6 +878,8 @@ async function rollbackReviewToApproved(client, reviewId, actor = "Unknown") {
     ].join("\n"),
   });
 
+  await patchNotes.publishPatch(client, BOT_RELEASE_CHANNEL_ID);
+
   return review;
 }
 
@@ -883,10 +899,14 @@ async function freezeReview(client, reviewId, actor = "Unknown") {
     review.status = "frozen";
   }
 
-  stagingService.setFeatureNotes(
-    review.feature,
-    `Frozen by ${actor} at ${review.frozenAt}`
-  );
+  try {
+    stagingService.setFeatureNotes(
+      review.feature,
+      `Frozen by ${actor} at ${review.frozenAt}`
+    );
+  } catch {
+    // ignore invalid stage-note update for features not yet staged
+  }
 
   addAuditEntry(state, {
     action: "freeze_review",
