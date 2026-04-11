@@ -1,31 +1,21 @@
 // =========================
 // services/deploymentService.js
-// STRICT ADMIN DEPLOYMENT CONTROL
+// DYNAMIC DEPLOYMENT CONTROL
 // =========================
 
 const fs = require("fs");
 const path = require("path");
 const registry = require("./featureRegistry");
+const {
+  getAllManagedFeatureNames,
+} = require("./managedFeatureStore");
 
 const AUDIT_PATH = path.join(__dirname, "..", "data", "deploymentAudit.json");
-
-const VALID_FEATURES = [
-  "warboard",
-  "tracker",
-  "playerStats",
-  "askToPlay",
-  "orientation",
-  "voiceTracking",
-  "leaderboard",
-  "commands",
-  "enlistment",
-  "registry",
-];
 
 function ensureAuditFile() {
   if (!fs.existsSync(AUDIT_PATH)) {
     fs.mkdirSync(path.dirname(AUDIT_PATH), { recursive: true });
-    fs.writeFileSync(AUDIT_PATH, JSON.stringify({ entries: [] }, null, 2), "utf8");
+    fs.writeFileSync(AUDIT_PATH, JSON.stringify({ audit: [] }, null, 2), "utf8");
   }
 }
 
@@ -35,122 +25,90 @@ function readAudit() {
   try {
     const raw = fs.readFileSync(AUDIT_PATH, "utf8");
     const parsed = JSON.parse(raw);
-
-    return {
-      entries: Array.isArray(parsed?.entries) ? parsed.entries : [],
-    };
+    return Array.isArray(parsed?.audit) ? parsed.audit : [];
   } catch {
-    return { entries: [] };
+    return [];
   }
 }
 
-function writeAudit(data) {
+function writeAudit(entries) {
   fs.mkdirSync(path.dirname(AUDIT_PATH), { recursive: true });
-  fs.writeFileSync(AUDIT_PATH, JSON.stringify(data, null, 2), "utf8");
+  fs.writeFileSync(AUDIT_PATH, JSON.stringify({ audit: entries }, null, 2), "utf8");
 }
 
 function addAuditEntry(entry) {
   const audit = readAudit();
-
-  audit.entries.unshift({
-    id: `DEP-${Date.now()}`,
+  audit.unshift({
+    id: `DEPLOY-${Date.now()}`,
     createdAt: new Date().toISOString(),
     ...entry,
   });
 
-  audit.entries = audit.entries.slice(0, 250);
-  writeAudit(audit);
-
-  return audit.entries[0];
+  writeAudit(audit.slice(0, 250));
 }
 
-function normaliseFeatureName(name) {
-  return String(name || "").trim();
+function getAvailableFeatures() {
+  return getAllManagedFeatureNames();
 }
 
-function isValidFeature(name) {
-  return VALID_FEATURES.includes(normaliseFeatureName(name));
-}
-
-function getFeatureStatus(name) {
-  if (!isValidFeature(name)) {
-    throw new Error(`Invalid feature: ${name}`);
-  }
-
-  return registry.getFeature(name);
+function getFeatureStatus(feature) {
+  return registry.getFeature(feature);
 }
 
 function listAllFeatureStatuses() {
-  const all = registry.getAllFeatures();
-
-  return VALID_FEATURES.map((feature) => ({
+  return getAvailableFeatures().map((feature) => ({
     feature,
-    ...(all[feature] || registry.createDefault()),
+    ...registry.getFeature(feature),
   }));
 }
 
-function enableFeature(feature, actor = "Unknown", reason = "Enabled manually") {
-  if (!isValidFeature(feature)) {
-    throw new Error(`Invalid feature: ${feature}`);
-  }
-
+function enableFeature(feature, actor = "Unknown", reason = "") {
   const state = registry.enableFeature(feature);
 
-  const audit = addAuditEntry({
+  addAuditEntry({
     action: "enable",
     feature,
     actor,
     reason,
-    stateAfter: state,
   });
 
-  return { state, audit };
+  return { state };
 }
 
-function disableFeature(feature, actor = "Unknown", reason = "Disabled manually") {
-  if (!isValidFeature(feature)) {
-    throw new Error(`Invalid feature: ${feature}`);
-  }
+function disableFeature(feature, actor = "Unknown", reason = "") {
+  const state = registry.disableFeature(feature, reason || "Disabled manually");
 
-  const state = registry.disableFeature(feature, reason);
-
-  const audit = addAuditEntry({
+  addAuditEntry({
     action: "disable",
     feature,
     actor,
     reason,
-    stateAfter: state,
   });
 
-  return { state, audit };
+  return { state };
 }
 
-function resetFeature(feature, actor = "Unknown", reason = "Reset manually") {
-  if (!isValidFeature(feature)) {
-    throw new Error(`Invalid feature: ${feature}`);
-  }
-
+function resetFeature(feature, actor = "Unknown", reason = "") {
   const state = registry.resetFeature(feature);
 
-  const audit = addAuditEntry({
+  addAuditEntry({
     action: "reset",
     feature,
     actor,
     reason,
-    stateAfter: state,
   });
 
-  return { state, audit };
+  return { state };
 }
 
 function getRecentAudit(limit = 10) {
   const audit = readAudit();
-  return audit.entries.slice(0, Math.max(1, Math.min(Number(limit) || 10, 25)));
+  const max = Math.max(1, Math.min(Number(limit) || 10, 25));
+  return audit.slice(0, max);
 }
 
 module.exports = {
-  VALID_FEATURES,
-  isValidFeature,
+  getAvailableFeatures,
   getFeatureStatus,
   listAllFeatureStatuses,
   enableFeature,
