@@ -1,11 +1,13 @@
 // =========================
 // services/featureRegistry.js
-// FULL REPLACEMENT
-// Step 3 foundation file
+// DYNAMIC FEATURE REGISTRY
 // =========================
 
 const fs = require("fs");
 const path = require("path");
+const {
+  getAllManagedFeatureNames,
+} = require("./managedFeatureStore");
 
 const DATA_PATH = path.join(__dirname, "..", "data", "featureState.json");
 
@@ -21,17 +23,14 @@ function createDefault() {
 }
 
 function defaultState() {
-  return {
-    warboard: createDefault(),
-    tracker: createDefault(),
-    playerStats: createDefault(),
-    askToPlay: createDefault(),
-    orientation: createDefault(),
-    voiceTracking: createDefault(),
-    leaderboard: createDefault(),
-    commands: createDefault(),
-    enlistment: createDefault(),
-  };
+  const state = {};
+  const features = getAllManagedFeatureNames();
+
+  for (const feature of features) {
+    state[feature] = createDefault();
+  }
+
+  return state;
 }
 
 function ensureFile() {
@@ -97,8 +96,7 @@ function registerSuccess(name) {
 
   state[name].failCount = 0;
   state[name].lastSuccessAt = new Date().toISOString();
-  state[name].lastError = null;
-  state[name].lastErrorAt = null;
+  state[name].pausedReason = null;
 
   writeState(state);
   return state[name];
@@ -130,10 +128,7 @@ function enableFeature(name) {
 
   state[name].enabled = true;
   state[name].failCount = 0;
-  state[name].lastError = null;
-  state[name].lastErrorAt = null;
   state[name].pausedReason = null;
-  state[name].lastSuccessAt = new Date().toISOString();
 
   writeState(state);
   return state[name];
