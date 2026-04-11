@@ -163,11 +163,7 @@ function shouldIncludeFile(filePath) {
   const normal = filePath.replace(/\\/g, "/");
   if (!normal.endsWith(".js")) return false;
 
-  const excluded = [
-    "/node_modules/",
-    "/data/",
-  ];
-
+  const excluded = ["/node_modules/", "/data/"];
   if (excluded.some((part) => normal.includes(part))) return false;
 
   const fileName = path.basename(normal);
