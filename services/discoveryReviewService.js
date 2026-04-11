@@ -1,6 +1,7 @@
 // =========================
 // services/discoveryReviewService.js
 // AUTO DISCOVERY + UPGRADE REVIEW SYSTEM
+// PHASE 2: AUTO SCAN + PROMOTION FLOW
 // =========================
 
 const fs = require("fs");
@@ -62,7 +63,7 @@ function writeState(state) {
 
 function addAuditEntry(state, entry) {
   state.audit.unshift({
-    id: `DISC-${Date.now()}`,
+    id: `DISC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     createdAt: new Date().toISOString(),
     ...entry,
   });
@@ -109,6 +110,14 @@ function getDeclinedReviews() {
   return getReviewsByStatus("declined");
 }
 
+function getStagingReviews() {
+  return getReviewsByStatus("staging");
+}
+
+function getLiveReviews() {
+  return getReviewsByStatus("live");
+}
+
 function progressBar(percent) {
   const value = Math.max(0, Math.min(Number(percent) || 0, 100));
   const total = 10;
@@ -117,22 +126,37 @@ function progressBar(percent) {
 }
 
 function buildReviewProgress(item) {
-  const steps = [
-    item.detectedAt ? 1 : 0,
-    item.status === "approved" ? 1 : 0,
-    item.registeredAt ? 1 : 0,
-    item.stageCreatedAt ? 1 : 0,
-    item.deployReadyAt ? 1 : 0,
-  ];
+  let percent = 20;
+  let label = "Detected";
 
-  const done = steps.reduce((a, b) => a + b, 0);
-  const total = steps.length;
-  const percent = Math.round((done / total) * 100);
+  if (item.status === "pending") {
+    percent = 20;
+    label = "Pending Review";
+  }
+
+  if (item.status === "approved") {
+    percent = 40;
+    label = "Approved";
+  }
+
+  if (item.status === "staging") {
+    percent = 70;
+    label = "In Staging";
+  }
+
+  if (item.status === "live") {
+    percent = 100;
+    label = "Live";
+  }
+
+  if (item.status === "declined") {
+    percent = 0;
+    label = "Declined";
+  }
 
   return {
-    done,
-    total,
     percent,
+    label,
     bar: progressBar(percent),
   };
 }
@@ -239,6 +263,7 @@ function createReviewCard(review) {
       `**File:** \`${review.filePath}\``,
       `**Status:** ${review.status}`,
       `**Progress:** ${progress.bar}`,
+      `**Pipeline:** ${progress.label}`,
       "",
       `**Current Stage:** ${review.stage || "dev"}`,
       `**Enabled By Default:** No`,
@@ -263,8 +288,12 @@ async function postOrUpdateReviewCard(client, reviewId) {
 
   const embed = new EmbedBuilder()
     .setColor(
-      review.status === "approved"
+      review.status === "live"
         ? 0x2ecc71
+        : review.status === "staging"
+        ? 0x3498db
+        : review.status === "approved"
+        ? 0x27ae60
         : review.status === "declined"
         ? 0xe74c3c
         : 0xf1c40f
@@ -274,21 +303,44 @@ async function postOrUpdateReviewCard(client, reviewId) {
     .setFooter({ text: "Golden Vanguard Discovery Review" })
     .setTimestamp(new Date(review.updatedAt || review.createdAt || Date.now()));
 
-  const components =
-    review.status === "pending"
-      ? [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`review:approve:${review.reviewId}`)
-              .setLabel("Approve")
-              .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-              .setCustomId(`review:decline:${review.reviewId}`)
-              .setLabel("Decline")
-              .setStyle(ButtonStyle.Danger)
-          ),
-        ]
-      : [];
+  let components = [];
+
+  if (review.status === "pending") {
+    components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`review:approve:${review.reviewId}`)
+          .setLabel("Approve")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`review:decline:${review.reviewId}`)
+          .setLabel("Decline")
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ];
+  }
+
+  if (review.status === "approved") {
+    components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`review:promote_staging:${review.reviewId}`)
+          .setLabel("Promote to Staging")
+          .setStyle(ButtonStyle.Primary)
+      ),
+    ];
+  }
+
+  if (review.status === "staging") {
+    components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`review:promote_live:${review.reviewId}`)
+          .setLabel("Promote to Live")
+          .setStyle(ButtonStyle.Success)
+      ),
+    ];
+  }
 
   let message = null;
 
@@ -357,6 +409,10 @@ function upsertReview(state, payload) {
     approvedBy: null,
     declinedAt: null,
     declinedBy: null,
+    stagingAt: null,
+    stagingBy: null,
+    liveAt: null,
+    liveBy: null,
   };
 
   return state.reviews[reviewId];
@@ -551,6 +607,82 @@ async function declineReview(client, reviewId, actor = "Unknown") {
   return review;
 }
 
+async function promoteReviewToStaging(client, reviewId, actor = "Unknown") {
+  const state = readState();
+  const review = state.reviews[reviewId];
+
+  if (!review) throw new Error("Review not found.");
+  if (review.status !== "approved") {
+    throw new Error("Only approved reviews can be promoted to staging.");
+  }
+
+  review.status = "staging";
+  review.stage = "staging";
+  review.stagingAt = new Date().toISOString();
+  review.stagingBy = actor;
+  review.updatedAt = new Date().toISOString();
+
+  stagingService.setFeatureStage(
+    review.feature,
+    "staging",
+    actor,
+    `Promoted to staging from review ${reviewId}`
+  );
+
+  registry.disableFeature(review.feature, "Feature is in staging and not yet live.");
+
+  addAuditEntry(state, {
+    action: "promoted_to_staging",
+    actor,
+    feature: review.feature,
+    reviewId,
+    kind: review.kind,
+  });
+
+  writeState(state);
+  await postOrUpdateReviewCard(client, reviewId).catch(() => null);
+
+  return review;
+}
+
+async function promoteReviewToLive(client, reviewId, actor = "Unknown") {
+  const state = readState();
+  const review = state.reviews[reviewId];
+
+  if (!review) throw new Error("Review not found.");
+  if (review.status !== "staging") {
+    throw new Error("Only staging reviews can be promoted to live.");
+  }
+
+  review.status = "live";
+  review.stage = "live";
+  review.liveAt = new Date().toISOString();
+  review.liveBy = actor;
+  review.updatedAt = new Date().toISOString();
+
+  stagingService.setFeatureStage(
+    review.feature,
+    "live",
+    actor,
+    `Promoted to live from review ${reviewId}`
+  );
+
+  registry.enableFeature(review.feature);
+
+  addAuditEntry(state, {
+    action: "promoted_to_live",
+    actor,
+    feature: review.feature,
+    reviewId,
+    kind: review.kind,
+  });
+
+  writeState(state);
+  await postOrUpdateReviewCard(client, reviewId).catch(() => null);
+
+  return review;
+}
+
 module.exports = {
   BOT_STATUS_CHANNEL_ID,
   getReview,
@@ -559,9 +691,14 @@ module.exports = {
   getPendingReviews,
   getApprovedReviews,
   getDeclinedReviews,
+  getStagingReviews,
+  getLiveReviews,
   getRecentAudit,
   buildReviewProgress,
   scanForReviews,
   approveReview,
   declineReview,
+  promoteReviewToStaging,
+  promoteReviewToLive,
+  postOrUpdateReviewCard,
 };
