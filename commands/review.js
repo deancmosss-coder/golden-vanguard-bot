@@ -2,7 +2,7 @@
 // commands/review.js
 // DISCOVERY + UPGRADE REVIEW COMMAND
 // STRICT ADMIN ONLY
-// PHASE 2: PROMOTION FLOW
+// PHASE 3: ROLLBACK + FREEZE
 // =========================
 
 const {
@@ -17,6 +17,7 @@ const {
   getDeclinedReviews,
   getStagingReviews,
   getLiveReviews,
+  getFrozenReviews,
   getAllReviews,
   getReview,
   getRecentAudit,
@@ -26,6 +27,10 @@ const {
   declineReview,
   promoteReviewToStaging,
   promoteReviewToLive,
+  rollbackReviewToStaging,
+  rollbackReviewToApproved,
+  freezeReview,
+  unfreezeReview,
 } = require("../services/discoveryReviewService");
 
 function relTime(iso) {
@@ -45,6 +50,7 @@ function buildReviewListEmbed(title, items, color = 0xf1c40f) {
             `Feature: **${item.feature}**`,
             `Type: **${item.kind}**`,
             `Status: **${item.status}**`,
+            `Frozen: **${item.frozen ? "Yes" : "No"}**`,
             `Source: **${item.detectedType}**`,
             `File: \`${item.filePath}\``,
             `Progress: ${progress.bar}`,
@@ -77,6 +83,8 @@ function buildSingleReviewEmbed(item) {
         ? 0x27ae60
         : item.status === "declined"
         ? 0xe74c3c
+        : item.status === "frozen"
+        ? 0x95a5a6
         : 0xf1c40f
     )
     .setTitle(`${item.kind === "new_feature" ? "🆕" : "⬆️"} Review — ${item.feature}`)
@@ -84,6 +92,7 @@ function buildSingleReviewEmbed(item) {
       { name: "Review ID", value: item.reviewId, inline: true },
       { name: "Status", value: item.status, inline: true },
       { name: "Type", value: item.kind, inline: true },
+      { name: "Frozen", value: item.frozen ? "Yes" : "No", inline: true },
       { name: "Detected From", value: item.detectedType, inline: true },
       { name: "File", value: `\`${item.filePath}\``, inline: false },
       { name: "Progress", value: progress.bar, inline: false },
@@ -91,7 +100,9 @@ function buildSingleReviewEmbed(item) {
       { name: "Approved", value: relTime(item.approvedAt), inline: true },
       { name: "Staging", value: relTime(item.stagingAt), inline: true },
       { name: "Live", value: relTime(item.liveAt), inline: true },
-      { name: "Declined", value: relTime(item.declinedAt), inline: true }
+      { name: "Rollback", value: relTime(item.rollbackAt), inline: true },
+      { name: "Declined", value: relTime(item.declinedAt), inline: true },
+      { name: "Frozen At", value: relTime(item.frozenAt), inline: true }
     )
     .setFooter({ text: "Golden Vanguard Discovery Review" })
     .setTimestamp();
@@ -143,6 +154,9 @@ const adminData = new SlashCommandBuilder()
     sub.setName("live").setDescription("View all live review items.")
   )
   .addSubcommand((sub) =>
+    sub.setName("frozen").setDescription("View all frozen review items.")
+  )
+  .addSubcommand((sub) =>
     sub.setName("declined").setDescription("View all declined review items.")
   )
   .addSubcommand((sub) =>
@@ -184,6 +198,38 @@ const adminData = new SlashCommandBuilder()
     sub
       .setName("promote-live")
       .setDescription("Promote a staging review to live.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("rollback-staging")
+      .setDescription("Rollback a live review to staging.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("rollback-approved")
+      .setDescription("Rollback a staging review to approved/dev.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("freeze")
+      .setDescription("Freeze a review.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("unfreeze")
+      .setDescription("Unfreeze a review.")
       .addStringOption((o) =>
         o.setName("review_id").setDescription("Review ID").setRequired(true)
       )
@@ -231,6 +277,12 @@ async function executeAdmin(interaction) {
       });
     }
 
+    if (sub === "frozen") {
+      return interaction.editReply({
+        embeds: [buildReviewListEmbed("Frozen Review Items", getFrozenReviews(), 0x95a5a6)],
+      });
+    }
+
     if (sub === "declined") {
       return interaction.editReply({
         embeds: [buildReviewListEmbed("Declined Review Items", getDeclinedReviews(), 0xe74c3c)],
@@ -259,37 +311,49 @@ async function executeAdmin(interaction) {
     if (sub === "approve") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await approveReview(interaction.client, reviewId, actor);
-
-      return interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "decline") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await declineReview(interaction.client, reviewId, actor);
-
-      return interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "promote-staging") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await promoteReviewToStaging(interaction.client, reviewId, actor);
-
-      return interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "promote-live") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await promoteReviewToLive(interaction.client, reviewId, actor);
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+    }
 
-      return interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+    if (sub === "rollback-staging") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await rollbackReviewToStaging(interaction.client, reviewId, actor);
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+    }
+
+    if (sub === "rollback-approved") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await rollbackReviewToApproved(interaction.client, reviewId, actor);
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+    }
+
+    if (sub === "freeze") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await freezeReview(interaction.client, reviewId, actor);
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+    }
+
+    if (sub === "unfreeze") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await unfreezeReview(interaction.client, reviewId, actor);
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "audit") {
@@ -326,33 +390,49 @@ async function handleButton(interaction) {
   try {
     if (action === "approve") {
       const item = await approveReview(interaction.client, reviewId, actor);
-      await interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
       return true;
     }
 
     if (action === "decline") {
       const item = await declineReview(interaction.client, reviewId, actor);
-      await interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
       return true;
     }
 
     if (action === "promote_staging") {
       const item = await promoteReviewToStaging(interaction.client, reviewId, actor);
-      await interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
       return true;
     }
 
     if (action === "promote_live") {
       const item = await promoteReviewToLive(interaction.client, reviewId, actor);
-      await interaction.editReply({
-        embeds: [buildSingleReviewEmbed(item)],
-      });
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return true;
+    }
+
+    if (action === "rollback_staging") {
+      const item = await rollbackReviewToStaging(interaction.client, reviewId, actor);
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return true;
+    }
+
+    if (action === "rollback_approved") {
+      const item = await rollbackReviewToApproved(interaction.client, reviewId, actor);
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return true;
+    }
+
+    if (action === "freeze") {
+      const item = await freezeReview(interaction.client, reviewId, actor);
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return true;
+    }
+
+    if (action === "unfreeze") {
+      const item = await unfreezeReview(interaction.client, reviewId, actor);
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
       return true;
     }
 
