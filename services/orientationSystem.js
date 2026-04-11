@@ -872,10 +872,41 @@ function getVoiceKey(guildId, recruitId, supervisorId, channelId) {
   return `${guildId}:${recruitId}:${supervisorId}:${channelId}`;
 }
 
-function scanVoiceSessions(guild) {
+async function maybeCompleteSession(guild, session) {
+  if (!guild || !session || session.completed) return false;
+
+  const durationMs = Date.now() - session.startedAt;
+  const enoughTime = durationMs >= CONFIG.minVcMinutes * 60 * 1000;
+  if (!enoughTime) return false;
+
+  const recruitRecord = ensureRecruit(session.recruitId);
+  if (recruitRecord.deploymentComplete) {
+    session.completed = true;
+    return false;
+  }
+
+  markDeployment(session.recruitId, session.supervisorId, session.channelId);
+
+  const recruitMember =
+    guild.members.cache.get(session.recruitId) ||
+    (await guild.members.fetch(session.recruitId).catch(() => null));
+
+  if (recruitMember) {
+    await logProgress(
+      recruitMember,
+      `Deployment detected with <@${session.supervisorId}>`
+    ).catch(console.error);
+
+    await autoRequestPromotionIfComplete(recruitMember).catch(console.error);
+  }
+
+  session.completed = true;
+  return true;
+}
+
+async function scanVoiceSessions(guild) {
   if (!guild) return;
 
-  const now = Date.now();
   const currentKeys = new Set();
 
   const voiceChannels = guild.channels.cache.filter((c) => shouldTrackVoiceChannel(c));
@@ -900,37 +931,13 @@ function scanVoiceSessions(guild) {
             recruitId: recruit.id,
             supervisorId: supervisor.id,
             channelId: channel.id,
-            startedAt: now,
+            startedAt: Date.now(),
             completed: false,
           });
         } else {
           const session = activeVcSessions.get(key);
-
-          if (!session.completed) {
-            const durationMs = now - session.startedAt;
-            const enoughTime = durationMs >= CONFIG.minVcMinutes * 60 * 1000;
-
-            if (enoughTime) {
-              const recruitRecord = ensureRecruit(session.recruitId);
-
-              if (!recruitRecord.deploymentComplete) {
-                markDeployment(session.recruitId, session.supervisorId, session.channelId);
-
-                const recruitMember = guild.members.cache.get(session.recruitId);
-                if (recruitMember) {
-                  logProgress(
-                    recruitMember,
-                    `Deployment detected with <@${session.supervisorId}>`
-                  ).catch(console.error);
-
-                  autoRequestPromotionIfComplete(recruitMember).catch(console.error);
-                }
-              }
-
-              session.completed = true;
-              activeVcSessions.set(key, session);
-            }
-          }
+          await maybeCompleteSession(guild, session);
+          activeVcSessions.set(key, session);
         }
       }
     }
@@ -946,7 +953,15 @@ function scanVoiceSessions(guild) {
 function handleVoiceStateUpdate(oldState, newState) {
   const guild = newState?.guild || oldState?.guild;
   if (!guild) return;
-  scanVoiceSessions(guild);
+  scanVoiceSessions(guild).catch(console.error);
+}
+
+async function scanAllTrackedGuilds(client) {
+  if (!client?.guilds?.cache) return;
+
+  for (const guild of client.guilds.cache.values()) {
+    await scanVoiceSessions(guild).catch(console.error);
+  }
 }
 
 /* =========================
@@ -1053,6 +1068,7 @@ module.exports = {
 
   handleOrientationButton,
   handleVoiceStateUpdate,
+  scanAllTrackedGuilds,
 
   maybeAutoLogAAR,
   logNewRecruit,
