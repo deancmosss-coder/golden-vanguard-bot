@@ -372,7 +372,11 @@ function buildAskEmbed(session, vcName) {
     .addFields(
       { name: "Difficulty", value: session.difficulty || "Not specified", inline: true },
       { name: "Faction", value: session.faction || "Not specified", inline: true },
-      { name: "Voice Channel", value: vcName || "Not currently in a voice channel.", inline: false },
+      {
+        name: "Voice Channel",
+        value: vcName || "Not currently in a voice channel.",
+        inline: false,
+      },
       { name: "Squad", value: `${session.roster.size}/${MAX_SQUAD}`, inline: true },
       { name: "Roster", value: rosterText(session.roster), inline: false }
     )
