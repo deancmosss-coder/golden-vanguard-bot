@@ -1,10 +1,16 @@
+// =========================
 // services/featureGuard.js
+// FULL REPLACEMENT
+// Step 3 foundation file
+// =========================
+
 const logger = require("./logger");
 const { sendAlert, sendErrorAlert } = require("./alertService");
 const registry = require("./featureRegistry");
 
 const DEFAULT_MAX_FAILURES = 3;
 const DEFAULT_RETRIES = 1;
+const DEFAULT_RETRY_DELAY_MS = 1000;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -17,7 +23,7 @@ async function runProtected(client, options = {}) {
     location = "unknown",
     likelyCause = "Unknown",
     retries = DEFAULT_RETRIES,
-    retryDelayMs = 1000,
+    retryDelayMs = DEFAULT_RETRY_DELAY_MS,
     maxFailures = DEFAULT_MAX_FAILURES,
     announceIsolation = false,
     announceChannelId = null,
@@ -38,12 +44,17 @@ async function runProtected(client, options = {}) {
       ok: false,
       skipped: true,
       disabled: true,
+      recovered: false,
+      attemptCount: 0,
+      result: null,
+      error: null,
     };
   }
 
   let lastError = null;
+  const totalAttempts = Math.max(0, Number(retries || 0)) + 1;
 
-  for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+  for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
     try {
       const result = await job();
 
@@ -72,7 +83,10 @@ async function runProtected(client, options = {}) {
         ok: true,
         skipped: false,
         disabled: false,
+        recovered: attempt > 1,
+        attemptCount: attempt,
         result,
+        error: null,
       };
     } catch (err) {
       lastError = err;
@@ -86,7 +100,9 @@ async function runProtected(client, options = {}) {
         failCount: featureState.failCount,
       });
 
-      if (attempt <= retries) {
+      const hasRetryRemaining = attempt < totalAttempts;
+
+      if (hasRetryRemaining) {
         await sendErrorAlert(client, `${feature} retrying`, err, {
           feature,
           location,
@@ -147,15 +163,35 @@ async function runProtected(client, options = {}) {
             });
           }
         }
-      } else {
-        await sendErrorAlert(client, `${feature} failed`, err, {
-          feature,
-          location,
-          action,
-          likelyCause,
-          severity: "error",
-        });
+
+        return {
+          ok: false,
+          skipped: false,
+          disabled: true,
+          recovered: false,
+          attemptCount: attempt,
+          result: null,
+          error: err,
+        };
       }
+
+      await sendErrorAlert(client, `${feature} failed`, err, {
+        feature,
+        location,
+        action,
+        likelyCause,
+        severity: "error",
+      });
+
+      return {
+        ok: false,
+        skipped: false,
+        disabled: false,
+        recovered: false,
+        attemptCount: attempt,
+        result: null,
+        error: err,
+      };
     }
   }
 
@@ -163,6 +199,9 @@ async function runProtected(client, options = {}) {
     ok: false,
     skipped: false,
     disabled: !registry.isFeatureEnabled(feature),
+    recovered: false,
+    attemptCount: totalAttempts,
+    result: null,
     error: lastError,
   };
 }
