@@ -1,26 +1,15 @@
 // =========================
 // services/stagingService.js
-// STRICT ADMIN STAGING CONTROL
+// DYNAMIC STAGING CONTROL
 // =========================
 
 const fs = require("fs");
 const path = require("path");
+const {
+  getAllManagedFeatureNames,
+} = require("./managedFeatureStore");
 
 const DATA_PATH = path.join(__dirname, "..", "data", "stagingState.json");
-
-const VALID_FEATURES = [
-  "warboard",
-  "tracker",
-  "playerStats",
-  "askToPlay",
-  "orientation",
-  "voiceTracking",
-  "leaderboard",
-  "commands",
-  "enlistment",
-  "registry",
-];
-
 const VALID_STAGES = ["live", "staging", "dev", "frozen"];
 
 function createDefaultFeatureState() {
@@ -36,8 +25,7 @@ function createDefaultFeatureState() {
 
 function createDefaultState() {
   const features = {};
-
-  for (const feature of VALID_FEATURES) {
+  for (const feature of getAllManagedFeatureNames()) {
     features[feature] = createDefaultFeatureState();
   }
 
@@ -63,10 +51,10 @@ function readState() {
     const base = createDefaultState();
 
     if (parsed?.features && typeof parsed.features === "object") {
-      for (const feature of VALID_FEATURES) {
+      for (const [feature, value] of Object.entries(parsed.features)) {
         base.features[feature] = {
           ...createDefaultFeatureState(),
-          ...(parsed.features[feature] || {}),
+          ...(value || {}),
         };
       }
     }
@@ -86,8 +74,12 @@ function writeState(state) {
   fs.writeFileSync(DATA_PATH, JSON.stringify(state, null, 2), "utf8");
 }
 
+function getAvailableFeatures() {
+  return getAllManagedFeatureNames();
+}
+
 function isValidFeature(feature) {
-  return VALID_FEATURES.includes(String(feature || "").trim());
+  return getAvailableFeatures().includes(String(feature || "").trim());
 }
 
 function isValidStage(stage) {
@@ -110,15 +102,15 @@ function getFeatureStage(feature) {
   }
 
   const state = readState();
-  return state.features[feature];
+  return state.features[feature] || createDefaultFeatureState();
 }
 
 function listFeatureStages() {
   const state = readState();
 
-  return VALID_FEATURES.map((feature) => ({
+  return getAvailableFeatures().map((feature) => ({
     feature,
-    ...state.features[feature],
+    ...(state.features[feature] || createDefaultFeatureState()),
   }));
 }
 
@@ -163,7 +155,7 @@ function setFeatureStage(feature, stage, actor = "Unknown", notes = "", version 
     stage: normalStage,
     actor,
     notes: String(notes || ""),
-    version: version ? String(version).trim() : current.version,
+    version: next.version,
   });
 
   writeState(state);
@@ -242,8 +234,8 @@ function getRecentAudit(limit = 10) {
 }
 
 module.exports = {
-  VALID_FEATURES,
   VALID_STAGES,
+  getAvailableFeatures,
   isValidFeature,
   isValidStage,
   getFeatureStage,
