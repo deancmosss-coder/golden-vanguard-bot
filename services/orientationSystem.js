@@ -258,13 +258,13 @@ function buildChecklistEmbed() {
         "",
         "Recruits observe. Troopers deploy.",
         "",
-        "Complete the following in **any order**:",
+        "Complete the following in any order:",
         "",
-        "⬜ Read the **Vanguard Field Manual**",
-        "⬜ Review the **Community Laws**",
-        "⬜ Review the **Vanguard Divisions**",
-        "⬜ Complete a deployment with a **Sergeant, Senior Officer, Strike Captain, High Command, or Vanguard Prime**",
-        "⬜ Submit an **After Action Report (AAR)** using `/run`",
+        "⬜ Read the Vanguard Field Manual",
+        "⬜ Review the Community Laws",
+        "⬜ Review the Vanguard Divisions",
+        "⬜ Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, or Vanguard Prime",
+        "⬜ Submit an After Action Report (AAR) using /run",
         "",
         "Once all stages are complete, your promotion request will be sent automatically.",
       ].join("\n")
@@ -541,6 +541,8 @@ async function logNewRecruit(member) {
 }
 
 async function logProgress(member, label) {
+  const progress = progressCount(member.id);
+
   await createOrUpdateMonitorCard(member);
   await logOrientation(
     member.client,
@@ -548,7 +550,7 @@ async function logProgress(member, label) {
       "📈 **Recruit Progress Update**",
       `Diver: ${member}`,
       `Update: ${label}`,
-      `Progress: ${progressCount(member.id).done}/${progressCount(member.id).total}`,
+      `Progress: ${progress.done}/${progress.total}`,
     ].join("\n")
   );
 }
