@@ -1,6 +1,7 @@
 // =========================
 // commands/deploy.js
 // STRICT ADMIN-ONLY DEPLOYMENT SYSTEM
+// DYNAMIC FEATURE AUTOCOMPLETE
 // =========================
 
 const {
@@ -10,7 +11,7 @@ const {
 } = require("discord.js");
 
 const {
-  VALID_FEATURES,
+  getAvailableFeatures,
   getFeatureStatus,
   listAllFeatureStatuses,
   enableFeature,
@@ -113,11 +114,6 @@ function buildAuditEmbed(entries) {
     .setTimestamp();
 }
 
-const featureChoices = VALID_FEATURES.map((feature) => ({
-  name: feature,
-  value: feature,
-}));
-
 const adminData = new SlashCommandBuilder()
   .setName("deploy")
   .setDescription("Strict admin-only deployment controls for live features.")
@@ -131,7 +127,7 @@ const adminData = new SlashCommandBuilder()
           .setName("feature")
           .setDescription("Feature name")
           .setRequired(true)
-          .addChoices(...featureChoices)
+          .setAutocomplete(true)
       )
   )
   .addSubcommand((sub) =>
@@ -148,7 +144,7 @@ const adminData = new SlashCommandBuilder()
           .setName("feature")
           .setDescription("Feature name")
           .setRequired(true)
-          .addChoices(...featureChoices)
+          .setAutocomplete(true)
       )
       .addStringOption((o) =>
         o
@@ -166,7 +162,7 @@ const adminData = new SlashCommandBuilder()
           .setName("feature")
           .setDescription("Feature name")
           .setRequired(true)
-          .addChoices(...featureChoices)
+          .setAutocomplete(true)
       )
       .addStringOption((o) =>
         o
@@ -184,7 +180,7 @@ const adminData = new SlashCommandBuilder()
           .setName("feature")
           .setDescription("Feature name")
           .setRequired(true)
-          .addChoices(...featureChoices)
+          .setAutocomplete(true)
       )
       .addStringOption((o) =>
         o
@@ -198,6 +194,25 @@ const adminData = new SlashCommandBuilder()
       .setName("audit")
       .setDescription("View recent deployment actions.")
   );
+
+async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== "feature") {
+    return interaction.respond([]);
+  }
+
+  const q = String(focused.value || "").toLowerCase();
+
+  const choices = getAvailableFeatures()
+    .filter((feature) => feature.toLowerCase().includes(q))
+    .slice(0, 25)
+    .map((feature) => ({
+      name: feature,
+      value: feature,
+    }));
+
+  return interaction.respond(choices);
+}
 
 async function executeAdmin(interaction) {
   const sub = interaction.options.getSubcommand();
@@ -317,5 +332,6 @@ async function executeAdmin(interaction) {
 
 module.exports = {
   adminData,
+  autocomplete,
   executeAdmin,
 };
