@@ -1,7 +1,7 @@
 // =========================
 // services/discoveryReviewService.js
 // AUTO DISCOVERY + UPGRADE REVIEW SYSTEM
-// PHASE 4: VERSION HISTORY + HOTFIX + ROLLBACK VERSION
+// PHASE 4: VERSION HISTORY + HOTFIX + VERSION ROLLBACK
 // =========================
 
 const fs = require("fs");
@@ -311,20 +311,15 @@ async function postOrUpdateReviewCard(client, reviewId) {
 
   const card = createReviewCard(review);
 
+  let color = 0xf1c40f;
+  if (review.status === "live") color = 0x2ecc71;
+  else if (review.status === "staging") color = 0x3498db;
+  else if (review.status === "approved") color = 0x27ae60;
+  else if (review.status === "declined") color = 0xe74c3c;
+  else if (review.status === "frozen") color = 0x95a5a6;
+
   const embed = new EmbedBuilder()
-    .setColor(
-      review.status === "live"
-        ? 0x2ecc71
-        : review.status === "staging"
-        ? 0x3498db
-        : review.status === "approved"
-        ? 0x27ae60
-        : review.status === "declined"
-        ? 0xe74c3c
-        : review.status === "frozen"
-        ? 0x95a5a6
-        : 0xf1c40f
-    )
+    .setColor(color)
     .setTitle(card.title)
     .setDescription(card.description)
     .setFooter({ text: "Golden Vanguard Discovery Review" })
@@ -703,9 +698,7 @@ async function promoteReviewToStaging(client, reviewId, actor = "Unknown") {
   const review = state.reviews[reviewId];
 
   if (!review) throw new Error("Review not found.");
-  if (review.status !== "approved") {
-    throw new Error("Only approved reviews can be promoted to staging.");
-  }
+  if (review.status !== "approved") throw new Error("Only approved reviews can be promoted to staging.");
   if (review.frozen) throw new Error("Review is frozen.");
 
   review.status = "staging";
@@ -743,9 +736,7 @@ async function promoteReviewToLive(client, reviewId, actor = "Unknown", options 
   const review = state.reviews[reviewId];
 
   if (!review) throw new Error("Review not found.");
-  if (review.status !== "staging") {
-    throw new Error("Only staging reviews can be promoted to live.");
-  }
+  if (review.status !== "staging") throw new Error("Only staging reviews can be promoted to live.");
   if (review.frozen) throw new Error("Review is frozen.");
 
   const nextVersion =
@@ -827,7 +818,6 @@ async function hotfixReviewToLive(client, reviewId, actor = "Unknown") {
 
   if (!review) throw new Error("Review not found.");
   if (review.frozen) throw new Error("Review is frozen.");
-
   if (!["approved", "staging", "live"].includes(review.status)) {
     throw new Error("Hotfix is only allowed from approved, staging, or live.");
   }
@@ -846,6 +836,18 @@ async function hotfixReviewToLive(client, reviewId, actor = "Unknown") {
   review.liveBy = actor;
   review.updatedAt = new Date().toISOString();
 
+  writeState(state);
+
+  if (review.status !== "staging") {
+    stagingService.setFeatureStage(
+      review.feature,
+      "staging",
+      actor,
+      `Temporary staging step for hotfix review ${reviewId}`,
+      hotfixVersion
+    );
+  }
+
   return promoteReviewToLive(client, reviewId, actor, {
     version: hotfixVersion,
     notes: `Hotfix promoted live from review ${reviewId}`,
@@ -858,9 +860,7 @@ async function rollbackReviewToStaging(client, reviewId, actor = "Unknown") {
   const review = state.reviews[reviewId];
 
   if (!review) throw new Error("Review not found.");
-  if (review.status !== "live") {
-    throw new Error("Only live reviews can be rolled back to staging.");
-  }
+  if (review.status !== "live") throw new Error("Only live reviews can be rolled back to staging.");
 
   review.status = "staging";
   review.stage = "staging";
@@ -913,9 +913,7 @@ async function rollbackReviewToApproved(client, reviewId, actor = "Unknown") {
   const review = state.reviews[reviewId];
 
   if (!review) throw new Error("Review not found.");
-  if (review.status !== "staging") {
-    throw new Error("Only staging reviews can be rolled back to approved.");
-  }
+  if (review.status !== "staging") throw new Error("Only staging reviews can be rolled back to approved.");
 
   review.status = "approved";
   review.stage = "dev";
@@ -968,14 +966,10 @@ async function rollbackReviewToPreviousVersion(client, reviewId, actor = "Unknow
   const review = state.reviews[reviewId];
 
   if (!review) throw new Error("Review not found.");
-  if (review.status !== "live") {
-    throw new Error("Version rollback is only allowed from live.");
-  }
+  if (review.status !== "live") throw new Error("Version rollback is only allowed from live.");
 
   const previousLive = featureVersions.getPreviousLiveSnapshot(review.feature);
-  if (!previousLive) {
-    throw new Error("No previous live version snapshot found.");
-  }
+  if (!previousLive) throw new Error("No previous live version snapshot found.");
 
   review.status = "live";
   review.stage = "live";
@@ -1061,13 +1055,8 @@ async function freezeReview(client, reviewId, actor = "Unknown") {
   }
 
   try {
-    stagingService.setFeatureNotes(
-      review.feature,
-      `Frozen by ${actor} at ${review.frozenAt}`
-    );
-  } catch {
-    // ignore
-  }
+    stagingService.setFeatureNotes(review.feature, `Frozen by ${actor} at ${review.frozenAt}`);
+  } catch {}
 
   addAuditEntry(state, {
     action: "freeze_review",
