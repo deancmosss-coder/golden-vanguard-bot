@@ -2,7 +2,7 @@
 // commands/review.js
 // DISCOVERY + UPGRADE REVIEW COMMAND
 // STRICT ADMIN ONLY
-// PHASE 3: ROLLBACK + FREEZE
+// PHASE 4: VERSION HISTORY + HOTFIX + VERSION ROLLBACK
 // =========================
 
 const {
@@ -27,11 +27,15 @@ const {
   declineReview,
   promoteReviewToStaging,
   promoteReviewToLive,
+  hotfixReviewToLive,
   rollbackReviewToStaging,
   rollbackReviewToApproved,
+  rollbackReviewToPreviousVersion,
   freezeReview,
   unfreezeReview,
 } = require("../services/discoveryReviewService");
+
+const featureVersions = require("../services/featureVersionService");
 
 function relTime(iso) {
   if (!iso) return "Never";
@@ -51,6 +55,7 @@ function buildReviewListEmbed(title, items, color = 0xf1c40f) {
             `Type: **${item.kind}**`,
             `Status: **${item.status}**`,
             `Frozen: **${item.frozen ? "Yes" : "No"}**`,
+            `Current Version: **${featureVersions.getCurrentVersion(item.feature)}**`,
             `Source: **${item.detectedType}**`,
             `File: \`${item.filePath}\``,
             `Progress: ${progress.bar}`,
@@ -72,6 +77,7 @@ function buildReviewListEmbed(title, items, color = 0xf1c40f) {
 
 function buildSingleReviewEmbed(item) {
   const progress = buildReviewProgress(item);
+  const currentVersion = featureVersions.getCurrentVersion(item.feature);
 
   return new EmbedBuilder()
     .setColor(
@@ -93,6 +99,7 @@ function buildSingleReviewEmbed(item) {
       { name: "Status", value: item.status, inline: true },
       { name: "Type", value: item.kind, inline: true },
       { name: "Frozen", value: item.frozen ? "Yes" : "No", inline: true },
+      { name: "Current Version", value: currentVersion, inline: true },
       { name: "Detected From", value: item.detectedType, inline: true },
       { name: "File", value: `\`${item.filePath}\``, inline: false },
       { name: "Progress", value: progress.bar, inline: false },
@@ -100,11 +107,45 @@ function buildSingleReviewEmbed(item) {
       { name: "Approved", value: relTime(item.approvedAt), inline: true },
       { name: "Staging", value: relTime(item.stagingAt), inline: true },
       { name: "Live", value: relTime(item.liveAt), inline: true },
+      { name: "Hotfix", value: relTime(item.hotfixAt), inline: true },
       { name: "Rollback", value: relTime(item.rollbackAt), inline: true },
+      { name: "Rollback Target", value: item.rollbackTarget || "None", inline: true },
+      { name: "Rollback Version", value: item.rollbackVersion || "None", inline: true },
       { name: "Declined", value: relTime(item.declinedAt), inline: true },
       { name: "Frozen At", value: relTime(item.frozenAt), inline: true }
     )
     .setFooter({ text: "Golden Vanguard Discovery Review" })
+    .setTimestamp();
+}
+
+function buildVersionsEmbed(feature) {
+  const current = featureVersions.getCurrentVersion(feature);
+  const history = featureVersions.getFeatureHistory(feature, 10);
+
+  const body = history.length
+    ? history
+        .map((item) =>
+          [
+            `**${item.version}**`,
+            `Stage: ${item.stage || "unknown"}`,
+            `Source: ${item.sourceAction || "manual"}`,
+            `Actor: ${item.actor || "Unknown"}`,
+            `Review ID: ${item.reviewId || "None"}`,
+            `When: ${relTime(item.createdAt)}`,
+            item.notes ? `Notes: ${item.notes}` : null,
+            "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        )
+        .join("\n")
+    : "No version history found.";
+
+  return new EmbedBuilder()
+    .setColor(0x3498db)
+    .setTitle(`Feature Versions — ${feature}`)
+    .setDescription(`**Current Version:** ${current}\n\n${body}`.slice(0, 4096))
+    .setFooter({ text: "Golden Vanguard Version History" })
     .setTimestamp();
 }
 
@@ -116,6 +157,7 @@ function buildAuditEmbed(entries) {
             `**${entry.action}** — ${entry.feature || "Unknown"}`,
             `Actor: ${entry.actor || "Unknown"}`,
             entry.filePath ? `File: \`${entry.filePath}\`` : null,
+            entry.version ? `Version: ${entry.version}` : null,
             `When: ${relTime(entry.createdAt)}`,
             "",
           ]
@@ -172,6 +214,14 @@ const adminData = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
+      .setName("versions")
+      .setDescription("View version history for a feature from a review.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
       .setName("approve")
       .setDescription("Approve a pending review.")
       .addStringOption((o) =>
@@ -204,6 +254,14 @@ const adminData = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
+      .setName("hotfix")
+      .setDescription("Apply a hotfix and promote straight to live.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
       .setName("rollback-staging")
       .setDescription("Rollback a live review to staging.")
       .addStringOption((o) =>
@@ -214,6 +272,14 @@ const adminData = new SlashCommandBuilder()
     sub
       .setName("rollback-approved")
       .setDescription("Rollback a staging review to approved/dev.")
+      .addStringOption((o) =>
+        o.setName("review_id").setDescription("Review ID").setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("rollback-version")
+      .setDescription("Rollback a live review to the previous live version.")
       .addStringOption((o) =>
         o.setName("review_id").setDescription("Review ID").setRequired(true)
       )
@@ -247,7 +313,6 @@ async function executeAdmin(interaction) {
   try {
     if (sub === "scan") {
       await scanForReviews(interaction.client, actor);
-
       return interaction.editReply({
         embeds: [buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f)],
       });
@@ -308,6 +373,19 @@ async function executeAdmin(interaction) {
       });
     }
 
+    if (sub === "versions") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = getReview(reviewId);
+
+      if (!item) {
+        return interaction.editReply("Review not found.");
+      }
+
+      return interaction.editReply({
+        embeds: [buildVersionsEmbed(item.feature)],
+      });
+    }
+
     if (sub === "approve") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await approveReview(interaction.client, reviewId, actor);
@@ -332,6 +410,12 @@ async function executeAdmin(interaction) {
       return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
     }
 
+    if (sub === "hotfix") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await hotfixReviewToLive(interaction.client, reviewId, actor);
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+    }
+
     if (sub === "rollback-staging") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await rollbackReviewToStaging(interaction.client, reviewId, actor);
@@ -341,6 +425,12 @@ async function executeAdmin(interaction) {
     if (sub === "rollback-approved") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await rollbackReviewToApproved(interaction.client, reviewId, actor);
+      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+    }
+
+    if (sub === "rollback-version") {
+      const reviewId = interaction.options.getString("review_id", true);
+      const item = await rollbackReviewToPreviousVersion(interaction.client, reviewId, actor);
       return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
     }
 
@@ -412,6 +502,12 @@ async function handleButton(interaction) {
       return true;
     }
 
+    if (action === "hotfix_live") {
+      const item = await hotfixReviewToLive(interaction.client, reviewId, actor);
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return true;
+    }
+
     if (action === "rollback_staging") {
       const item = await rollbackReviewToStaging(interaction.client, reviewId, actor);
       await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
@@ -420,6 +516,12 @@ async function handleButton(interaction) {
 
     if (action === "rollback_approved") {
       const item = await rollbackReviewToApproved(interaction.client, reviewId, actor);
+      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return true;
+    }
+
+    if (action === "rollback_version") {
+      const item = await rollbackReviewToPreviousVersion(interaction.client, reviewId, actor);
       await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
       return true;
     }
