@@ -1,11 +1,11 @@
 // =========================
 // services/stagingService.js
 // DYNAMIC STAGING CONTROL
+// PHASE 4: VERSION HELPERS
 // =========================
 
 const fs = require("fs");
 const path = require("path");
-const { getAllManagedFeatureNames } = require("./managedFeatureStore");
 
 const DATA_PATH = path.join(__dirname, "..", "data", "stagingState.json");
 const VALID_STAGES = ["live", "staging", "dev", "frozen"];
@@ -22,13 +22,8 @@ function createDefaultFeatureState() {
 }
 
 function createDefaultState() {
-  const features = {};
-  for (const feature of getAllManagedFeatureNames()) {
-    features[feature] = createDefaultFeatureState();
-  }
-
   return {
-    features,
+    features: {},
     audit: [],
   };
 }
@@ -72,14 +67,6 @@ function writeState(state) {
   fs.writeFileSync(DATA_PATH, JSON.stringify(state, null, 2), "utf8");
 }
 
-function getAvailableFeatures() {
-  return getAllManagedFeatureNames();
-}
-
-function isValidFeature(feature) {
-  return getAvailableFeatures().includes(String(feature || "").trim());
-}
-
 function isValidStage(stage) {
   return VALID_STAGES.includes(String(stage || "").trim().toLowerCase());
 }
@@ -94,36 +81,43 @@ function addAuditEntry(state, entry) {
   state.audit = state.audit.slice(0, 250);
 }
 
-function getFeatureStage(feature) {
-  if (!isValidFeature(feature)) {
-    throw new Error(`Invalid feature: ${feature}`);
-  }
+function ensureFeature(feature) {
+  const clean = String(feature || "").trim();
+  if (!clean) throw new Error("Invalid feature.");
 
   const state = readState();
-  return state.features[feature] || createDefaultFeatureState();
+  if (!state.features[clean]) {
+    state.features[clean] = createDefaultFeatureState();
+    writeState(state);
+  }
+
+  return { state, feature: clean };
+}
+
+function getFeatureStage(feature) {
+  const { state, feature: clean } = ensureFeature(feature);
+  return state.features[clean];
 }
 
 function listFeatureStages() {
   const state = readState();
 
-  return getAvailableFeatures().map((feature) => ({
-    feature,
-    ...(state.features[feature] || createDefaultFeatureState()),
-  }));
+  return Object.entries(state.features)
+    .map(([feature, value]) => ({
+      feature,
+      ...value,
+    }))
+    .sort((a, b) => a.feature.localeCompare(b.feature));
 }
 
 function setFeatureStage(feature, stage, actor = "Unknown", notes = "", version = null) {
-  if (!isValidFeature(feature)) {
-    throw new Error(`Invalid feature: ${feature}`);
-  }
-
   const normalStage = String(stage || "").trim().toLowerCase();
   if (!isValidStage(normalStage)) {
     throw new Error(`Invalid stage: ${stage}`);
   }
 
-  const state = readState();
-  const current = state.features[feature] || createDefaultFeatureState();
+  const { state, feature: clean } = ensureFeature(feature);
+  const current = state.features[clean];
 
   const next = {
     ...current,
@@ -145,11 +139,11 @@ function setFeatureStage(feature, stage, actor = "Unknown", notes = "", version 
     next.version = String(version).trim();
   }
 
-  state.features[feature] = next;
+  state.features[clean] = next;
 
   addAuditEntry(state, {
     action: "set_stage",
-    feature,
+    feature: clean,
     stage: normalStage,
     actor,
     notes: String(notes || ""),
@@ -161,17 +155,13 @@ function setFeatureStage(feature, stage, actor = "Unknown", notes = "", version 
 }
 
 function setFeatureVersion(feature, version, actor = "Unknown", notes = "") {
-  if (!isValidFeature(feature)) {
-    throw new Error(`Invalid feature: ${feature}`);
-  }
-
   const cleanVersion = String(version || "").trim();
   if (!cleanVersion) {
     throw new Error("Version cannot be empty.");
   }
 
-  const state = readState();
-  const current = state.features[feature] || createDefaultFeatureState();
+  const { state, feature: clean } = ensureFeature(feature);
+  const current = state.features[clean];
 
   const next = {
     ...current,
@@ -181,11 +171,11 @@ function setFeatureVersion(feature, version, actor = "Unknown", notes = "") {
     updatedBy: actor,
   };
 
-  state.features[feature] = next;
+  state.features[clean] = next;
 
   addAuditEntry(state, {
     action: "set_version",
-    feature,
+    feature: clean,
     actor,
     version: cleanVersion,
     notes: String(notes || ""),
@@ -196,12 +186,8 @@ function setFeatureVersion(feature, version, actor = "Unknown", notes = "") {
 }
 
 function setFeatureNotes(feature, notes, actor = "Unknown") {
-  if (!isValidFeature(feature)) {
-    throw new Error(`Invalid feature: ${feature}`);
-  }
-
-  const state = readState();
-  const current = state.features[feature] || createDefaultFeatureState();
+  const { state, feature: clean } = ensureFeature(feature);
+  const current = state.features[clean];
 
   const next = {
     ...current,
@@ -210,11 +196,11 @@ function setFeatureNotes(feature, notes, actor = "Unknown") {
     updatedBy: actor,
   };
 
-  state.features[feature] = next;
+  state.features[clean] = next;
 
   addAuditEntry(state, {
     action: "set_notes",
-    feature,
+    feature: clean,
     actor,
     notes: String(notes || ""),
     version: next.version,
@@ -225,6 +211,24 @@ function setFeatureNotes(feature, notes, actor = "Unknown") {
   return next;
 }
 
+function bumpPatch(version) {
+  const parts = String(version || "1.0.0")
+    .split(".")
+    .map((n) => Number(n));
+
+  const major = Number.isFinite(parts[0]) ? parts[0] : 1;
+  const minor = Number.isFinite(parts[1]) ? parts[1] : 0;
+  const patch = Number.isFinite(parts[2]) ? parts[2] : 0;
+
+  return `${major}.${minor}.${patch + 1}`;
+}
+
+function bumpFeaturePatchVersion(feature, actor = "Unknown", notes = "") {
+  const current = getFeatureStage(feature);
+  const nextVersion = bumpPatch(current.version || "1.0.0");
+  return setFeatureVersion(feature, nextVersion, actor, notes || "Patch version bump");
+}
+
 function getRecentAudit(limit = 10) {
   const state = readState();
   const max = Math.max(1, Math.min(Number(limit) || 10, 25));
@@ -233,13 +237,14 @@ function getRecentAudit(limit = 10) {
 
 module.exports = {
   VALID_STAGES,
-  getAvailableFeatures,
-  isValidFeature,
+  readState,
+  writeState,
   isValidStage,
   getFeatureStage,
   listFeatureStages,
   setFeatureStage,
   setFeatureVersion,
   setFeatureNotes,
+  bumpFeaturePatchVersion,
   getRecentAudit,
 };
