@@ -81,12 +81,32 @@ function getReview(reviewId) {
   return state.reviews[reviewId] || null;
 }
 
-function getPendingReviews() {
+function getAllReviews() {
   const state = readState();
 
-  return Object.values(state.reviews)
-    .filter((r) => r.status === "pending")
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return Object.values(state.reviews).sort(
+    (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+  );
+}
+
+function getReviewsByStatus(status) {
+  const wanted = String(status || "").trim().toLowerCase();
+
+  return getAllReviews().filter(
+    (review) => String(review.status || "").trim().toLowerCase() === wanted
+  );
+}
+
+function getPendingReviews() {
+  return getReviewsByStatus("pending");
+}
+
+function getApprovedReviews() {
+  return getReviewsByStatus("approved");
+}
+
+function getDeclinedReviews() {
+  return getReviewsByStatus("declined");
 }
 
 function progressBar(percent) {
@@ -137,6 +157,7 @@ function inferFeatureName(filePath) {
   if (/^voiceHubs$/i.test(name)) name = "askToPlay";
   if (/^warSync$/i.test(name)) name = "warboard";
   if (/^operationsBoard$/i.test(name)) name = "warboard";
+  if (/^review$/i.test(name)) name = "registry";
 
   name = name.charAt(0).toLowerCase() + name.slice(1);
   return sanitiseFeatureName(name);
@@ -211,6 +232,7 @@ function createReviewCard(review) {
         ? `🆕 Feature Review — ${review.feature}`
         : `⬆️ Upgrade Review — ${review.feature}`,
     description: [
+      `**Review ID:** ${review.reviewId}`,
       `**Feature:** ${review.feature}`,
       `**Type:** ${review.kind === "new_feature" ? "New Feature" : "Upgrade"}`,
       `**Detected From:** ${review.detectedType}`,
@@ -532,7 +554,11 @@ async function declineReview(client, reviewId, actor = "Unknown") {
 module.exports = {
   BOT_STATUS_CHANNEL_ID,
   getReview,
+  getAllReviews,
+  getReviewsByStatus,
   getPendingReviews,
+  getApprovedReviews,
+  getDeclinedReviews,
   getRecentAudit,
   buildReviewProgress,
   scanForReviews,
