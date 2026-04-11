@@ -1,4 +1,9 @@
+// =========================
 // services/featureRegistry.js
+// FULL REPLACEMENT
+// Step 3 foundation file
+// =========================
+
 const fs = require("fs");
 const path = require("path");
 
@@ -24,6 +29,8 @@ function defaultState() {
     orientation: createDefault(),
     voiceTracking: createDefault(),
     leaderboard: createDefault(),
+    commands: createDefault(),
+    enlistment: createDefault(),
   };
 }
 
@@ -90,7 +97,8 @@ function registerSuccess(name) {
 
   state[name].failCount = 0;
   state[name].lastSuccessAt = new Date().toISOString();
-  state[name].pausedReason = null;
+  state[name].lastError = null;
+  state[name].lastErrorAt = null;
 
   writeState(state);
   return state[name];
@@ -122,7 +130,10 @@ function enableFeature(name) {
 
   state[name].enabled = true;
   state[name].failCount = 0;
+  state[name].lastError = null;
+  state[name].lastErrorAt = null;
   state[name].pausedReason = null;
+  state[name].lastSuccessAt = new Date().toISOString();
 
   writeState(state);
   return state[name];
