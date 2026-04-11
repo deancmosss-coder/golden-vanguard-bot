@@ -12,6 +12,9 @@ const {
 
 const {
   getPendingReviews,
+  getApprovedReviews,
+  getDeclinedReviews,
+  getAllReviews,
   getReview,
   getRecentAudit,
   buildReviewProgress,
@@ -27,7 +30,7 @@ function relTime(iso) {
   return `<t:${unix}:R>`;
 }
 
-function buildPendingEmbed(items) {
+function buildReviewListEmbed(title, items, color = 0xf1c40f) {
   const text = items.length
     ? items
         .map((item) => {
@@ -36,20 +39,21 @@ function buildPendingEmbed(items) {
             `**${item.reviewId}**`,
             `Feature: **${item.feature}**`,
             `Type: **${item.kind}**`,
+            `Status: **${item.status}**`,
             `Source: **${item.detectedType}**`,
             `File: \`${item.filePath}\``,
             `Progress: ${progress.bar}`,
-            `Detected: ${relTime(item.detectedAt)}`,
+            `Updated: ${relTime(item.updatedAt || item.createdAt)}`,
             "",
           ].join("\n");
         })
         .join("\n")
         .slice(0, 4096)
-    : "No pending discovery reviews.";
+    : "No items found.";
 
   return new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle("Pending Discovery Reviews")
+    .setColor(color)
+    .setTitle(title)
     .setDescription(text)
     .setFooter({ text: "Golden Vanguard Discovery Review" })
     .setTimestamp();
@@ -116,7 +120,16 @@ const adminData = new SlashCommandBuilder()
     sub.setName("scan").setDescription("Scan the bot for new features and upgrades.")
   )
   .addSubcommand((sub) =>
-    sub.setName("pending").setDescription("View pending discovery reviews.")
+    sub.setName("pending").setDescription("View items currently under review.")
+  )
+  .addSubcommand((sub) =>
+    sub.setName("approved").setDescription("View all approved review items.")
+  )
+  .addSubcommand((sub) =>
+    sub.setName("declined").setDescription("View all declined review items.")
+  )
+  .addSubcommand((sub) =>
+    sub.setName("all").setDescription("View all review items.")
   )
   .addSubcommand((sub) =>
     sub
@@ -154,20 +167,44 @@ async function executeAdmin(interaction) {
 
   try {
     if (sub === "scan") {
-      const created = await scanForReviews(interaction.client, actor);
-
-      if (!created.length) {
-        return interaction.editReply("✅ Scan complete. No new discovery or upgrade reviews were created.");
-      }
+      await scanForReviews(interaction.client, actor);
 
       return interaction.editReply({
-        embeds: [buildPendingEmbed(getPendingReviews())],
+        embeds: [
+          buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f),
+        ],
       });
     }
 
     if (sub === "pending") {
       return interaction.editReply({
-        embeds: [buildPendingEmbed(getPendingReviews())],
+        embeds: [
+          buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f),
+        ],
+      });
+    }
+
+    if (sub === "approved") {
+      return interaction.editReply({
+        embeds: [
+          buildReviewListEmbed("Approved Review Items", getApprovedReviews(), 0x2ecc71),
+        ],
+      });
+    }
+
+    if (sub === "declined") {
+      return interaction.editReply({
+        embeds: [
+          buildReviewListEmbed("Declined Review Items", getDeclinedReviews(), 0xe74c3c),
+        ],
+      });
+    }
+
+    if (sub === "all") {
+      return interaction.editReply({
+        embeds: [
+          buildReviewListEmbed("All Review Items", getAllReviews(), 0x3498db),
+        ],
       });
     }
 
