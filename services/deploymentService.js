@@ -6,9 +6,7 @@
 const fs = require("fs");
 const path = require("path");
 const registry = require("./featureRegistry");
-const {
-  getAllManagedFeatureNames,
-} = require("./managedFeatureStore");
+const { getAllManagedFeatureNames } = require("./managedFeatureStore");
 
 const AUDIT_PATH = path.join(__dirname, "..", "data", "deploymentAudit.json");
 
