@@ -280,49 +280,29 @@ async function renameHostVcFromSession(session, guild) {
 function buildWelcomeEmbed(member, memberCount) {
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("🛡 WELCOME TO THE GOLDEN VANGUARD 🛡")
+    .setTitle("🛡 Welcome to The Golden Vanguard")
     .setDescription(
       [
-        `Welcome ${member.user.username}, you have entered the Golden Vanguard!`,
+        `Welcome ${member},`,
         "",
-        "The Golden Vanguard is a tactical squad-finding command hub built to:",
-        "• Develop your playstyle",
-        "• Challenge yourself in new roles",
-        "• Deploy with structure and intent",
+        "You’ve joined a tactical squad-based community built for coordination, growth, and winning together.",
         "",
-        "**This is not a roleplay server.**",
-        "Factions are playstyle archetypes designed to help you learn, adapt, and sharpen your tactical edge.",
+        "Here, we don’t just play — we **deploy with purpose**.",
         "",
         "━━━━━━━━━━━━━━━━━━",
         "",
-        "📜 Read #community-laws",
+        "🪖 **Become a True Vanguard Member**",
+        "", 
+        "To unlock full access and fight alongside the Vanguard, you must complete your **Recruit Orientation**.",
         "",
-        "🎮 Looking for a squad?",
-        "Go to #squad-lfg and ping @Ask-to-Play",
-        "",
-        "How to find a squad",
-        "1) Join a Voice Channel under **Operations Command**",
-        "2) Ping **@asktoplay** in **#squad-lfg**",
-        "3) Set enemy faction and Difficulty or leave blank",
-        "4) Players will come and fight with you",
+        "📍 Head to **#orientation-checklist** to begin",
+        "⏳ You have **7 days** to complete it",
         "",
         "━━━━━━━━━━━━━━━━━━",
-        "",
-        "🪖 Interested in a division?",
-        "Visit #division-terminal to explore the Vanguard divisions.",
-        "🌑 The Eclipse Vanguard",
-        "🔥 The Purifier Corps",
-        "🛡 The Bastion Guard",
-        "✴ The Orbital Directive",
         "",
         "Form up. Drop in. Execute.",
         "",
-        "━━━━━━━━━━━━━━━━━━",
-        "",
-        "Welcome to the Golden Vanguard.",
-        "Now earn your place in it.",
-        "",
-        `🎖 You are the ${memberCount}th member in the server!!`,
+        `🎖 Member #${memberCount}`,
       ].join("\n")
     )
     .setTimestamp()
@@ -918,6 +898,15 @@ client.once(Events.ClientReady, async () => {
     client,
     `Golden Vanguard bot is now online as **${client.user.tag}**`
   );
+
+  // Orientation overdue checker
+  setInterval(() => {
+    orientationSystem.checkOverdueRecruits(client).catch((err) => {
+      logger.error("Orientation overdue check failed", err, {
+        location: "index.js -> ClientReady -> setInterval(checkOverdueRecruits)",
+      });
+    });
+  }, 60 * 60 * 1000);
 
   await runProtected(client, {
     feature: "warboard",
