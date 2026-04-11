@@ -69,8 +69,8 @@ function buildFeatureEmbed(feature, state) {
 }
 
 function buildListEmbed(items) {
-  const lines = items.map((item) => {
-    return [
+  const lines = items.map((item) =>
+    [
       `**${item.feature}**`,
       `${item.enabled === false ? "❌ Disabled" : "✅ Enabled"}`,
       `Failures: ${item.failCount || 0}`,
@@ -78,8 +78,8 @@ function buildListEmbed(items) {
       `Last Error: ${item.lastError || "None"}`,
       `Paused Reason: ${item.pausedReason || "None"}`,
       "",
-    ].join("\n");
-  });
+    ].join("\n")
+  );
 
   return new EmbedBuilder()
     .setColor(0xf1c40f)
@@ -92,15 +92,15 @@ function buildListEmbed(items) {
 function buildAuditEmbed(entries) {
   const description = entries.length
     ? entries
-        .map((entry) => {
-          return [
+        .map((entry) =>
+          [
             `**${entry.action.toUpperCase()}** — ${entry.feature}`,
             `Actor: ${entry.actor || "Unknown"}`,
             `Reason: ${entry.reason || "None"}`,
             `When: ${relTime(entry.createdAt)}`,
             "",
-          ].join("\n");
-        })
+          ].join("\n")
+        )
         .join("\n")
         .slice(0, 4096)
     : "No deployment actions recorded yet.";
@@ -203,7 +203,14 @@ async function executeAdmin(interaction) {
   const sub = interaction.options.getSubcommand();
   const actor = `${interaction.user.tag} (${interaction.user.id})`;
 
-  await interaction.deferReply({ flags: 64 });
+  try {
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply({ flags: 64 });
+    }
+  } catch (err) {
+    console.error("Failed to defer interaction:", err);
+    return;
+  }
 
   try {
     if (sub === "status") {
