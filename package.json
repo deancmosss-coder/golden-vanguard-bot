@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "check:syntax": "node --check index.js && node --check commands/run.js && node --check commands/github.js && node --check services/playerStats.js && node --check services/trackerService.js && node --check services/githubDeployService.js"
   },
   "keywords": [],
   "author": "",
