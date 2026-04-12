@@ -7,16 +7,14 @@ const {
 
 const registry = require("../services/featureRegistry");
 const logger = require("../services/logger");
+const {
+  getAllManagedFeatureNames,
+  hasManagedFeature,
+} = require("../services/managedFeatureStore");
 
-const FEATURE_CHOICES = [
-  { name: "warboard", value: "warboard" },
-  { name: "tracker", value: "tracker" },
-  { name: "playerStats", value: "playerStats" },
-  { name: "askToPlay", value: "askToPlay" },
-  { name: "orientation", value: "orientation" },
-  { name: "voiceTracking", value: "voiceTracking" },
-  { name: "leaderboard", value: "leaderboard" },
-];
+const STATUS_FIELDS_PER_EMBED = 12;
+const MAX_STATUS_EMBEDS = 10;
+const MAX_TEXT_LENGTH = 180;
 
 function formatDate(value) {
   if (!value) return "Never";
@@ -25,33 +23,95 @@ function formatDate(value) {
   return `<t:${Math.floor(date.getTime() / 1000)}:R>`;
 }
 
-function buildStatusEmbed() {
+function truncateText(value, fallback = "None") {
+  const text = String(value || fallback);
+  if (text.length <= MAX_TEXT_LENGTH) {
+    return text;
+  }
+
+  return `${text.slice(0, MAX_TEXT_LENGTH - 3)}...`;
+}
+
+function chunkItems(items, size) {
+  const chunks = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+function buildSummaryFields(entries) {
+  const enabledCount = entries.filter(([, state]) => state.enabled !== false).length;
+  const disabledCount = entries.length - enabledCount;
+  const failingCount = entries.filter(([, state]) => Number(state.failCount || 0) > 0).length;
+
+  return [
+    { name: "Total Features", value: String(entries.length), inline: true },
+    { name: "Enabled", value: String(enabledCount), inline: true },
+    { name: "Disabled", value: String(disabledCount), inline: true },
+    { name: "With Failures", value: String(failingCount), inline: true },
+  ];
+}
+
+function buildStatusEmbeds() {
   const features = registry.getAllFeatures();
+  const entries = Object.entries(features).sort((a, b) => a[0].localeCompare(b[0]));
 
-  const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle("🛠 System Status")
-    .setDescription("Current protected feature states")
-    .setTimestamp()
-    .setFooter({ text: "The Golden Vanguard" });
+  if (!entries.length) {
+    return [
+      new EmbedBuilder()
+        .setColor(0xf1c40f)
+        .setTitle("System Status")
+        .setDescription("No protected features are registered yet.")
+        .setTimestamp()
+        .setFooter({ text: "The Golden Vanguard" }),
+    ];
+  }
 
-  for (const [featureName, state] of Object.entries(features)) {
-    const status = state.enabled ? "✅ Enabled" : "🛑 Disabled";
-    const failCount = Number(state.failCount || 0);
+  const chunks = chunkItems(entries, STATUS_FIELDS_PER_EMBED);
+  const embeds = chunks.slice(0, MAX_STATUS_EMBEDS).map((chunk, index) => {
+    const embed = new EmbedBuilder()
+      .setColor(0xf1c40f)
+      .setTitle(index === 0 ? "System Status" : `System Status (Page ${index + 1})`)
+      .setTimestamp()
+      .setFooter({ text: "The Golden Vanguard" });
 
-    embed.addFields({
-      name: featureName,
-      value:
-        `${status}\n` +
-        `Failures: **${failCount}**\n` +
-        `Last Success: **${formatDate(state.lastSuccessAt)}**\n` +
-        `Last Error: **${state.lastError || "None"}**\n` +
-        `Paused Reason: **${state.pausedReason || "None"}**`,
+    if (index === 0) {
+      embed.setDescription("Current protected feature states");
+      embed.addFields(...buildSummaryFields(entries));
+    }
+
+    for (const [featureName, state] of chunk) {
+      const status = state.enabled !== false ? "Enabled" : "Disabled";
+      const failCount = Number(state.failCount || 0);
+
+      embed.addFields({
+        name: featureName,
+        value:
+          `Status: **${status}**\n` +
+          `Failures: **${failCount}**\n` +
+          `Last Success: **${formatDate(state.lastSuccessAt)}**\n` +
+          `Last Error: **${truncateText(state.lastError)}**\n` +
+          `Paused Reason: **${truncateText(state.pausedReason)}**`,
+        inline: false,
+      });
+    }
+
+    return embed;
+  });
+
+  if (chunks.length > MAX_STATUS_EMBEDS && embeds.length) {
+    const shown = STATUS_FIELDS_PER_EMBED * MAX_STATUS_EMBEDS;
+    embeds[embeds.length - 1].addFields({
+      name: "Additional Features",
+      value: `Showing ${shown} of ${entries.length} features in Discord.`,
       inline: false,
     });
   }
 
-  return embed;
+  return embeds;
 }
 
 function buildFeatureEmbed(title, featureName, state, color = 0xf1c40f) {
@@ -62,8 +122,8 @@ function buildFeatureEmbed(title, featureName, state, color = 0xf1c40f) {
       { name: "Feature", value: featureName, inline: true },
       { name: "Enabled", value: state.enabled ? "Yes" : "No", inline: true },
       { name: "Fail Count", value: String(state.failCount || 0), inline: true },
-      { name: "Last Error", value: state.lastError || "None", inline: false },
-      { name: "Paused Reason", value: state.pausedReason || "None", inline: false },
+      { name: "Last Error", value: truncateText(state.lastError), inline: false },
+      { name: "Paused Reason", value: truncateText(state.pausedReason), inline: false },
       { name: "Last Success", value: formatDate(state.lastSuccessAt), inline: false }
     )
     .setTimestamp()
@@ -88,6 +148,36 @@ function getLogText(logType) {
   return "Unknown log type.";
 }
 
+function ensureManagedFeature(featureName) {
+  if (hasManagedFeature(featureName)) {
+    return null;
+  }
+
+  return {
+    content: `Unknown protected feature: \`${featureName}\`. Use the feature autocomplete to select a managed system.`,
+    ephemeral: true,
+  };
+}
+
+async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== "feature") {
+    return interaction.respond([]);
+  }
+
+  const query = String(focused.value || "").toLowerCase();
+
+  const choices = getAllManagedFeatureNames()
+    .filter((feature) => feature.toLowerCase().includes(query))
+    .slice(0, 25)
+    .map((feature) => ({
+      name: feature,
+      value: feature,
+    }));
+
+  return interaction.respond(choices);
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("system")
@@ -107,7 +197,7 @@ module.exports = {
             .setName("feature")
             .setDescription("Feature name")
             .setRequired(true)
-            .addChoices(...FEATURE_CHOICES)
+            .setAutocomplete(true)
         )
     )
     .addSubcommand((sub) =>
@@ -119,7 +209,7 @@ module.exports = {
             .setName("feature")
             .setDescription("Feature name")
             .setRequired(true)
-            .addChoices(...FEATURE_CHOICES)
+            .setAutocomplete(true)
         )
         .addStringOption((opt) =>
           opt
@@ -137,7 +227,7 @@ module.exports = {
             .setName("feature")
             .setDescription("Feature name")
             .setRequired(true)
-            .addChoices(...FEATURE_CHOICES)
+            .setAutocomplete(true)
         )
     )
     .addSubcommand((sub) =>
@@ -157,24 +247,29 @@ module.exports = {
         )
     ),
 
+  autocomplete,
+
   async execute(interaction) {
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "status") {
-      const embed = buildStatusEmbed();
+      const embeds = buildStatusEmbeds();
       return interaction.reply({
-        embeds: [embed],
+        embeds,
         ephemeral: true,
       });
     }
 
     if (subcommand === "enable") {
       const feature = interaction.options.getString("feature", true);
+      const invalid = ensureManagedFeature(feature);
+      if (invalid) return interaction.reply(invalid);
+
       const state = registry.enableFeature(feature);
 
       return interaction.reply({
         embeds: [
-          buildFeatureEmbed("✅ Feature Enabled", feature, state, 0x2ecc71),
+          buildFeatureEmbed("Feature Enabled", feature, state, 0x2ecc71),
         ],
         ephemeral: true,
       });
@@ -182,6 +277,9 @@ module.exports = {
 
     if (subcommand === "disable") {
       const feature = interaction.options.getString("feature", true);
+      const invalid = ensureManagedFeature(feature);
+      if (invalid) return interaction.reply(invalid);
+
       const reason =
         interaction.options.getString("reason") || "Disabled manually by admin";
 
@@ -189,7 +287,7 @@ module.exports = {
 
       return interaction.reply({
         embeds: [
-          buildFeatureEmbed("🛑 Feature Disabled", feature, state, 0xe74c3c),
+          buildFeatureEmbed("Feature Disabled", feature, state, 0xe74c3c),
         ],
         ephemeral: true,
       });
@@ -197,11 +295,14 @@ module.exports = {
 
     if (subcommand === "reset") {
       const feature = interaction.options.getString("feature", true);
+      const invalid = ensureManagedFeature(feature);
+      if (invalid) return interaction.reply(invalid);
+
       const state = registry.resetFeature(feature);
 
       return interaction.reply({
         embeds: [
-          buildFeatureEmbed("🔄 Feature Reset", feature, state, 0x3498db),
+          buildFeatureEmbed("Feature Reset", feature, state, 0x3498db),
         ],
         ephemeral: true,
       });
