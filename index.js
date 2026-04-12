@@ -33,7 +33,6 @@ const {
   sendErrorAlert,
   sendStartupAlert,
 } = require("./services/alertService");
-const githubDeployService = require("./services/githubDeployService");
 const registry = require("./services/featureRegistry");
 const { runProtected } = require("./services/featureGuard");
 
@@ -119,7 +118,7 @@ if (fs.existsSync(commandsPath)) {
       }
 
       if (mod?.adminData?.name && typeof mod.executeAdmin === "function") {
-        commands.set(mod.adminData.name, { execte: mod.executeAdmin });
+        commands.set(mod.adminData.name, { execute: mod.executeAdmin });
       }
     } catch (err) {
       logger.error("Failed to load command file", err, { file });
@@ -152,7 +151,7 @@ const sessions = new Map();
    ========================= */
 function currentMonthKeyLocal(d = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TRACKER_VZ,
+    timeZone: TRACKER_TZ,
     year: "numeric",
     month: "2-digit",
   }).formatToParts(d);
@@ -199,79 +198,1209 @@ function readTrackerStore() {
       runs: Array.isArray(parsed.runs) ? parsed.runs : [],
       proofSessions: parsed.proofSessions || base.proofSessions,
       history: parsed.history || base.history,
-     [™]Îˆ\œÙYœ[™]È˜\ÙKœ[™]Ëˆ›Ùš[\Îˆ\œÙYœ›Ùš[\È˜\ÙKœ›Ùš[\ËˆYY[Îˆ\œÙY›YY[È˜\ÙK›YY[ËˆNÂˆHØ]Ú
-\œŠHÂˆÙÙÙ\‹™\œ›ÜŠœ™XY˜XÚÙ\”İÜ™H˜Z[Y‹\œ‹ÈØØ][Ûˆš[™^šœÈOˆ™XY˜XÚÙ\”İÜ™HˆJNÂˆ™]\›ˆY˜][˜XÚÙ\”İÜ™J
-NÂˆBŸB‚™[˜İ[ÛˆÜš]U˜XÚÙ\”İÜ™JİÜ™JHÂˆHÂˆœËÜš]Qš[TŞ[˜ÊPÒÑT—ÔÕÔ‘WÔU”ÓÓ‹œİš[™ÚYJİÜ™K[ŠK]ŠNÂˆHØ]Ú
-\œŠHÂˆÙÙÙ\‹™\œ›ÜŠÜš]U˜XÚÙ\”İÜ™H˜Z[Y‹\œ‹ÈØØ][Ûˆš[™^šœÈOˆÜš]U˜XÚÙ\”İÜ™HˆJNÂˆBŸB‚‹ÊˆOOOOOOOOOOOOOOOOOOOOOOOOBˆ“ÒPÑH‘SSQBˆOOOOOOOOOOOOOOOOOOOOOOOOH
-‹Â™[˜İ[Ûˆ˜Xİ[Û•ÕYÊ˜Xİ[ÛŠHÂˆYˆ
-Y˜Xİ[ÛŠH™]\›ˆ[ÂˆYˆ
-˜Xİ[ÛˆOOH]]ÛX]ÛœÈŠH™]\›ˆ“ÕÈÂˆYˆ
-˜Xİ[ÛˆOOH•\›Z[šYÈŠH™]\›ˆ•QÔÈÂˆYˆ
-˜Xİ[ÛˆOOH’[[Z[˜]HŠH™]\›ˆ”ÔURQÈÂˆYˆ
-˜Xİ[ÛˆOOH[HÈ›^X›HŠH™]\›ˆ[Âˆ™]\›ˆ[ÂŸB‚™[˜İ[ÛˆØY™U\Ù\›˜[YJ\Ù\ŠHÂˆ™]\›ˆ
-\Ù\Ë\Ù\›˜[YH’ÜİŠKœ™\XÙJÖ×—×ËWKÙËˆŠKœÛXÙJMŠNÂŸB‚˜\Ş[˜È[˜İ[Ûˆ™[˜[YRÜİ˜Ñœ›ÛTÙ\ÜÚ[ÛŠÙ\ÜÚ[Û‹İZ[
-HÂˆÛÛœİÜİH]ØZ]İZ[›Y[X™\œË™™]Ú
-Ù\ÜÚ[Û‹›İÛ™\’Y
-K˜Ø]Ú
+      planets: parsed.planets || base.planets,
+      profiles: parsed.profiles || base.profiles,
+      medals: parsed.medals || base.medals,
+    };
+  } catch (err) {
+    logger.error("readTrackerStore failed", err, { location: "index.js -> readTrackerStore" });
+    return defaultTrackerStore();
+  }
+}
 
+function writeTrackerStore(store) {
+  try {
+    fs.writeFileSync(TRACKER_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
+  } catch (err) {
+    logger.error("writeTrackerStore failed", err, { location: "index.js -> writeTrackerStore" });
+  }
+}
 
-HOˆ[
-NÂˆÛÛœİ˜ÈHÜİË›ÚXÙOË˜Ú[›™[ÂˆYˆ
-]˜ÊH™]\›Â‚ˆYˆ
-˜Ëœ\™[YOOHP—ĞĞUQÓÔ–WÒQ
-H™]\›ÂˆYˆ
-\Ù\ÜÚ[Û‹™Y™šXİ[JH™]\›Â‚ˆÛÛœİÚÜÙ[•YÈH˜Xİ[Û•ÕYÊÙ\ÜÚ[Û‹™˜Xİ[ÛŠNÂˆ]YÈHÚÜÙ[•YÎÂ‚ˆYˆ
-]YÊHÂˆÛÛœİHH˜Ë›˜[YK›X]Ú
-×ŠSß“Õß•QÔßÔURQßS‘ÑTŠW×ÚJNÂˆYÈHHÈVÌWKÕ\\Ø\ÙJ
-Hˆ[ÂˆB‚ˆYˆ
-]YÊH™]\›Â‚ˆÛÛœİÜİ˜[YHHØY™U\Ù\›˜[YJÜİ\Ù\ŠNÂˆÛÛœİ\Ú\™YH	İYßH	ÜÙ\ÜÚ[Û‹™Y™šXİ[_H	ÚÜİ˜[Y_XÂ‚ˆYˆ
-˜Ë›˜[YHOOH\Ú\™Y
-H™]\›Â‚ˆHÂˆ]ØZ]˜ËœÙ]˜[YJ\Ú\™Y]]È™[˜[YHœ›ÛH\ÚÈÈ^HY™šXİ[HÙ[Xİ[ÛˆŠNÂˆHØ]Ú
-\œŠHÂˆÙÙÙ\‹™\œ›ÜŠ•È™[˜[YH˜Z[Y‹\œ‹ÂˆØØ][Ûˆš[™^šœÈOˆ™[˜[YRÜİ˜Ñœ›ÛTÙ\ÜÚ[Ûˆ‹ˆÚ[›™[Yˆ˜ËšYˆ\Ú\™Y˜[YNˆ\Ú\™YˆJNÂ‚ˆ]ØZ]Ù[™\œ›Ü[\
-ÛY[•È™[˜[YH˜Z[Y‹\œ‹Âˆ™X]\™Nˆ˜\ÚÕÔ^H‹ˆØØ][Ûˆœ™[˜[YRÜİ˜Ñœ›ÛTÙ\ÜÚ[Ûˆ‹ˆXİ[Ûˆ”™[˜[Z[™ÈÜİ›ÚXÙHÚ[›™[‹ˆZÙ[PØ]\ÙNˆ“Z\ÜÚ[™È\›Z\ÜÚ[ÛˆÜˆ[˜[YÚ[›™[İ]Kˆ‹ˆÙ]™\š]NˆØ\›š[™È‹ˆJNÂˆBŸB‚‹ÊˆOOOOOOOOOOOOOOOOOOOOOOOOBˆUUÈÑSÓÓQBˆOOOOOOOOOOOOOOOOOOOOOOOOH
-‹Â™[˜İ[ÛˆZ[Ù[ÛÛYQ[X™Y
-Y[X™\‹Y[X™\Ûİ[
-HÂˆ™]\›ˆ™]È[X™YZ[\Š
-BˆœÙ]ÛÛÜŠŒXÍŠBˆœÙ]]J¼'æèHÙ[ÛÛYHÈHÛÛ[ˆ˜[™İX\™ŠBˆœÙ]\ØÜš\[ÛŠˆÂˆÙ[ÛÛYH	ÛY[X™\ŸKˆˆ‹ˆ–[İx &]™H›Ú[™YHXİXØ[Ü]XYX˜\ÙYÛÛ[][š]HZ[›ÜˆÛÛÜ™[˜][Û‹Ü›İİ[™Ú[›š[™ÈÙÙ]\‹ˆ‹ˆˆ‹ˆ’\™KÙHÛ¸ &]\İ^H8 %ÙH\ŞHÚ]\œÜÙKˆ‹ˆˆ‹ˆ¸¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ H‹ˆˆ‹ˆ¼'ê¥ˆ
-Š™XÛÛYHHYH˜[™İX\™Y[X™\ŠŠˆ‹ˆ•È[›ØÚÈ[XØÙ\ÜÈ[™šYÚ[Û™ÜÚYHH˜[™İX\™[İH]\İÛÛ\]H[İ\ˆ™XÜZ]ÜšY[][Û‹ˆ‹ˆˆ‹ˆ¼'äãHXYÈ
-ŠˆÛÜšY[][Û‹XÚXÚÛ\İ
-ŠˆÈ™YÚ[ˆ‹ˆ¸£ìÈ[İH]™H
-ŠÈ^\ÊŠˆÈÛÛ\]H]‹ˆˆ‹ˆ¸¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ x¥ H‹ˆˆ‹ˆ‘›Ü›H\ˆ›Ü[‹ˆ^Xİ]Kˆ‹ˆˆ‹ˆ<'ã¥ˆY[X™\ˆÉÛY[X™\Ûİ[XˆKš›Ú[Š—ˆŠBˆ
-BˆœÙ][Y\İ[\
+/* =========================
+   VOICE RENAME
+   ========================= */
+function factionToTag(faction) {
+  if (!faction) return null;
+  if (faction === "Automatons") return "BOTS";
+  if (faction === "Terminids") return "BUGS";
+  if (faction === "Illuminate") return "SQUIDS";
+  if (faction === "Any / Flexible") return null;
+  return null;
+}
 
-BˆœÙ]›Ûİ\ŠÈ^ˆ•HÛÛ[ˆ˜[™İX\™ˆJNÂŸB‚˜ÛY[›ÛŠ]™[Ë‘İZ[Y[X™\Y\Ş[˜È
-Y[X™\ŠHOˆÂˆHÂˆYˆ
-ÑSÓÓQWĞÒS“‘SÒQ
-HÂˆÛÛœİÚH]ØZ]Y[X™\‹™İZ[˜Ú[›™[Ë™™]Ú
-ÑSÓÓQWĞÒS“‘SÒQ
-K˜Ø]Ú
+function safeUsername(user) {
+  return (user?.username || "Host").replace(/[^\w\s-]/g, "").slice(0, 16);
+}
 
+async function renameHostVcFromSession(session, guild) {
+  const host = await guild.members.fetch(session.ownerId).catch(() => null);
+  const vc = host?.voice?.channel;
+  if (!vc) return;
 
-HOˆ[
-NÂˆYˆ
-ÚËš\Õ^˜\ÙY
+  if (vc.parentId !== HUB_CATEGORY_ID) return;
+  if (!session.difficulty) return;
 
-JHÂˆ]ØZ]ÚœÙ[™
-È[X™YÎˆØZ[Ù[ÛÛYQ[X™Y
-Y[X™\‹Y[X™\‹™İZ[›Y[X™\Ûİ[
-WHJNÂˆBˆB‚ˆ]ØZ]ÜšY[][Û”Ş\İ[K›ÙÓ™]Ô™XÜZ]
-Y[X™\ŠNÂˆ™YÚ\İKœ™YÚ\İ\”İXØÙ\ÜÊ›ÜšY[][ÛˆŠNÂˆHØ]Ú
-\œŠHÂˆÙÙÙ\‹™\œ›ÜŠ‘İZ[Y[X™\Y˜Z[Y‹\œ‹ÂˆØØ][Ûˆš[™^šœÈOˆİZ[Y[X™\Y‹ˆY[X™\’YˆY[X™\ËšYˆJNÂ‚ˆ]ØZ]Ù[™\œ›Ü[\
-ÛY[•Ù[ÛÛYKÔ™XÜZ]ÙÙÚ[™È˜Z[Y‹\œ‹Âˆ™X]\™Nˆ›ÜšY[][Ûˆ‹ˆØØ][Ûˆ‘İZ[Y[X™\Y‹ˆXİ[Ûˆ•Ù[ÛÛZ[™È™]ÈY[X™\ˆÈÙÙÚ[™È™XÜZ]‹ˆZÙ[PØ]\ÙNˆÚ[›™[\ÜİYK\›Z\ÜÚ[ÛœËÜˆÜšY[][Ûˆ[™\ˆ˜Z[\™Kˆ‹ˆÙ]™\š]NˆØ\›š[™È‹ˆJNÂˆBŸJNÂ‚‹ÊˆOOOOOOOOOOOOOOOOOOOOOOOOBˆTÒËUËTVHST”ÂˆOOOOOOOOOOOOOOOOOOOOOOOOH
-‹Â™[˜İ[Ûˆ›Üİ\•^
-›Üİ\ŠHÂˆYˆ
-\›Üİ\‹œÚ^™JH™]\›ˆ—Ó›ÈÛ™H[ˆÈY]—ÈÂˆ™]\›ˆË‹‹œ›Üİ\—K›X\
+  const chosenTag = factionToTag(session.faction);
+  let tag = chosenTag;
 
-YJHOˆ	ÚH
-È_Kˆ	ÚYO˜
-Kš›Ú[Š—ˆŠNÂŸB‚™[˜İ[ÛˆZ[\ÚÑ[X™Y
-Ù\ÜÚ[Û‹˜Ó˜[YJHÂˆ™]\›ˆ™]È[X™YZ[\Š
-BˆœÙ]ÛÛÜŠŒXÍŠBˆœÙ]]J¼'ã«È\ÚË]ËT^H[\ŠBˆœÙ]\ØÜš\[ÛŠˆTÒ×Ô“ÓWÒQˆÈ	ÜÙ\ÜÚ[Û‹›İÛ™\’YOˆ[™ÙY	‰ĞTÒ×Ô“ÓWÒQO˜ˆˆ	ÜÙ\ÜÚ[Û‹›İÛ™\’YOˆ\È™\]Y\İ[™È˜XÚİ\Xˆ
-Bˆ˜YšY[ÊˆÈ˜[YNˆ‘Y™šXİ[H‹˜[YNˆÙ\ÜÚ[Û‹™Y™šXİ[H“›İÜXÚYšYY‹[›[™NˆYHKˆÈ˜[YNˆ‘˜Xİ[Ûˆ‹˜[YNˆÙ\ÜÚ[Û‹™˜Xİ[Ûˆ“›İÜXÚYšYY‹[›[™NˆYHKˆÂˆ˜[YNˆ•›ÚXÙHÚ[›™[‹ˆ˜[YNˆ˜Ó˜[YH“›İİ\œ™[H[ˆH›ÚXÙHÚ[›™[ˆ‹ˆ[›[™Nˆ˜[ÙKˆKˆÈ˜[YNˆ”Ü]XY‹˜[YNˆ	ÜÙ\ÜÚ[Û‹œ›Üİ\‹œÚ^™_KÉÓPVÔÔUPQX[›[™NˆYHKˆÈ˜[YNˆ”›Üİ\ˆ‹˜[YNˆ›Üİ\•^
-Ù\ÜÚ[Û‹œ›Üİ\ŠK[›[™Nˆ˜[ÙHBˆ
-BˆœÙ]›Ûİ\ŠÈ^ˆ•HÛÛ[ˆ˜[™İX\™ˆJBˆœÙ][Y\İ[\
+  if (!tag) {
+    const m = vc.name.match(/^(MO|BOTS|BUGS|SQUIDS|DANGER)\s\|/i);
+    tag = m ? m[1].toUpperCase() : null;
+  }
 
-NÂŸB‚™[˜İ[ÛˆZ[\ÚĞÛÛ\Û™[ÊÙ\ÜÚ[ÛŠHÂˆÛÛœİ˜Xİ[Û‘Û™HHH\Ù\ÜÚ[Û‹™˜Xİ[ÛÂˆÛÛœİY™šXİ[QÛ™HHH\Ù\ÜÚ[Û‹™Y™šXİ[NÂ‚ˆYˆ
-˜Xİ[Û‘Û™H	‰ˆY™šXİ[QÛ™JH™]\›ˆ×NÂ‚ˆÛÛœİ˜Xİ[Û“Y[HH™]Èİš[™ÔÙ[XİY[PZ[\Š
-BˆœÙ]İ\İÛRY
-PÕSÓ—ÔÑSPÕÒQ
+  if (!tag) return;
+
+  const hostName = safeUsername(host.user);
+  const desired = `${tag} | D${session.difficulty} | ${hostName}`;
+
+  if (vc.name === desired) return;
+
+  try {
+    await vc.setName(desired, "Auto rename from Ask to Play difficulty selection");
+  } catch (err) {
+    logger.error("VC rename failed", err, {
+      location: "index.js -> renameHostVcFromSession",
+      channelId: vc.id,
+      desiredName: desired,
+    });
+
+    await sendErrorAlert(client, "VC Rename Failed", err, {
+      feature: "askToPlay",
+      location: "renameHostVcFromSession",
+      action: "Renaming host voice channel",
+      likelyCause: "Missing permission or invalid channel state.",
+      severity: "warning",
+    });
+  }
+}
+
+/* =========================
+   AUTO WELCOME
+   ========================= */
+function buildWelcomeEmbed(member, memberCount) {
+  return new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setTitle("ğŸ›¡ Welcome to The Golden Vanguard")
+    .setDescription(
+      [
+        `Welcome ${member},`,
+        "",
+        "Youâ€™ve joined a tactical squad-based community built for coordination, growth, and winning together.",
+        "",
+        "Here, we donâ€™t just play â€” we deploy with purpose.",
+        "",
+        "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”",
+        "",
+        "ğŸª– **Become a True Vanguard Member**",
+        "To unlock full access and fight alongside the Vanguard, you must complete your Recruit Orientation.",
+        "",
+        "ğŸ“ Head to **#orientation-checklist** to begin",
+        "â³ You have **7 days** to complete it",
+        "",
+        "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”",
+        "",
+        "Form up. Drop in. Execute.",
+        "",
+        `ğŸ– Member #${memberCount}`,
+      ].join("\n")
+    )
+    .setTimestamp()
+    .setFooter({ text: "The Golden Vanguard" });
+}
+
+client.on(Events.GuildMemberAdd, async (member) => {
+  try {
+    if (WELCOME_CHANNEL_ID) {
+      const ch = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
+      if (ch?.isTextBased()) {
+        await ch.send({ embeds: [buildWelcomeEmbed(member, member.guild.memberCount)] });
+      }
+    }
+
+    await orientationSystem.logNewRecruit(member);
+    registry.registerSuccess("orientation");
+  } catch (err) {
+    logger.error("GuildMemberAdd failed", err, {
+      location: "index.js -> GuildMemberAdd",
+      memberId: member?.id,
+    });
+
+    await sendErrorAlert(client, "Welcome/Recruit Logging Failed", err, {
+      feature: "orientation",
+      location: "GuildMemberAdd",
+      action: "Welcoming new member / logging recruit",
+      likelyCause: "Channel issue, permissions, or orientation handler failure.",
+      severity: "warning",
+    });
+  }
+});
+
+/* =========================
+   ASK-TO-PLAY HELPERS
+   ========================= */
+function rosterText(roster) {
+  if (!roster.size) return "_No one in VC yet._";
+  return [...roster].map((id, i) => `${i + 1}. <@${id}>`).join("\n");
+}
+
+function buildAskEmbed(session, vcName) {
+  return new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setTitle("ğŸ¯ Ask-to-Play Alert")
+    .setDescription(
+      ASK_ROLE_ID
+        ? `<@${session.ownerId}> pinged <@&${ASK_ROLE_ID}>`
+        : `<@${session.ownerId}> is requesting backup!`
+    )
+    .addFields(
+      { name: "Difficulty", value: session.difficulty || "Not specified", inline: true },
+      { name: "Faction", value: session.faction || "Not specified", inline: true },
+      {
+        name: "Voice Channel",
+        value: vcName || "Not currently in a voice channel.",
+        inline: false,
+      },
+      { name: "Squad", value: `${session.roster.size}/${MAX_SQUAD}`, inline: true },
+      { name: "Roster", value: rosterText(session.roster), inline: false }
+    )
+    .setFooter({ text: "The Golden Vanguard" })
+    .setTimestamp();
+}
+
+function buildAskComponents(session) {
+  const factionDone = !!session.faction;
+  const difficultyDone = !!session.difficulty;
+
+  if (factionDone && difficultyDone) return [];
+
+  const factionMenu = new StringSelectMenuBuilder()
+    .setCustomId(FACTION_SELECT_ID)
+    .setPlaceholder(factionDone ? `Faction: ${session.faction}` : "Choose a factionâ€¦")
+    .addOptions(
+      { label: "Terminids", value: "Terminids" },
+      { label: "Automatons", value: "Automatons" },
+      { label: "Illuminate", value: "Illuminate" },
+      { label: "Any / Flexible", value: "Any / Flexible" }
+    );
+
+  const difficultyMenu = new StringSelectMenuBuilder()
+    .setCustomId(DIFFICULTY_SELECT_ID)
+    .setPlaceholder(difficultyDone ? `Difficulty: ${session.difficulty}` : "Choose difficultyâ€¦")
+    .addOptions(
+      ...Array.from({ length: 10 }, (_, i) => {
+        const v = String(i + 1);
+        return { label: v, value: v };
+      })
+    );
+
+  return [
+    new ActionRowBuilder().addComponents(factionMenu),
+    new ActionRowBuilder().addComponents(difficultyMenu),
+  ];
+}
+
+async function resolveHostVc(guild, ownerId) {
+  const host = await guild.members.fetch(ownerId).catch(() => null);
+  return host?.voice?.channel || null;
+}
+
+function syncRosterFromVc(session, vc) {
+  const next = new Set();
+  next.add(session.ownerId);
+
+  if (vc) {
+    const ids = [...vc.members.values()].map((m) => m.id);
+
+    for (const id of ids) {
+      if (id === session.ownerId) continue;
+      if (next.size >= MAX_SQUAD) break;
+      next.add(id);
+    }
+  }
+
+  const before = [...session.roster].sort().join(",");
+  const after = [...next].sort().join(",");
+
+  if (before === after) return false;
+
+  session.roster = next;
+  return true;
+}
+
+async function updateAskMessage(session) {
+  const guild = await client.guilds.fetch(session.guildId).catch(() => null);
+  if (!guild) return;
+
+  const textChannel = await guild.channels.fetch(session.textChannelId).catch(() => null);
+  if (!textChannel?.isTextBased()) return;
+
+  const msg = await textChannel.messages.fetch(session.messageId).catch(() => null);
+  if (!msg) return;
+
+  const vc = await resolveHostVc(guild, session.ownerId);
+  const vcName = vc?.name || null;
+
+  syncRosterFromVc(session, vc);
+
+  await msg.edit({
+    embeds: [buildAskEmbed(session, vcName)],
+    components: buildAskComponents(session),
+    allowedMentions: ASK_ROLE_ID ? { roles: [ASK_ROLE_ID], users: [] } : undefined,
+  });
+}
+
+/* =========================
+   MESSAGE CREATE
+   ========================= */
+client.on(Events.MessageCreate, async (message) => {
+  try {
+    if (message.author.bot || !message.guild) return;
+
+    try {
+      const runCmd = require("./commands/run.js");
+      if (typeof runCmd.handleTrackerProofMessage === "function") {
+        await runCmd.handleTrackerProofMessage(message);
+      }
+    } catch {
+      // ignore
+    }
+
+    if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
+
+    const contentLower = (message.content || "").toLowerCase();
+    const roleMentionTrigger = !!ASK_ROLE_ID && message.mentions?.roles?.has(ASK_ROLE_ID);
+    const textTrigger = contentLower.includes(TRIGGER_TEXT);
+
+    if (!roleMentionTrigger && !textTrigger) return;
+
+    const guild = message.guild;
+    const owner = await guild.members.fetch(message.author.id).catch(() => null);
+    if (!owner) return;
+
+    const vc = owner.voice?.channel || null;
+
+    const session = {
+      ownerId: owner.id,
+      guildId: guild.id,
+      textChannelId: message.channel.id,
+      messageId: "pending",
+      faction: null,
+      difficulty: null,
+      roster: new Set([owner.id]),
+    };
+
+    syncRosterFromVc(session, vc);
+
+    const sent = await message.channel.send({
+      content: ASK_ROLE_ID ? `<@&${ASK_ROLE_ID}>` : undefined,
+      embeds: [buildAskEmbed(session, vc?.name || null)],
+      components: buildAskComponents(session),
+      allowedMentions: ASK_ROLE_ID ? { roles: [ASK_ROLE_ID] } : undefined,
+    });
+
+    session.messageId = sent.id;
+    sessions.set(sent.id, session);
+    registry.registerSuccess("askToPlay");
+  } catch (err) {
+    logger.error("MessageCreate error", err, {
+      location: "index.js -> MessageCreate",
+      messageId: message?.id,
+      authorId: message?.author?.id,
+      channelId: message?.channel?.id,
+    });
+
+    await sendErrorAlert(client, "Message Handler Failed", err, {
+      feature: "askToPlay",
+      location: "MessageCreate",
+      action: "Handling Ask-to-Play trigger",
+      likelyCause: "Command flow, channel access, or session build failure.",
+      severity: "warning",
+    });
+  }
+});
+
+/* =========================
+   INTERACTIONS
+   ========================= */
+client.on(Events.InteractionCreate, async (interaction) => {
+  try {
+    if (interaction.isAutocomplete()) {
+      const cmd = commands.get(interaction.commandName);
+      if (cmd?.autocomplete) return cmd.autocomplete(interaction);
+      return;
+    }
+
+    if (interaction.isButton()) {
+      const handled = await orientationSystem.handleOrientationButton(interaction);
+      if (handled) {
+        registry.registerSuccess("orientation");
+        return;
+      }
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("review:") && reviewCommand) {
+      return reviewCommand.handleButton(interaction);
+    }
+
+    if (interaction.isButton()) {
+      const validDivisionButtons = [
+        "division_eclipse",
+        "division_bastion",
+        "division_purifier",
+        "division_orbital",
+        "division_leave",
+      ];
+
+      if (validDivisionButtons.includes(interaction.customId)) {
+        await interaction.deferReply({ flags: 64 });
+
+        const member = interaction.member;
+        if (!member) {
+          return interaction.editReply("Could not find your server member profile.");
+        }
+
+        const rolesToRemove = ALL_DIVISION_ROLE_IDS.filter((roleId) =>
+          member.roles.cache.has(roleId)
+        );
+
+        if (rolesToRemove.length) {
+          await member.roles.remove(rolesToRemove);
+        }
+
+        if (interaction.customId === "division_leave") {
+          registry.registerSuccess("askToPlay");
+          return interaction.editReply("You have left your current division.");
+        }
+
+        let roleId = null;
+        let divisionName = null;
+
+        if (interaction.customId === "division_eclipse") {
+          roleId = DIVISION_ROLE_IDS.eclipse;
+          divisionName = "Eclipse Vanguard";
+        }
+
+        if (interaction.customId === "division_bastion") {
+          roleId = DIVISION_ROLE_IDS.bastion;
+          divisionName = "Bastion Guard";
+        }
+
+        if (interaction.customId === "division_purifier") {
+          roleId = DIVISION_ROLE_IDS.purifier;
+          divisionName = "Purifier Corps";
+        }
+
+        if (interaction.customId === "division_orbital") {
+          roleId = DIVISION_ROLE_IDS.orbital;
+          divisionName = "Orbital Directive";
+        }
+
+        if (!roleId) {
+          return interaction.editReply("That division could not be assigned.");
+        }
+
+        await member.roles.add(roleId);
+        registry.registerSuccess("askToPlay");
+        return interaction.editReply(`You are now enlisted in **${divisionName}**.`);
+      }
+    }
+
+    if (interaction.isButton() && interaction.customId?.startsWith("gv_")) {
+      const runCmd = require("./commands/run.js");
+      return runProtected(client, {
+        feature: "tracker",
+        action: "Tracker button interaction",
+        location: "index.js -> InteractionCreate -> Tracker Button",
+        likelyCause: "Tracker button failure",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await runCmd.handleTrackerButton(interaction);
+        },
+      });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId?.startsWith("gv_run_edit:")) {
+      const runCmd = require("./commands/run.js");
+      return runProtected(client, {
+        feature: "tracker",
+        action: "Tracker modal interaction",
+        location: "index.js -> InteractionCreate -> Tracker Modal",
+        likelyCause: "Tracker modal failure",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await runCmd.handleTrackerModal(interaction);
+        },
+      });
+    }
+
+    if (interaction.isChatInputCommand()) {
+      const cmd = commands.get(interaction.commandName);
+      if (!cmd) return;
+
+      return runProtected(client, {
+        feature: interaction.commandName === "run" ? "tracker" : "commands",
+        action: `Executing /${interaction.commandName}`,
+        location: "index.js -> InteractionCreate -> ChatInputCommand",
+        likelyCause: "Command execution failure",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await cmd.execute(interaction);
+
+          if (interaction.commandName === "run") {
+            registry.registerSuccess("tracker");
+            registry.registerSuccess("leaderboard");
+          } else {
+            registry.registerSuccess("commands");
+          }
+        },
+      });
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("enlist:") && enlistment) {
+      const result = await enlistment.handleButton(interaction);
+      registry.registerSuccess("orientation");
+      return result;
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      const session = sessions.get(interaction.message.id);
+
+      if (!session) {
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .followUp({ content: "Session expired.", flags: 64 })
+            .catch(() => {});
+        }
+
+        return interaction.reply({ content: "Session expired.", flags: 64 }).catch(() => {});
+      }
+
+      if (interaction.user.id !== session.ownerId) {
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .followUp({
+              content: "Only the host can set faction/difficulty.",
+              flags: 64,
+            })
+            .catch(() => {});
+        }
+
+        return interaction
+          .reply({
+            content: "Only the host can set faction/difficulty.",
+            flags: 64,
+          })
+          .catch(() => {});
+      }
+
+      try {
+        await interaction.deferReply({ flags: 64 });
+
+        if (interaction.customId === FACTION_SELECT_ID) {
+          session.faction = interaction.values[0];
+          await updateAskMessage(session);
+          registry.registerSuccess("askToPlay");
+
+          return interaction.editReply({
+            content: `âœ… Faction set to **${session.faction}**`,
+          });
+        }
+
+        if (interaction.customId === DIFFICULTY_SELECT_ID) {
+          session.difficulty = interaction.values[0];
+          await updateAskMessage(session);
+
+          if (interaction.guild) {
+            await renameHostVcFromSession(session, interaction.guild);
+          }
+
+          registry.registerSuccess("askToPlay");
+
+          return interaction.editReply({
+            content: `âœ… Difficulty set to **${session.difficulty}**`,
+          });
+        }
+      } catch (error) {
+        logger.error("String select menu error", error, {
+          location: "index.js -> InteractionCreate -> StringSelectMenu",
+          customId: interaction.customId,
+          userId: interaction.user?.id,
+        });
+
+        await sendErrorAlert(client, "Ask-to-Play Menu Failed", error, {
+          feature: "askToPlay",
+          location: "StringSelectMenu",
+          action: "Updating faction/difficulty selection",
+          likelyCause: "Expired interaction, invalid session, or message edit issue.",
+          severity: "warning",
+        });
+
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .editReply({
+              content: "âŒ Something went wrong while updating the session.",
+            })
+            .catch(() => {});
+        }
+
+        return interaction
+          .reply({
+            content: "âŒ Something went wrong while updating the session.",
+            flags: 64,
+          })
+          .catch(() => {});
+      }
+    }
+  } catch (err) {
+    logger.error("InteractionCreate error", err, {
+      location: "index.js -> InteractionCreate",
+      userId: interaction?.user?.id || null,
+      guildId: interaction?.guildId || null,
+      commandName: interaction?.isChatInputCommand?.() ? interaction.commandName : null,
+      customId:
+        interaction?.isButton?.() || interaction?.isStringSelectMenu?.()
+          ? interaction.customId
+          : null,
+    });
+
+    await sendErrorAlert(client, "Interaction Handler Failed", err, {
+      feature: "askToPlay",
+      location: "InteractionCreate",
+      action: "Processing interaction",
+      likelyCause: "Command, button, or modal error.",
+      severity: "error",
+    });
+
+    if (interaction?.isRepliable?.()) {
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp({ content: "Something went wrong.", flags: 64 });
+        } else {
+          await interaction.reply({ content: "Something went wrong.", flags: 64 });
+        }
+      } catch {}
+    }
+  }
+});
+
+/* =========================
+   VOICE STATE UPDATE
+   ========================= */
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  try {
+    if (registry.isFeatureEnabled("orientation")) {
+      try {
+        orientationSystem.handleVoiceStateUpdate(oldState, newState);
+        registry.registerSuccess("orientation");
+      } catch (err) {
+        const state = registry.registerFailure("orientation", err);
+
+        logger.error("Orientation voice update failed", err, {
+          location: "index.js -> VoiceStateUpdate -> orientationSystem.handleVoiceStateUpdate",
+          failCount: state.failCount,
+        });
+
+        if (state.failCount >= 3) {
+          registry.disableFeature("orientation", "Disabled after repeated voice update failures.");
+
+          await sendErrorAlert(client, "orientation isolated", err, {
+            feature: "orientation",
+            location: "VoiceStateUpdate",
+            action: "Handling orientation voice update",
+            likelyCause: "Orientation VC tracking failed repeatedly.",
+            severity: "critical",
+          });
+
+          await sendAlert(client, {
+            title: "orientation paused",
+            description:
+              "The **orientation** feature has been temporarily disabled after repeated voice update failures.",
+            severity: "warning",
+          });
+        } else {
+          await sendErrorAlert(client, "orientation failed", err, {
+            feature: "orientation",
+            location: "VoiceStateUpdate",
+            action: "Handling orientation voice update",
+            likelyCause: "Orientation VC tracking failed.",
+            severity: "warning",
+          });
+        }
+      }
+    }
+
+    if (!oldState.channelId && newState.channelId) {
+      playerStats.startVoiceSession(newState.id);
+      registry.registerSuccess("playerStats");
+    }
+
+    if (oldState.channelId && !newState.channelId) {
+      playerStats.endVoiceSession(oldState.id);
+      registry.registerSuccess("playerStats");
+    }
+
+    if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+      playerStats.endVoiceSession(oldState.id);
+      playerStats.startVoiceSession(newState.id);
+      registry.registerSuccess("playerStats");
+    }
+
+    const guild = newState.guild || oldState.guild;
+    if (!guild) return;
+
+    for (const session of sessions.values()) {
+      if (session.guildId !== guild.id) continue;
+
+      const vc = await resolveHostVc(guild, session.ownerId);
+
+      const touchedHost = oldState.id === session.ownerId || newState.id === session.ownerId;
+      const touchedVc = vc && (oldState.channelId === vc.id || newState.channelId === vc.id);
+
+      if (!touchedHost && !touchedVc) continue;
+
+      const changed = syncRosterFromVc(session, vc);
+      if (changed) {
+        await updateAskMessage(session);
+        registry.registerSuccess("askToPlay");
+      }
+    }
+  } catch (err) {
+    logger.error("VoiceStateUpdate error", err, {
+      location: "index.js -> VoiceStateUpdate",
+      oldChannelId: oldState?.channelId || null,
+      newChannelId: newState?.channelId || null,
+      userId: newState?.id || oldState?.id || null,
+    });
+
+    await sendErrorAlert(client, "Voice State Update Failed", err, {
+      feature: "voiceTracking",
+      location: "VoiceStateUpdate",
+      action: "Updating VC sessions / roster tracking",
+      likelyCause: "Voice session tracking or roster sync error.",
+      severity: "warning",
+    });
+  }
+});
+
+/* =========================
+   READY + TRACKER SCHEDULER
+   ========================= */
+client.once(Events.ClientReady, async () => {
+  logger.info(`Logged in as ${client.user.tag}`, {
+    botId: client.user.id,
+  });
+
+  await sendStartupAlert(
+    client,
+    `Golden Vanguard bot is now online as **${client.user.tag}**`
+  );
+
+  // Orientation overdue checker
+  setInterval(() => {
+    orientationSystem.checkOverdueRecruits(client).catch((err) => {
+      logger.error("Orientation overdue check failed", err, {
+        location: "index.js -> ClientReady -> setInterval(checkOverdueRecruits)",
+      });
+    });
+  }, 60 * 60 * 1000);
+
+  // Orientation VC sweep so deployment completes even with no new VC events
+  setInterval(() => {
+    orientationSystem.scanAllTrackedGuilds(client).catch((err) => {
+      logger.error("Orientation VC sweep failed", err, {
+        location: "index.js -> ClientReady -> setInterval(scanAllTrackedGuilds)",
+      });
+    });
+  }, 60 * 1000);
+
+  await runProtected(client, {
+    feature: "warboard",
+    action: "Refreshing war board on startup",
+    location: "index.js -> ClientReady -> refreshWarBoard",
+    likelyCause: "Refresh job failed, missing channel, or bad data.",
+    retries: 1,
+    retryDelayMs: 2000,
+    maxFailures: 3,
+    job: async () => {
+      await refreshWarBoard(client);
+      logger.info("War board refreshed on startup");
+      registry.registerSuccess("warboard");
+    },
+  });
+
+  await runProtected(client, {
+    feature: "registry",
+    action: "Startup discovery scan",
+    location: "index.js -> ClientReady -> scanForReviews",
+    likelyCause: "Discovery scan failed on startup.",
+    retries: 0,
+    maxFailures: 3,
+    job: async () => {
+      await scanForReviews(client, "System Startup");
+      registry.registerSuccess("registry");
+    },
+  });
+
+  cron.schedule(
+    "*/15 * * * *",
+    async () => {
+      await runProtected(client, {
+        feature: "warboard",
+        action: "Scheduled war board refresh",
+        location: "index.js -> cron -> refreshWarBoard",
+        likelyCause: "Refresh job failed repeatedly or lost channel/data access.",
+        retries: 1,
+        retryDelayMs: 3000,
+        maxFailures: 3,
+        job: async () => {
+          await refreshWarBoard(client);
+          registry.registerSuccess("warboard");
+        },
+      });
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  cron.schedule(
+    DISCOVERY_SCAN_CRON,
+    async () => {
+      await runProtected(client, {
+        feature: "registry",
+        action: "Scheduled discovery scan",
+        location: "index.js -> cron -> scanForReviews",
+        likelyCause: "Discovery scan failed on schedule.",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          await scanForReviews(client, "Scheduled Scan");
+          registry.registerSuccess("registry");
+        },
+      });
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  let runCmd = null;
+  try {
+    runCmd = require("./commands/run.js");
+  } catch {
+    logger.info("Tracker: ./commands/run.js not found (tracker scheduler disabled).");
+    return;
+  }
+
+  function findTextChannelByName(guild, name) {
+    const lower = name.toLowerCase();
+    return guild.channels.cache.find((c) => c.isTextBased?.() && c.name?.toLowerCase() === lower);
+  }
+
+  function topEntryLocal(obj) {
+    const entries = Object.entries(obj || {});
+    if (!entries.length) return null;
+    entries.sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
+    return { key: entries[0][0], val: Number(entries[0][1] || 0) };
+  }
+
+  function londonParts(date = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: TRACKER_TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+
+    return {
+      y: Number(parts.find((p) => p.type === "year").value),
+      m: Number(parts.find((p) => p.type === "month").value),
+      d: Number(parts.find((p) => p.type === "day").value),
+    };
+  }
+
+  function isLastDayOfMonthLondon() {
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const t = londonParts(tomorrow);
+    return t.d === 1;
+  }
+
+  for (const guild of client.guilds.cache.values()) {
+    const store = readTrackerStore();
+    if (typeof runCmd.ensureLeaderboardMessage === "function") {
+      await runCmd
+        .ensureLeaderboardMessage(guild, store)
+        .then(() => {
+          registry.registerSuccess("leaderboard");
+        })
+        .catch(async (err) => {
+          logger.error("ensureLeaderboardMessage failed", err, {
+            location: "index.js -> ClientReady -> ensureLeaderboardMessage",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Leaderboard Initialisation Failed", err, {
+            feature: "leaderboard",
+            location: "ensureLeaderboardMessage",
+            action: "Ensuring leaderboard message exists",
+            likelyCause: "Missing leaderboard channel or message permissions.",
+            severity: "warning",
+          });
+        });
+    }
+  }
+
+  cron.schedule(
+    "*/2 * * * *",
+    async () => {
+      try {
+        if (typeof runCmd.expireTrackerControls === "function") {
+          await runCmd.expireTrackerControls(client);
+          registry.registerSuccess("tracker");
+        }
+      } catch (e) {
+        logger.error("expireTrackerControls error", e, {
+          location: "index.js -> cron -> expireTrackerControls",
+        });
+
+        await sendErrorAlert(client, "Tracker Control Expiry Failed", e, {
+          feature: "tracker",
+          location: "expireTrackerControls",
+          action: "Expiring tracker proof/edit controls",
+          likelyCause: "Tracker cleanup routine failed.",
+          severity: "warning",
+        });
+      }
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  const [sunH, sunM] = SUNDAY_ANNOUNCE_TIME.split(":").map(Number);
+  cron.schedule(
+    `${sunM} ${sunH} * * 0`,
+    async () => {
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          const store = readTrackerStore();
+          const topP = topEntryLocal(store.weekly?.players);
+          const topD = topEntryLocal(store.weekly?.divisions);
+          const topE = topEntryLocal(store.weekly?.enemies);
+
+          const ann = findTextChannelByName(guild, ANN_NAME);
+          if (!ann) continue;
+
+          await ann.send({
+            content:
+              `ğŸ† **WEEKLY RESULTS â€” THE GOLDEN VANGUARD**\n\n` +
+              `ğŸ¥‡ **Top Diver:** ${topP ? `<@${topP.key}> â€” **${topP.val}**` : "_None_"}\n` +
+              `ğŸ›¡ **Top Division:** ${topD ? `**${topD.key}** â€” **${topD.val}**` : "_None_"}\n` +
+              `ğŸ‘¾ **Top Enemy Front:** ${topE ? `**${topE.key}** â€” **${topE.val}**` : "_None_"}\n\n` +
+              `ğŸ“Œ Live leaderboard: **#${LB_NAME}**`,
+            allowedMentions: topP ? { users: [topP.key] } : undefined,
+          }).catch(() => {});
+
+          store.history = store.history || { weeks: [] };
+          store.history.weeks.push({
+            monthKey: currentMonthKeyLocal(),
+            createdAt: new Date().toISOString(),
+            topPlayerId: topP?.key || null,
+            topPlayerPoints: topP?.val || 0,
+            topDivisionName: topD?.key || null,
+            topDivisionPoints: topD?.val || 0,
+            topEnemyName: topE?.key || null,
+            topEnemyPoints: topE?.val || 0,
+          });
+
+          writeTrackerStore(store);
+          registry.registerSuccess("tracker");
+          registry.registerSuccess("leaderboard");
+        } catch (err) {
+          logger.error("Weekly tracker announce failed", err, {
+            location: "index.js -> cron -> weekly announce",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Weekly Tracker Announcement Failed", err, {
+            feature: "tracker",
+            location: "weekly announce",
+            action: "Posting weekly results",
+            likelyCause: "Announcement channel missing or store read/write issue.",
+            severity: "warning",
+          });
+        }
+      }
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  const [monH, monM] = MONDAY_RESET_TIME.split(":").map(Number);
+  cron.schedule(
+    `${monM} ${monH} * * 1`,
+    async () => {
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          const store = readTrackerStore();
+          store.weekly = { players: {}, divisions: {}, enemies: {} };
+          writeTrackerStore(store);
+
+          if (typeof runCmd.updateLeaderboard === "function") {
+            await runCmd.updateLeaderboard(guild).catch(() => {});
+          } else if (typeof runCmd.ensureLeaderboardMessage === "function") {
+            const freshStore = readTrackerStore();
+            await runCmd.ensureLeaderboardMessage(guild, freshStore).catch(() => {});
+          }
+
+          registry.registerSuccess("tracker");
+          registry.registerSuccess("leaderboard");
+        } catch (err) {
+          logger.error("Weekly tracker reset failed", err, {
+            location: "index.js -> cron -> weekly reset",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Weekly Tracker Reset Failed", err, {
+            feature: "tracker",
+            location: "weekly reset",
+            action: "Resetting weekly tracker data",
+            likelyCause: "Store write error or leaderboard refresh failure.",
+            severity: "warning",
+          });
+        }
+      }
+
+      await runProtected(client, {
+        feature: "playerStats",
+        action: "Resetting weekly player profiles",
+        location: "index.js -> cron -> playerStats.resetWeeklyProfiles",
+        likelyCause: "Player stats reset routine failed.",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          playerStats.resetWeeklyProfiles();
+          registry.registerSuccess("playerStats");
+        },
+      });
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  cron.schedule(
+    "55 23 * * *",
+    async () => {
+      if (!isLastDayOfMonthLondon()) return;
+
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          const store = readTrackerStore();
+          const monthKey = store.monthly?.monthKey || currentMonthKeyLocal();
+
+          const topP = topEntryLocal(store.monthly?.players);
+          const topD = topEntryLocal(store.monthly?.divisions);
+          const topE = topEntryLocal(store.monthly?.enemies);
+
+          const ann = findTextChannelByName(guild, ANN_NAME);
+          if (!ann) continue;
+
+          await ann.send({
+            content:
+              `ğŸ… **MONTHLY RESULTS â€” ${monthKey}**\n\n` +
+              `ğŸ¥‡ **Top Diver:** ${topP ? `<@${topP.key}> â€” **${topP.val}**` : "_None_"}\n` +
+              `ğŸ›¡ **Top Division:** ${topD ? `**${topD.key}** â€” **${topD.val}**` : "_None_"}\n` +
+              `ğŸ‘¾ **Top Enemy Front:** ${topE ? `**${topE.key}** â€” **${topE.val}**` : "_None_"}\n\n` +
+              `ğŸ“Œ Leaderboards: **#${LB_NAME}**`,
+            allowedMentions: topP ? { users: [topP.key] } : undefined,
+          }).catch(() => {});
+
+          registry.registerSuccess("tracker");
+          registry.registerSuccess("leaderboard");
+        } catch (err) {
+          logger.error("Monthly tracker announce failed", err, {
+            location: "index.js -> cron -> monthly announce",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Monthly Tracker Announcement Failed", err, {
+            feature: "tracker",
+            location: "monthly announce",
+            action: "Posting monthly results",
+            likelyCause: "Announcement channel missing or store issue.",
+            severity: "warning",
+          });
+        }
+      }
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  cron.schedule(
+    "5 0 1 * *",
+    async () => {
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          const store = readTrackerStore();
+          store.monthly = {
+            monthKey: currentMonthKeyLocal(),
+            players: {},
+            divisions: {},
+            enemies: {},
+          };
+          writeTrackerStore(store);
+          registry.registerSuccess("tracker");
+        } catch (err) {
+          logger.error("Monthly tracker reset failed", err, {
+            location: "index.js -> cron -> monthly reset",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Monthly Tracker Reset Failed", err, {
+            feature: "tracker",
+            location: "monthly reset",
+            action: "Resetting monthly tracker data",
+            likelyCause: "Store write error.",
+            severity: "warning",
+          });
+        }
+      }
+
+      await runProtected(client, {
+        feature: "playerStats",
+        action: "Resetting monthly player profiles",
+        location: "index.js -> cron -> playerStats.resetMonthlyProfiles",
+        likelyCause: "Player stats reset routine failed.",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          playerStats.resetMonthlyProfiles();
+          registry.registerSuccess("playerStats");
+        },
+      });
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  logger.info(`Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
+  logger.info(
+    `Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
+  );
+  logger.info(`Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
+  logger.info(`War: 15m board refresh (${TRACKER_TZ})`);
+  logger.info(`Discovery: ${DISCOVERY_SCAN_CRON} (${TRACKER_TZ})`);
+});
+
+/* =========================
+   DISCORD CLIENT ERROR/WARN
+   ========================= */
+client.on(Events.Error, async (err) => {
+  logger.error("Discord Client Error", err, {
+    location: "client.on(Events.Error)",
+  });
+
+  await sendErrorAlert(client, "Discord Client Error", err, {
+    feature: "discord-client",
+    location: "client.on(Events.Error)",
+    action: "Discord client runtime error",
+    likelyCause: "Discord.js runtime issue or connection/client failure.",
+    severity: "error",
+  });
+});
+
+client.on(Events.Warn, (warning) => {
+  logger.warn("Discord Client Warning", {
+    location: "client.on(Events.Warn)",
+    warning,
+  });
+});
+
+/* =========================
+   GLOBAL PROCESS HANDLERS
+   ========================= */
+process.on("unhandledRejection", async (reason) => {
+  const err =
+    reason instanceof Error ? reason : new Error(String(reason || "Unknown rejection"));
+
+  logger.error("Unhandled Promise Rejection", err, {
+    location: "process.on(unhandledRejection)",
+  });
+
+  try {
+    await sendErrorAlert(client, "Unhandled Promise Rejection", err, {
+      feature: "global-process",
+      location: "process.on(unhandledRejection)",
+      action: "Unhandled async failure",
+      likelyCause: "A promise rejected without a catch handler.",
+      severity: "critical",
+    });
+  } catch (alertErr) {
+    logger.error("Failed to send unhandledRejection alert", alertErr, {
+      location: "process.on(unhandledRejection)",
+    });
+  }
+});
+
+process.on("uncaughtException", async (err) => {
+  logger.error("Uncaught Exception", err, {
+    location: "process.on(uncaughtException)",
+  });
+
+  try {
+    await sendErrorAlert(client, "Uncaught Exception", err, {
+      feature: "global-process",
+      location: "process.on(uncaughtException)",
+      action: "Unexpected crash-level error",
+      likelyCause: "A synchronous error was thrown and not caught.",
+      severity: "critical",
+    });
+  } catch (alertErr) {
+    logger.error("Failed to send uncaughtException alert", alertErr, {
+      location: "process.on(uncaughtException)",
+    });
+  }
+});
+
+/* =========================
+   CLEAN SHUTDOWN
+   ========================= */
+async function shutdown(signal) {
+  logger.warn(`Shutdown signal received: ${signal}`, {
+    location: "shutdown()",
+  });
+
+  try {
+    if (client.isReady()) {
+      await sendAlert(client, {
+        title: "Bot Shutdown",
+        description: `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
+        severity: "warning",
+      });
+    }
+  } catch (err) {
+    logger.error("Failed to send shutdown alert", err, {
+      location: "shutdown()",
+    });
+  }
+
+  try {
+    client.destroy();
+  } catch (err) {
+    logger.error("Failed to destroy Discord client cleanly", err, {
+      location: "shutdown()",
+    });
+  }
+
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+/* =========================
+   LOGIN
+   ========================= */
+client.login(TOKEN).catch((err) => {
+  logger.error("Failed to login bot", err, {
+    location: "client.login",
+  });
+
+  console.error("âŒ Bot login failed:", err);
+  process.exit(1);
+});

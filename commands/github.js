@@ -37,6 +37,12 @@ function blockerText(blockers) {
   return list.length ? list.join("\n") : "None";
 }
 
+function scanSummary(entry) {
+  if (entry.scan?.note) return entry.scan.note;
+  if (entry.scan?.error) return `Warning: ${entry.scan.error.message}`;
+  return `Created ${entry.scan?.createdCount || 0} review item(s).`;
+}
+
 function statusColor(entry) {
   if (entry.status === "success") return 0x2ecc71;
   if (entry.status === "pending_restart") return 0xf1c40f;
@@ -165,13 +171,13 @@ function buildDeployScheduledEmbed(entry) {
 
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("GitHub Deploy Scheduled")
+    .setTitle("GitHub Deploy Queued")
     .setDescription(
       [
         entry.message || "Deployment prepared.",
         "",
         "The bot will restart shortly with PM2.",
-        "A final deployment result will be posted after the bot comes back online.",
+        "Your normal startup discovery scan will run after reboot.",
       ].join("\n")
     )
     .addFields(
@@ -199,9 +205,14 @@ function buildDeployScheduledEmbed(entry) {
         name: "Changed Files",
         value: changedFiles.slice(0, 1024),
         inline: false,
+      },
+      {
+        name: "Discovery Scan",
+        value: scanSummary(entry).slice(0, 1024),
+        inline: false,
       }
     )
-    .seFooter({ text: "Golden Vanguard GitHub Deploy" })
+    .setFooter({ text: "Golden Vanguard GitHub Deploy" })
     .setTimestamp();
 }
 
@@ -247,9 +258,7 @@ function buildLastDeployEmbed(entry, isPending = false) {
       },
       {
         name: "Discovery Scan",
-        value: entry.scan?.error
-          ? `Warning: ${entry.scan.error.message}`
-          : `Created ${entry.scan?.createdCount || 0} review item(s).`,
+        value: scanSummary(entry).slice(0, 1024),
         inline: false,
       },
       {
@@ -258,7 +267,7 @@ function buildLastDeployEmbed(entry, isPending = false) {
         inline: false,
       }
     )
-    .seFooter({ text: "Golden Vanguard GitHub Deploy" })
+    .setFooter({ text: "Golden Vanguard GitHub Deploy" })
     .setTimestamp();
 }
 
@@ -266,7 +275,7 @@ function buildFailureEmbed(title, entry, error) {
   return new EmbedBuilder()
     .setColor(0xe74c3c)
     .setTitle(title)
-    .setDescription(entry?"message" || error.message || "GitHub action failed.")
+    .setDescription(entry?.message || error.message || "GitHub action failed.")
     .addFields(
       {
         name: "Status",
@@ -357,7 +366,7 @@ async function executeAdmin(interaction) {
     }
 
     if (sub === "deploy") {
-      const force = interaction.options.getBoolean( "force") || false;
+      const force = interaction.options.getBoolean("force") || false;
       const entry = await beginDeployment({ actor, force });
 
       await interaction.editReply({
