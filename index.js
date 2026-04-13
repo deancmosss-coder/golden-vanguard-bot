@@ -33,6 +33,7 @@ const {
   sendErrorAlert,
   sendStartupAlert,
 } = require("./services/alertService");
+const githubDeployService = require("./services/githubDeployService");
 const registry = require("./services/featureRegistry");
 const { runProtected } = require("./services/featureGuard");
 
@@ -80,12 +81,12 @@ const DIVISION_ROLE_IDS = {
 const ALL_DIVISION_ROLE_IDS = Object.values(DIVISION_ROLE_IDS);
 
 if (!TOKEN) {
-  console.error("❌ Missing DISCORD_TOKEN in .env");
+  console.error("âŒ Missing DISCORD_TOKEN in .env");
   process.exit(1);
 }
 
 if (!ASK_ROLE_ID) {
-  console.warn("⚠️ PING_ROLE_ID is not set. Autorole + role-mention trigger will not work.");
+  console.warn("âš ï¸ PING_ROLE_ID is not set. Autorole + role-mention trigger will not work.");
 }
 
 const client = new Client({
@@ -280,28 +281,28 @@ async function renameHostVcFromSession(session, guild) {
 function buildWelcomeEmbed(member, memberCount) {
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("🛡 Welcome to The Golden Vanguard")
+    .setTitle("ðŸ›¡ Welcome to The Golden Vanguard")
     .setDescription(
       [
         `Welcome ${member},`,
         "",
-        "You’ve joined a tactical squad-based community built for coordination, growth, and winning together.",
+        "Youâ€™ve joined a tactical squad-based community built for coordination, growth, and winning together.",
         "",
-        "Here, we don’t just play — we deploy with purpose.",
+        "Here, we donâ€™t just play â€” we deploy with purpose.",
         "",
-        "━━━━━━━━━━━━━━━━━━",
+        "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”",
         "",
-        "🪖 **Become a True Vanguard Member**",
+        "ðŸª– **Become a True Vanguard Member**",
         "To unlock full access and fight alongside the Vanguard, you must complete your Recruit Orientation.",
         "",
-        "📍 Head to **#orientation-checklist** to begin",
-        "⏳ You have **7 days** to complete it",
+        "ðŸ“ Head to **#orientation-checklist** to begin",
+        "â³ You have **7 days** to complete it",
         "",
-        "━━━━━━━━━━━━━━━━━━",
+        "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”",
         "",
         "Form up. Drop in. Execute.",
         "",
-        `🎖 Member #${memberCount}`,
+        `ðŸŽ– Member #${memberCount}`,
       ].join("\n")
     )
     .setTimestamp()
@@ -346,7 +347,7 @@ function rosterText(roster) {
 function buildAskEmbed(session, vcName) {
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("🎯 Ask-to-Play Alert")
+    .setTitle("ðŸŽ¯ Ask-to-Play Alert")
     .setDescription(
       ASK_ROLE_ID
         ? `<@${session.ownerId}> pinged <@&${ASK_ROLE_ID}>`
@@ -375,7 +376,7 @@ function buildAskComponents(session) {
 
   const factionMenu = new StringSelectMenuBuilder()
     .setCustomId(FACTION_SELECT_ID)
-    .setPlaceholder(factionDone ? `Faction: ${session.faction}` : "Choose a faction…")
+    .setPlaceholder(factionDone ? `Faction: ${session.faction}` : "Choose a factionâ€¦")
     .addOptions(
       { label: "Terminids", value: "Terminids" },
       { label: "Automatons", value: "Automatons" },
@@ -385,7 +386,7 @@ function buildAskComponents(session) {
 
   const difficultyMenu = new StringSelectMenuBuilder()
     .setCustomId(DIFFICULTY_SELECT_ID)
-    .setPlaceholder(difficultyDone ? `Difficulty: ${session.difficulty}` : "Choose difficulty…")
+    .setPlaceholder(difficultyDone ? `Difficulty: ${session.difficulty}` : "Choose difficultyâ€¦")
     .addOptions(
       ...Array.from({ length: 10 }, (_, i) => {
         const v = String(i + 1);
@@ -648,187 +649,107 @@ client.on(Events.InteractionCreate, async (interaction) => {
         maxFailures: 3,
         job: async () => {
           await cmd.execute(interaction);
-
-          if (interaction.commandName === "run") {
-            registry.registerSuccess("tracker");
-            registry.registerSuccess("leaderboard");
-          } else {
-            registry.registerSuccess("commands");
-          }
         },
       });
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith("enlist:") && enlistment) {
-      const result = await enlistment.handleButton(interaction);
-      registry.registerSuccess("orientation");
-      return result;
-    }
+    if (interaction.isAnySelectMenu()) {
+      const isOurMenu =
+        interaction.customId === FACTION_SELECT_ID || interaction.customId === DIFFICULTY_SELECT_ID;
+      if (!isOurMenu) return;
 
-    if (interaction.isStringSelectMenu()) {
       const session = sessions.get(interaction.message.id);
-
       if (!session) {
-        if (interaction.deferred || interaction.replied) {
-          return interaction
-            .followUp({ content: "Session expired.", flags: 64 })
-            .catch(() => {});
-        }
-
-        return interaction.reply({ content: "Session expired.", flags: 64 }).catch(() => {});
+        return interaction.reply({
+          content: "This Ask-to-Play prompt is no longer active.",
+          ephemeral: true,
+        });
       }
 
       if (interaction.user.id !== session.ownerId) {
-        if (interaction.deferred || interaction.replied) {
-          return interaction
-            .followUp({
-              content: "Only the host can set faction/difficulty.",
-              flags: 64,
-            })
-            .catch(() => {});
-        }
-
-        return interaction
-          .reply({
-            content: "Only the host can set faction/difficulty.",
-            flags: 64,
-          })
-          .catch(() => {});
+        return interaction.reply({
+          content: "Only the original host can set faction/difficulty for this prompt.",
+          ephemeral: true,
+        });
       }
 
-      try {
-        await interaction.deferReply({ flags: 64 });
-
-        if (interaction.customId === FACTION_SELECT_ID) {
-          session.faction = interaction.values[0];
-          await updateAskMessage(session);
-          registry.registerSuccess("askToPlay");
-
-          return interaction.editReply({
-            content: `✅ Faction set to **${session.faction}**`,
-          });
-        }
-
-        if (interaction.customId === DIFFICULTY_SELECT_ID) {
-          session.difficulty = interaction.values[0];
-          await updateAskMessage(session);
-
-          if (interaction.guild) {
-            await renameHostVcFromSession(session, interaction.guild);
-          }
-
-          registry.registerSuccess("askToPlay");
-
-          return interaction.editReply({
-            content: `✅ Difficulty set to **${session.difficulty}**`,
-          });
-        }
-      } catch (error) {
-        logger.error("String select menu error", error, {
-          location: "index.js -> InteractionCreate -> StringSelectMenu",
-          customId: interaction.customId,
-          userId: interaction.user?.id,
-        });
-
-        await sendErrorAlert(client, "Ask-to-Play Menu Failed", error, {
-          feature: "askToPlay",
-          location: "StringSelectMenu",
-          action: "Updating faction/difficulty selection",
-          likelyCause: "Expired interaction, invalid session, or message edit issue.",
-          severity: "warning",
-        });
-
-        if (interaction.deferred || interaction.replied) {
-          return interaction
-            .editReply({
-              content: "❌ Something went wrong while updating the session.",
-            })
-            .catch(() => {});
-        }
-
-        return interaction
-          .reply({
-            content: "❌ Something went wrong while updating the session.",
-            flags: 64,
-          })
-          .catch(() => {});
+      if (interaction.customId === FACTION_SELECT_ID) {
+        session.faction = interaction.values?.[0] || null;
       }
+
+      if (interaction.customId === DIFFICULTY_SELECT_ID) {
+        session.difficulty = interaction.values?.[0] || null;
+      }
+
+      await interaction.deferUpdate();
+      const guild = await client.guilds.fetch(session.guildId).catch(() => null);
+      if (!guild) return;
+
+      await renameHostVcFromSession(session, guild);
+      await updateAskMessage(session);
+      registry.registerSuccess("askToPlay");
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId === "enlist_open_modal" && enlistment) {
+      return enlistment.handleButton(interaction);
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === "enlist_submit_modal" && enlistment) {
+      return enlistment.handleModal(interaction);
     }
   } catch (err) {
     logger.error("InteractionCreate error", err, {
       location: "index.js -> InteractionCreate",
-      userId: interaction?.user?.id || null,
-      guildId: interaction?.guildId || null,
-      commandName: interaction?.isChatInputCommand?.() ? interaction.commandName : null,
-      customId:
-        interaction?.isButton?.() || interaction?.isStringSelectMenu?.()
-          ? interaction.customId
-          : null,
+      interactionType: interaction?.type,
+      commandName: interaction?.commandName,
+      customId: interaction?.customId,
+      userId: interaction?.user?.id,
     });
+
+    if (interaction && !interaction.replied && !interaction.deferred) {
+      await interaction
+        .reply({
+          content: "Something went wrong while handling that interaction.",
+          ephemeral: true,
+        })
+        .catch(() => {});
+    }
 
     await sendErrorAlert(client, "Interaction Handler Failed", err, {
-      feature: "askToPlay",
+      feature: "commands",
       location: "InteractionCreate",
-      action: "Processing interaction",
-      likelyCause: "Command, button, or modal error.",
+      action: "Handling slash/button/select/modal interaction",
+      likelyCause: "A command or interaction handler threw an exception.",
       severity: "error",
     });
-
-    if (interaction?.isRepliable?.()) {
-      try {
-        if (interaction.deferred || interaction.replied) {
-          await interaction.followUp({ content: "Something went wrong.", flags: 64 });
-        } else {
-          await interaction.reply({ content: "Something went wrong.", flags: 64 });
-        }
-      } catch {}
-    }
   }
 });
 
 /* =========================
-   VOICE STATE UPDATE
+   VOICE STATE UPDATES
    ========================= */
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
-    if (registry.isFeatureEnabled("orientation")) {
-      try {
-        orientationSystem.handleVoiceStateUpdate(oldState, newState);
+    try {
+      if (typeof orientationSystem.handleVoiceStateUpdate === "function") {
+        await orientationSystem.handleVoiceStateUpdate(oldState, newState, client);
         registry.registerSuccess("orientation");
-      } catch (err) {
-        const state = registry.registerFailure("orientation", err);
+      }
+    } catch (err) {
+      logger.error("orientation handleVoiceStateUpdate failed", err, {
+        location: "index.js -> VoiceStateUpdate -> orientationSystem.handleVoiceStateUpdate",
+        userId: newState?.id || oldState?.id || null,
+      });
 
-        logger.error("Orientation voice update failed", err, {
-          location: "index.js -> VoiceStateUpdate -> orientationSystem.handleVoiceStateUpdate",
-          failCount: state.failCount,
+      if (client?.isReady()) {
+        await sendErrorAlert(client, "orientation failed", err, {
+          feature: "orientation",
+          location: "VoiceStateUpdate",
+          action: "Handling orientation voice update",
+          likelyCause: "Orientation VC tracking failed.",
+          severity: "warning",
         });
-
-        if (state.failCount >= 3) {
-          registry.disableFeature("orientation", "Disabled after repeated voice update failures.");
-
-          await sendErrorAlert(client, "orientation isolated", err, {
-            feature: "orientation",
-            location: "VoiceStateUpdate",
-            action: "Handling orientation voice update",
-            likelyCause: "Orientation VC tracking failed repeatedly.",
-            severity: "critical",
-          });
-
-          await sendAlert(client, {
-            title: "orientation paused",
-            description:
-              "The **orientation** feature has been temporarily disabled after repeated voice update failures.",
-            severity: "warning",
-          });
-        } else {
-          await sendErrorAlert(client, "orientation failed", err, {
-            feature: "orientation",
-            location: "VoiceStateUpdate",
-            action: "Handling orientation voice update",
-            likelyCause: "Orientation VC tracking failed.",
-            severity: "warning",
-          });
-        }
       }
     }
 
@@ -898,6 +819,27 @@ client.once(Events.ClientReady, async () => {
     `Golden Vanguard bot is now online as **${client.user.tag}**`
   );
 
+  let resumedGitHubDeployment = null;
+  try {
+    resumedGitHubDeployment = await githubDeployService.resumePendingDeployment(client);
+    if (resumedGitHubDeployment?.scanPerformed) {
+      registry.registerSuccess("registry");
+    }
+  } catch (err) {
+    logger.error("GitHub deployment recovery failed", err, {
+      location: "index.js -> ClientReady -> githubDeployService.resumePendingDeployment",
+    });
+
+    await sendErrorAlert(client, "GitHub Deployment Recovery Failed", err, {
+      feature: "registry",
+      location: "ClientReady -> githubDeployService.resumePendingDeployment",
+      action: "Finalising pending GitHub deployment after restart",
+      likelyCause: "Deployment state mismatch, scan failure, or channel access issue.",
+      severity: "warning",
+    });
+  }
+
+  // Orientation overdue checker
   setInterval(() => {
     orientationSystem.checkOverdueRecruits(client).catch((err) => {
       logger.error("Orientation overdue check failed", err, {
@@ -906,6 +848,7 @@ client.once(Events.ClientReady, async () => {
     });
   }, 60 * 60 * 1000);
 
+  // Orientation VC sweep so deployment completes even with no new VC events
   setInterval(() => {
     orientationSystem.scanAllTrackedGuilds(client).catch((err) => {
       logger.error("Orientation VC sweep failed", err, {
@@ -913,14 +856,6 @@ client.once(Events.ClientReady, async () => {
       });
     });
   }, 60 * 1000);
-
-  setInterval(() => {
-    orientationSystem.refreshAllMonitorCards(client).catch((err) => {
-      logger.error("Recruit monitor refresh failed", err, {
-        location: "index.js -> ClientReady -> setInterval(refreshAllMonitorCards)",
-      });
-    });
-  }, 60 * 60 * 1000);
 
   await runProtected(client, {
     feature: "warboard",
@@ -937,18 +872,22 @@ client.once(Events.ClientReady, async () => {
     },
   });
 
-  await runProtected(client, {
-    feature: "registry",
-    action: "Startup discovery scan",
-    location: "index.js -> ClientReady -> scanForReviews",
-    likelyCause: "Discovery scan failed on startup.",
-    retries: 0,
-    maxFailures: 3,
-    job: async () => {
-      await scanForReviews(client, "System Startup");
-      registry.registerSuccess("registry");
-    },
-  });
+  if (!resumedGitHubDeployment?.scanPerformed) {
+    await runProtected(client, {
+      feature: "registry",
+      action: "Startup discovery scan",
+      location: "index.js -> ClientReady -> scanForReviews",
+      likelyCause: "Discovery scan failed on startup.",
+      retries: 0,
+      maxFailures: 3,
+      job: async () => {
+        await scanForReviews(client, "System Startup");
+        registry.registerSuccess("registry");
+      },
+    });
+  } else {
+    logger.info("Startup discovery scan skipped because GitHub deployment recovery already ran it");
+  }
 
   cron.schedule(
     "*/15 * * * *",
@@ -1097,11 +1036,11 @@ client.once(Events.ClientReady, async () => {
 
           await ann.send({
             content:
-              `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
-              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-              `📌 Live leaderboard: **#${LB_NAME}**`,
+              `ðŸ† **WEEKLY RESULTS â€” THE GOLDEN VANGUARD**\n\n` +
+              `ðŸ¥‡ **Top Diver:** ${topP ? `<@${topP.key}> â€” **${topP.val}**` : "_None_"}\n` +
+              `ðŸ›¡ **Top Division:** ${topD ? `**${topD.key}** â€” **${topD.val}**` : "_None_"}\n` +
+              `ðŸ‘¾ **Top Enemy Front:** ${topE ? `**${topE.key}** â€” **${topE.val}**` : "_None_"}\n\n` +
+              `ðŸ“Œ Live leaderboard: **#${LB_NAME}**`,
             allowedMentions: topP ? { users: [topP.key] } : undefined,
           }).catch(() => {});
 
@@ -1209,7 +1148,204 @@ client.once(Events.ClientReady, async () => {
 
           await ann.send({
             content:
-              `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
-              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-              `👾 **Top Enemy Front:** ${top
+              `ðŸ… **MONTHLY RESULTS â€” ${monthKey}**\n\n` +
+              `ðŸ¥‡ **Top Diver:** ${topP ? `<@${topP.key}> â€” **${topP.val}**` : "_None_"}\n` +
+              `ðŸ›¡ **Top Division:** ${topD ? `**${topD.key}** â€” **${topD.val}**` : "_None_"}\n` +
+              `ðŸ‘¾ **Top Enemy Front:** ${topE ? `**${topE.key}** â€” **${topE.val}**` : "_None_"}\n\n` +
+              `ðŸ“Œ Leaderboards: **#${LB_NAME}**`,
+            allowedMentions: topP ? { users: [topP.key] } : undefined,
+          }).catch(() => {});
+
+          registry.registerSuccess("tracker");
+          registry.registerSuccess("leaderboard");
+        } catch (err) {
+          logger.error("Monthly tracker announce failed", err, {
+            location: "index.js -> cron -> monthly announce",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Monthly Tracker Announcement Failed", err, {
+            feature: "tracker",
+            location: "monthly announce",
+            action: "Posting monthly results",
+            likelyCause: "Announcement channel missing or store issue.",
+            severity: "warning",
+          });
+        }
+      }
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  cron.schedule(
+    "5 0 1 * *",
+    async () => {
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          const store = readTrackerStore();
+          store.monthly = {
+            monthKey: currentMonthKeyLocal(),
+            players: {},
+            divisions: {},
+            enemies: {},
+          };
+          writeTrackerStore(store);
+          registry.registerSuccess("tracker");
+        } catch (err) {
+          logger.error("Monthly tracker reset failed", err, {
+            location: "index.js -> cron -> monthly reset",
+            guildId: guild.id,
+          });
+
+          await sendErrorAlert(client, "Monthly Tracker Reset Failed", err, {
+            feature: "tracker",
+            location: "monthly reset",
+            action: "Resetting monthly tracker data",
+            likelyCause: "Store write error.",
+            severity: "warning",
+          });
+        }
+      }
+
+      await runProtected(client, {
+        feature: "playerStats",
+        action: "Resetting monthly player profiles",
+        location: "index.js -> cron -> playerStats.resetMonthlyProfiles",
+        likelyCause: "Player stats reset routine failed.",
+        retries: 0,
+        maxFailures: 3,
+        job: async () => {
+          playerStats.resetMonthlyProfiles();
+          registry.registerSuccess("playerStats");
+        },
+      });
+    },
+    { timezone: TRACKER_TZ }
+  );
+
+  logger.info(`Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
+  logger.info(
+    `Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
+  );
+  logger.info(`Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
+  logger.info(`War: 15m board refresh (${TRACKER_TZ})`);
+  logger.info(`Discovery: ${DISCOVERY_SCAN_CRON} (${TRACKER_TZ})`);
+});
+
+/* =========================
+   DISCORD CLIENT ERROR/WARN
+   ========================= */
+client.on(Events.Error, async (err) => {
+  logger.error("Discord Client Error", err, {
+    location: "client.on(Events.Error)",
+  });
+
+  await sendErrorAlert(client, "Discord Client Error", err, {
+    feature: "discord-client",
+    location: "client.on(Events.Error)",
+    action: "Discord client runtime error",
+    likelyCause: "Discord.js runtime issue or connection/client failure.",
+    severity: "error",
+  });
+});
+
+client.on(Events.Warn, (warning) => {
+  logger.warn("Discord Client Warning", {
+    location: "client.on(Events.Warn)",
+    warning,
+  });
+});
+
+/* =========================
+   GLOBAL PROCESS HANDLERS
+   ========================= */
+process.on("unhandledRejection", async (reason) => {
+  const err =
+    reason instanceof Error ? reason : new Error(String(reason || "Unknown rejection"));
+
+  logger.error("Unhandled Promise Rejection", err, {
+    location: "process.on(unhandledRejection)",
+  });
+
+  try {
+    await sendErrorAlert(client, "Unhandled Promise Rejection", err, {
+      feature: "global-process",
+      location: "process.on(unhandledRejection)",
+      action: "Unhandled async failure",
+      likelyCause: "A promise rejected without a catch handler.",
+      severity: "critical",
+    });
+  } catch (alertErr) {
+    logger.error("Failed to send unhandledRejection alert", alertErr, {
+      location: "process.on(unhandledRejection)",
+    });
+  }
+});
+
+process.on("uncaughtException", async (err) => {
+  logger.error("Uncaught Exception", err, {
+    location: "process.on(uncaughtException)",
+  });
+
+  try {
+    await sendErrorAlert(client, "Uncaught Exception", err, {
+      feature: "global-process",
+      location: "process.on(uncaughtException)",
+      action: "Unexpected crash-level error",
+      likelyCause: "A synchronous error was thrown and not caught.",
+      severity: "critical",
+    });
+  } catch (alertErr) {
+    logger.error("Failed to send uncaughtException alert", alertErr, {
+      location: "process.on(uncaughtException)",
+    });
+  }
+});
+
+/* =========================
+   CLEAN SHUTDOWN
+   ========================= */
+async function shutdown(signal) {
+  logger.warn(`Shutdown signal received: ${signal}`, {
+    location: "shutdown()",
+  });
+
+  try {
+    if (client.isReady()) {
+      await sendAlert(client, {
+        title: "Bot Shutdown",
+        description: `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
+        severity: "warning",
+      });
+    }
+  } catch (err) {
+    logger.error("Failed to send shutdown alert", err, {
+      location: "shutdown()",
+    });
+  }
+
+  try {
+    client.destroy();
+  } catch (err) {
+    logger.error("Failed to destroy Discord client cleanly", err, {
+      location: "shutdown()",
+    });
+  }
+
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+/* =========================
+   LOGIN
+   ========================= */
+client.login(TOKEN).catch((err) => {
+  logger.error("Failed to login bot", err, {
+    location: "client.login",
+  });
+
+  console.error("âŒ Bot login failed:", err);
+  process.exit(1);
+});
