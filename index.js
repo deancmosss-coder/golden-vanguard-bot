@@ -81,12 +81,12 @@ const DIVISION_ROLE_IDS = {
 const ALL_DIVISION_ROLE_IDS = Object.values(DIVISION_ROLE_IDS);
 
 if (!TOKEN) {
-  console.error("âŒ Missing DISCORD_TOKEN in .env");
+  console.error("❌ Missing DISCORD_TOKEN in .env");
   process.exit(1);
 }
 
 if (!ASK_ROLE_ID) {
-  console.warn("âš ï¸ PING_ROLE_ID is not set. Autorole + role-mention trigger will not work.");
+  console.warn("⚠️ PING_ROLE_ID is not set. Autorole + role-mention trigger will not work.");
 }
 
 const client = new Client({
@@ -281,28 +281,28 @@ async function renameHostVcFromSession(session, guild) {
 function buildWelcomeEmbed(member, memberCount) {
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("ðŸ›¡ Welcome to The Golden Vanguard")
+    .setTitle("🛡 Welcome to The Golden Vanguard")
     .setDescription(
       [
         `Welcome ${member},`,
         "",
-        "Youâ€™ve joined a tactical squad-based community built for coordination, growth, and winning together.",
+        "You’ve joined a tactical squad-based community built for coordination, growth, and winning together.",
         "",
-        "Here, we donâ€™t just play â€” we deploy with purpose.",
+        "Here, we don’t just play — we deploy with purpose.",
         "",
-        "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”",
+        "━━━━━━━━━━━━━━━━━━",
         "",
-        "ðŸª– **Become a True Vanguard Member**",
+        "🪖 **Become a True Vanguard Member**",
         "To unlock full access and fight alongside the Vanguard, you must complete your Recruit Orientation.",
         "",
-        "ðŸ“ Head to **#orientation-checklist** to begin",
-        "â³ You have **7 days** to complete it",
+        "📍 Head to **#orientation-checklist** to begin",
+        "⏳ You have **7 days** to complete it",
         "",
-        "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”",
+        "━━━━━━━━━━━━━━━━━━",
         "",
         "Form up. Drop in. Execute.",
         "",
-        `ðŸŽ– Member #${memberCount}`,
+        `🎖 Member #${memberCount}`,
       ].join("\n")
     )
     .setTimestamp()
@@ -347,7 +347,7 @@ function rosterText(roster) {
 function buildAskEmbed(session, vcName) {
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("ðŸŽ¯ Ask-to-Play Alert")
+    .setTitle("🎯 Ask-to-Play Alert")
     .setDescription(
       ASK_ROLE_ID
         ? `<@${session.ownerId}> pinged <@&${ASK_ROLE_ID}>`
@@ -376,7 +376,7 @@ function buildAskComponents(session) {
 
   const factionMenu = new StringSelectMenuBuilder()
     .setCustomId(FACTION_SELECT_ID)
-    .setPlaceholder(factionDone ? `Faction: ${session.faction}` : "Choose a factionâ€¦")
+    .setPlaceholder(factionDone ? `Faction: ${session.faction}` : "Choose a faction…")
     .addOptions(
       { label: "Terminids", value: "Terminids" },
       { label: "Automatons", value: "Automatons" },
@@ -386,7 +386,7 @@ function buildAskComponents(session) {
 
   const difficultyMenu = new StringSelectMenuBuilder()
     .setCustomId(DIFFICULTY_SELECT_ID)
-    .setPlaceholder(difficultyDone ? `Difficulty: ${session.difficulty}` : "Choose difficultyâ€¦")
+    .setPlaceholder(difficultyDone ? `Difficulty: ${session.difficulty}` : "Choose difficulty…")
     .addOptions(
       ...Array.from({ length: 10 }, (_, i) => {
         const v = String(i + 1);
@@ -649,107 +649,187 @@ client.on(Events.InteractionCreate, async (interaction) => {
         maxFailures: 3,
         job: async () => {
           await cmd.execute(interaction);
+
+          if (interaction.commandName === "run") {
+            registry.registerSuccess("tracker");
+            registry.registerSuccess("leaderboard");
+          } else {
+            registry.registerSuccess("commands");
+          }
         },
       });
     }
 
-    if (interaction.isAnySelectMenu()) {
-      const isOurMenu =
-        interaction.customId === FACTION_SELECT_ID || interaction.customId === DIFFICULTY_SELECT_ID;
-      if (!isOurMenu) return;
+    if (interaction.isButton() && interaction.customId.startsWith("enlist:") && enlistment) {
+      const result = await enlistment.handleButton(interaction);
+      registry.registerSuccess("orientation");
+      return result;
+    }
 
+    if (interaction.isStringSelectMenu()) {
       const session = sessions.get(interaction.message.id);
+
       if (!session) {
-        return interaction.reply({
-          content: "This Ask-to-Play prompt is no longer active.",
-          ephemeral: true,
-        });
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .followUp({ content: "Session expired.", flags: 64 })
+            .catch(() => {});
+        }
+
+        return interaction.reply({ content: "Session expired.", flags: 64 }).catch(() => {});
       }
 
       if (interaction.user.id !== session.ownerId) {
-        return interaction.reply({
-          content: "Only the original host can set faction/difficulty for this prompt.",
-          ephemeral: true,
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .followUp({
+              content: "Only the host can set faction/difficulty.",
+              flags: 64,
+            })
+            .catch(() => {});
+        }
+
+        return interaction
+          .reply({
+            content: "Only the host can set faction/difficulty.",
+            flags: 64,
+          })
+          .catch(() => {});
+      }
+
+      try {
+        await interaction.deferReply({ flags: 64 });
+
+        if (interaction.customId === FACTION_SELECT_ID) {
+          session.faction = interaction.values[0];
+          await updateAskMessage(session);
+          registry.registerSuccess("askToPlay");
+
+          return interaction.editReply({
+            content: `✅ Faction set to **${session.faction}**`,
+          });
+        }
+
+        if (interaction.customId === DIFFICULTY_SELECT_ID) {
+          session.difficulty = interaction.values[0];
+          await updateAskMessage(session);
+
+          if (interaction.guild) {
+            await renameHostVcFromSession(session, interaction.guild);
+          }
+
+          registry.registerSuccess("askToPlay");
+
+          return interaction.editReply({
+            content: `✅ Difficulty set to **${session.difficulty}**`,
+          });
+        }
+      } catch (error) {
+        logger.error("String select menu error", error, {
+          location: "index.js -> InteractionCreate -> StringSelectMenu",
+          customId: interaction.customId,
+          userId: interaction.user?.id,
         });
+
+        await sendErrorAlert(client, "Ask-to-Play Menu Failed", error, {
+          feature: "askToPlay",
+          location: "StringSelectMenu",
+          action: "Updating faction/difficulty selection",
+          likelyCause: "Expired interaction, invalid session, or message edit issue.",
+          severity: "warning",
+        });
+
+        if (interaction.deferred || interaction.replied) {
+          return interaction
+            .editReply({
+              content: "❌ Something went wrong while updating the session.",
+            })
+            .catch(() => {});
+        }
+
+        return interaction
+          .reply({
+            content: "❌ Something went wrong while updating the session.",
+            flags: 64,
+          })
+          .catch(() => {});
       }
-
-      if (interaction.customId === FACTION_SELECT_ID) {
-        session.faction = interaction.values?.[0] || null;
-      }
-
-      if (interaction.customId === DIFFICULTY_SELECT_ID) {
-        session.difficulty = interaction.values?.[0] || null;
-      }
-
-      await interaction.deferUpdate();
-      const guild = await client.guilds.fetch(session.guildId).catch(() => null);
-      if (!guild) return;
-
-      await renameHostVcFromSession(session, guild);
-      await updateAskMessage(session);
-      registry.registerSuccess("askToPlay");
-      return;
-    }
-
-    if (interaction.isButton() && interaction.customId === "enlist_open_modal" && enlistment) {
-      return enlistment.handleButton(interaction);
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId === "enlist_submit_modal" && enlistment) {
-      return enlistment.handleModal(interaction);
     }
   } catch (err) {
     logger.error("InteractionCreate error", err, {
       location: "index.js -> InteractionCreate",
-      interactionType: interaction?.type,
-      commandName: interaction?.commandName,
-      customId: interaction?.customId,
-      userId: interaction?.user?.id,
+      userId: interaction?.user?.id || null,
+      guildId: interaction?.guildId || null,
+      commandName: interaction?.isChatInputCommand?.() ? interaction.commandName : null,
+      customId:
+        interaction?.isButton?.() || interaction?.isStringSelectMenu?.()
+          ? interaction.customId
+          : null,
     });
-
-    if (interaction && !interaction.replied && !interaction.deferred) {
-      await interaction
-        .reply({
-          content: "Something went wrong while handling that interaction.",
-          ephemeral: true,
-        })
-        .catch(() => {});
-    }
 
     await sendErrorAlert(client, "Interaction Handler Failed", err, {
-      feature: "commands",
+      feature: "askToPlay",
       location: "InteractionCreate",
-      action: "Handling slash/button/select/modal interaction",
-      likelyCause: "A command or interaction handler threw an exception.",
+      action: "Processing interaction",
+      likelyCause: "Command, button, or modal error.",
       severity: "error",
     });
+
+    if (interaction?.isRepliable?.()) {
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp({ content: "Something went wrong.", flags: 64 });
+        } else {
+          await interaction.reply({ content: "Something went wrong.", flags: 64 });
+        }
+      } catch {}
+    }
   }
 });
 
 /* =========================
-   VOICE STATE UPDATES
+   VOICE STATE UPDATE
    ========================= */
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
-    try {
-      if (typeof orientationSystem.handleVoiceStateUpdate === "function") {
-        await orientationSystem.handleVoiceStateUpdate(oldState, newState, client);
+    if (registry.isFeatureEnabled("orientation")) {
+      try {
+        orientationSystem.handleVoiceStateUpdate(oldState, newState);
         registry.registerSuccess("orientation");
-      }
-    } catch (err) {
-      logger.error("orientation handleVoiceStateUpdate failed", err, {
-        location: "index.js -> VoiceStateUpdate -> orientationSystem.handleVoiceStateUpdate",
-        userId: newState?.id || oldState?.id || null,
-      });
+      } catch (err) {
+        const state = registry.registerFailure("orientation", err);
 
-      if (client?.isReady()) {
-        await sendErrorAlert(client, "orientation failed", err, {
-          feature: "orientation",
-          location: "VoiceStateUpdate",
-          action: "Handling orientation voice update",
-          likelyCause: "Orientation VC tracking failed.",
-          severity: "warning",
+        logger.error("Orientation voice update failed", err, {
+          location: "index.js -> VoiceStateUpdate -> orientationSystem.handleVoiceStateUpdate",
+          failCount: state.failCount,
         });
+
+        if (state.failCount >= 3) {
+          registry.disableFeature("orientation", "Disabled after repeated voice update failures.");
+
+          await sendErrorAlert(client, "orientation isolated", err, {
+            feature: "orientation",
+            location: "VoiceStateUpdate",
+            action: "Handling orientation voice update",
+            likelyCause: "Orientation VC tracking failed repeatedly.",
+            severity: "critical",
+          });
+
+          await sendAlert(client, {
+            title: "orientation paused",
+            description:
+              "The **orientation** feature has been temporarily disabled after repeated voice update failures.",
+            severity: "warning",
+          });
+        } else {
+          await sendErrorAlert(client, "orientation failed", err, {
+            feature: "orientation",
+            location: "VoiceStateUpdate",
+            action: "Handling orientation voice update",
+            likelyCause: "Orientation VC tracking failed.",
+            severity: "warning",
+          });
+        }
       }
     }
 
@@ -1036,11 +1116,11 @@ client.once(Events.ClientReady, async () => {
 
           await ann.send({
             content:
-              `ðŸ† **WEEKLY RESULTS â€” THE GOLDEN VANGUARD**\n\n` +
-              `ðŸ¥‡ **Top Diver:** ${topP ? `<@${topP.key}> â€” **${topP.val}**` : "_None_"}\n` +
-              `ðŸ›¡ **Top Division:** ${topD ? `**${topD.key}** â€” **${topD.val}**` : "_None_"}\n` +
-              `ðŸ‘¾ **Top Enemy Front:** ${topE ? `**${topE.key}** â€” **${topE.val}**` : "_None_"}\n\n` +
-              `ðŸ“Œ Live leaderboard: **#${LB_NAME}**`,
+              `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
+              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
+              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+              `📌 Live leaderboard: **#${LB_NAME}**`,
             allowedMentions: topP ? { users: [topP.key] } : undefined,
           }).catch(() => {});
 
@@ -1148,11 +1228,11 @@ client.once(Events.ClientReady, async () => {
 
           await ann.send({
             content:
-              `ðŸ… **MONTHLY RESULTS â€” ${monthKey}**\n\n` +
-              `ðŸ¥‡ **Top Diver:** ${topP ? `<@${topP.key}> â€” **${topP.val}**` : "_None_"}\n` +
-              `ðŸ›¡ **Top Division:** ${topD ? `**${topD.key}** â€” **${topD.val}**` : "_None_"}\n` +
-              `ðŸ‘¾ **Top Enemy Front:** ${topE ? `**${topE.key}** â€” **${topE.val}**` : "_None_"}\n\n` +
-              `ðŸ“Œ Leaderboards: **#${LB_NAME}**`,
+              `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
+              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
+              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+              `📌 Leaderboards: **#${LB_NAME}**`,
             allowedMentions: topP ? { users: [topP.key] } : undefined,
           }).catch(() => {});
 
@@ -1346,6 +1426,6 @@ client.login(TOKEN).catch((err) => {
     location: "client.login",
   });
 
-  console.error("âŒ Bot login failed:", err);
+  console.error("❌ Bot login failed:", err);
   process.exit(1);
 });
