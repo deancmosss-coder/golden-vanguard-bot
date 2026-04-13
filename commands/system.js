@@ -12,9 +12,9 @@ const {
   hasManagedFeature,
 } = require("../services/managedFeatureStore");
 
-const STATUS_FIELDS_PER_EMBED = 12;
 const MAX_STATUS_EMBEDS = 10;
 const MAX_TEXT_LENGTH = 180;
+const MAX_STATUS_DESCRIPTION_LENGTH = 3500;
 
 function formatDate(value) {
   if (!value) return "Never";
@@ -23,23 +23,13 @@ function formatDate(value) {
   return `<t:${Math.floor(date.getTime() / 1000)}:R>`;
 }
 
-function truncateText(value, fallback = "None") {
+function truncateText(value, fallback = "None", maxLength = MAX_TEXT_LENGTH) {
   const text = String(value || fallback);
-  if (text.length <= MAX_TEXT_LENGTH) {
+  if (text.length <= maxLength) {
     return text;
   }
 
-  return `${text.slice(0, MAX_TEXT_LENGTH - 3)}...`;
-}
-
-function chunkItems(items, size) {
-  const chunks = [];
-
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-
-  return chunks;
+  return `${text.slice(0, maxLength - 3)}...`;
 }
 
 function buildSummaryFields(entries) {
@@ -53,6 +43,48 @@ function buildSummaryFields(entries) {
     { name: "Disabled", value: String(disabledCount), inline: true },
     { name: "With Failures", value: String(failingCount), inline: true },
   ];
+}
+
+function buildStatusLine(featureName, state) {
+  const status = state.enabled !== false ? "ENABLED" : "DISABLED";
+  const failCount = Number(state.failCount || 0);
+  const successText = formatDate(state.lastSuccessAt);
+  const errorText = truncateText(state.lastError, "None", 40);
+  const pauseText =
+    state.enabled === false && state.pausedReason
+      ? ` | Pause ${truncateText(state.pausedReason, "None", 30)}`
+      : "";
+
+  return `**${featureName}** | ${status} | Fail ${failCount} | Success ${successText} | Error ${errorText}${pauseText}`;
+}
+
+function chunkStatusLines(entries) {
+  const pages = [];
+  let currentLines = [];
+  let currentLength = 0;
+
+  for (const [featureName, state] of entries) {
+    const line = buildStatusLine(featureName, state);
+    const lineLength = line.length + 1;
+
+    if (
+      currentLines.length &&
+      currentLength + lineLength > MAX_STATUS_DESCRIPTION_LENGTH
+    ) {
+      pages.push(currentLines);
+      currentLines = [];
+      currentLength = 0;
+    }
+
+    currentLines.push(line);
+    currentLength += lineLength;
+  }
+
+  if (currentLines.length) {
+    pages.push(currentLines);
+  }
+
+  return pages;
 }
 
 function buildStatusEmbeds() {
@@ -70,43 +102,27 @@ function buildStatusEmbeds() {
     ];
   }
 
-  const chunks = chunkItems(entries, STATUS_FIELDS_PER_EMBED);
-  const embeds = chunks.slice(0, MAX_STATUS_EMBEDS).map((chunk, index) => {
+  const pages = chunkStatusLines(entries);
+  const visiblePages = pages.slice(0, MAX_STATUS_EMBEDS);
+  const embeds = visiblePages.map((lines, index) => {
     const embed = new EmbedBuilder()
       .setColor(0xf1c40f)
       .setTitle(index === 0 ? "System Status" : `System Status (Page ${index + 1})`)
+      .setDescription(lines.join("\n"))
       .setTimestamp()
       .setFooter({ text: "The Golden Vanguard" });
 
     if (index === 0) {
-      embed.setDescription("Current protected feature states");
       embed.addFields(...buildSummaryFields(entries));
-    }
-
-    for (const [featureName, state] of chunk) {
-      const status = state.enabled !== false ? "Enabled" : "Disabled";
-      const failCount = Number(state.failCount || 0);
-
-      embed.addFields({
-        name: featureName,
-        value:
-          `Status: **${status}**\n` +
-          `Failures: **${failCount}**\n` +
-          `Last Success: **${formatDate(state.lastSuccessAt)}**\n` +
-          `Last Error: **${truncateText(state.lastError)}**\n` +
-          `Paused Reason: **${truncateText(state.pausedReason)}**`,
-        inline: false,
-      });
     }
 
     return embed;
   });
 
-  if (chunks.length > MAX_STATUS_EMBEDS && embeds.length) {
-    const shown = STATUS_FIELDS_PER_EMBED * MAX_STATUS_EMBEDS;
+  if (pages.length > visiblePages.length && embeds.length) {
     embeds[embeds.length - 1].addFields({
       name: "Additional Features",
-      value: `Showing ${shown} of ${entries.length} features in Discord.`,
+      value: `Only the first ${visiblePages.length} of ${pages.length} status page(s) are shown in Discord.`,
       inline: false,
     });
   }
