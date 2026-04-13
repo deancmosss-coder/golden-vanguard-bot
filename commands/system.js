@@ -3,6 +3,7 @@ const {
   SlashCommandBuilder,
   EmbedBuilder,
   PermissionFlagsBits,
+  AttachmentBuilder,
 } = require("discord.js");
 
 const registry = require("../services/featureRegistry");
@@ -15,8 +16,7 @@ const {
 const MAX_STATUS_EMBEDS = 10;
 const MAX_TEXT_LENGTH = 180;
 const MAX_STATUS_DESCRIPTION_LENGTH = 3500;
-const MAX_LOG_EMBEDS = 5;
-const MAX_LOG_DESCRIPTION_LENGTH = 3500;
+const MAX_LOG_PREVIEW_LENGTH = 1200;
 
 function formatDate(value) {
   if (!value) return "Never";
@@ -166,73 +166,42 @@ function getLogText(logType) {
   return "Unknown log type.";
 }
 
-function chunkLogText(text, maxLength = MAX_LOG_DESCRIPTION_LENGTH) {
+function buildLogPreview(text, maxLength = MAX_LOG_PREVIEW_LENGTH) {
   const safeText = String(text || "No log data found.");
-  const lines = safeText.split("\n");
-  const pages = [];
-  let currentLines = [];
-  let currentLength = 0;
-
-  for (const rawLine of lines) {
-    const line = rawLine || " ";
-    const lineLength = line.length + 1;
-
-    if (currentLines.length && currentLength + lineLength > maxLength) {
-      pages.push(currentLines.join("\n"));
-      currentLines = [];
-      currentLength = 0;
-    }
-
-    if (lineLength > maxLength) {
-      const chunks = line.match(new RegExp(`.{1,${Math.max(1, maxLength - 1)}}`, "g")) || [line];
-
-      for (const chunk of chunks) {
-        if (currentLines.length && currentLength + chunk.length + 1 > maxLength) {
-          pages.push(currentLines.join("\n"));
-          currentLines = [];
-          currentLength = 0;
-        }
-
-        currentLines.push(chunk);
-        currentLength += chunk.length + 1;
-      }
-
-      continue;
-    }
-
-    currentLines.push(line);
-    currentLength += lineLength;
+  if (safeText.length <= maxLength) {
+    return safeText;
   }
 
-  if (currentLines.length) {
-    pages.push(currentLines.join("\n"));
-  }
-
-  return pages.length ? pages : ["No log data found."];
+  return `${safeText.slice(0, maxLength - 3)}...`;
 }
 
-function buildLogEmbeds(logType) {
+function buildLogPayload(logType) {
   const logText = getLogText(logType);
-  const pages = chunkLogText(logText);
-  const visiblePages = pages.slice(0, MAX_LOG_EMBEDS);
-  const embeds = visiblePages.map((page, index) =>
-    new EmbedBuilder()
-      .setColor(0x3498db)
-      .setTitle(index === 0 ? `System Logs: ${logType}` : `System Logs: ${logType} (Page ${index + 1})`)
-      .setDescription(`\`\`\`\n${page}\n\`\`\``)
-      .setTimestamp()
-      .setFooter({ text: "The Golden Vanguard" })
-  );
+  const preview = buildLogPreview(logText);
+  const fileName = `system-${logType}-logs.txt`;
 
-  if (pages.length > visiblePages.length && embeds.length) {
-    embeds[embeds.length - 1].addFields({
-      name: "Additional Log Pages",
-      value: `Only the first ${visiblePages.length} of ${pages.length} log page(s) are shown in Discord.`,
-      inline: false,
-    });
-  }
-
-  return embeds;
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x3498db)
+        .setTitle(`System Logs: ${logType}`)
+        .setDescription(
+          [
+            `Attached latest log excerpt as \`${fileName}\`.`,
+            "",
+            "**Preview**",
+            `\`\`\`\n${preview}\n\`\`\``,
+          ].join("\n")
+        )
+        .setTimestamp()
+        .setFooter({ text: "The Golden Vanguard" }),
+    ],
+    files: [
+      new AttachmentBuilder(Buffer.from(String(logText || "No log data found."), "utf8"), {
+        name: fileName,
+      }),
+    ],
+  };
 }
 
 function ensureManagedFeature(featureName) {
@@ -397,10 +366,10 @@ module.exports = {
 
     if (subcommand === "logs") {
       const type = interaction.options.getString("type", true);
-      const embeds = buildLogEmbeds(type);
+      const payload = buildLogPayload(type);
 
       return interaction.reply({
-        embeds,
+        ...payload,
         ephemeral: true,
       });
     }
