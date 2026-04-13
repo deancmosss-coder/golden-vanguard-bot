@@ -898,7 +898,6 @@ client.once(Events.ClientReady, async () => {
     `Golden Vanguard bot is now online as **${client.user.tag}**`
   );
 
-  // Orientation overdue checker
   setInterval(() => {
     orientationSystem.checkOverdueRecruits(client).catch((err) => {
       logger.error("Orientation overdue check failed", err, {
@@ -907,7 +906,6 @@ client.once(Events.ClientReady, async () => {
     });
   }, 60 * 60 * 1000);
 
-  // Orientation VC sweep so deployment completes even with no new VC events
   setInterval(() => {
     orientationSystem.scanAllTrackedGuilds(client).catch((err) => {
       logger.error("Orientation VC sweep failed", err, {
@@ -915,6 +913,14 @@ client.once(Events.ClientReady, async () => {
       });
     });
   }, 60 * 1000);
+
+  setInterval(() => {
+    orientationSystem.refreshAllMonitorCards(client).catch((err) => {
+      logger.error("Recruit monitor refresh failed", err, {
+        location: "index.js -> ClientReady -> setInterval(refreshAllMonitorCards)",
+      });
+    });
+  }, 60 * 60 * 1000);
 
   await runProtected(client, {
     feature: "warboard",
@@ -1206,201 +1212,4 @@ client.once(Events.ClientReady, async () => {
               `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
               `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
               `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-              `📌 Leaderboards: **#${LB_NAME}**`,
-            allowedMentions: topP ? { users: [topP.key] } : undefined,
-          }).catch(() => {});
-
-          registry.registerSuccess("tracker");
-          registry.registerSuccess("leaderboard");
-        } catch (err) {
-          logger.error("Monthly tracker announce failed", err, {
-            location: "index.js -> cron -> monthly announce",
-            guildId: guild.id,
-          });
-
-          await sendErrorAlert(client, "Monthly Tracker Announcement Failed", err, {
-            feature: "tracker",
-            location: "monthly announce",
-            action: "Posting monthly results",
-            likelyCause: "Announcement channel missing or store issue.",
-            severity: "warning",
-          });
-        }
-      }
-    },
-    { timezone: TRACKER_TZ }
-  );
-
-  cron.schedule(
-    "5 0 1 * *",
-    async () => {
-      for (const guild of client.guilds.cache.values()) {
-        try {
-          const store = readTrackerStore();
-          store.monthly = {
-            monthKey: currentMonthKeyLocal(),
-            players: {},
-            divisions: {},
-            enemies: {},
-          };
-          writeTrackerStore(store);
-          registry.registerSuccess("tracker");
-        } catch (err) {
-          logger.error("Monthly tracker reset failed", err, {
-            location: "index.js -> cron -> monthly reset",
-            guildId: guild.id,
-          });
-
-          await sendErrorAlert(client, "Monthly Tracker Reset Failed", err, {
-            feature: "tracker",
-            location: "monthly reset",
-            action: "Resetting monthly tracker data",
-            likelyCause: "Store write error.",
-            severity: "warning",
-          });
-        }
-      }
-
-      await runProtected(client, {
-        feature: "playerStats",
-        action: "Resetting monthly player profiles",
-        location: "index.js -> cron -> playerStats.resetMonthlyProfiles",
-        likelyCause: "Player stats reset routine failed.",
-        retries: 0,
-        maxFailures: 3,
-        job: async () => {
-          playerStats.resetMonthlyProfiles();
-          registry.registerSuccess("playerStats");
-        },
-      });
-    },
-    { timezone: TRACKER_TZ }
-  );
-
-  logger.info(`Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`);
-  logger.info(
-    `Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
-  );
-  logger.info(`Monthly: Last day 23:55 announce | 1st 00:05 reset (${TRACKER_TZ})`);
-  logger.info(`War: 15m board refresh (${TRACKER_TZ})`);
-  logger.info(`Discovery: ${DISCOVERY_SCAN_CRON} (${TRACKER_TZ})`);
-});
-
-/* =========================
-   DISCORD CLIENT ERROR/WARN
-   ========================= */
-client.on(Events.Error, async (err) => {
-  logger.error("Discord Client Error", err, {
-    location: "client.on(Events.Error)",
-  });
-
-  await sendErrorAlert(client, "Discord Client Error", err, {
-    feature: "discord-client",
-    location: "client.on(Events.Error)",
-    action: "Discord client runtime error",
-    likelyCause: "Discord.js runtime issue or connection/client failure.",
-    severity: "error",
-  });
-});
-
-client.on(Events.Warn, (warning) => {
-  logger.warn("Discord Client Warning", {
-    location: "client.on(Events.Warn)",
-    warning,
-  });
-});
-
-/* =========================
-   GLOBAL PROCESS HANDLERS
-   ========================= */
-process.on("unhandledRejection", async (reason) => {
-  const err =
-    reason instanceof Error ? reason : new Error(String(reason || "Unknown rejection"));
-
-  logger.error("Unhandled Promise Rejection", err, {
-    location: "process.on(unhandledRejection)",
-  });
-
-  try {
-    await sendErrorAlert(client, "Unhandled Promise Rejection", err, {
-      feature: "global-process",
-      location: "process.on(unhandledRejection)",
-      action: "Unhandled async failure",
-      likelyCause: "A promise rejected without a catch handler.",
-      severity: "critical",
-    });
-  } catch (alertErr) {
-    logger.error("Failed to send unhandledRejection alert", alertErr, {
-      location: "process.on(unhandledRejection)",
-    });
-  }
-});
-
-process.on("uncaughtException", async (err) => {
-  logger.error("Uncaught Exception", err, {
-    location: "process.on(uncaughtException)",
-  });
-
-  try {
-    await sendErrorAlert(client, "Uncaught Exception", err, {
-      feature: "global-process",
-      location: "process.on(uncaughtException)",
-      action: "Unexpected crash-level error",
-      likelyCause: "A synchronous error was thrown and not caught.",
-      severity: "critical",
-    });
-  } catch (alertErr) {
-    logger.error("Failed to send uncaughtException alert", alertErr, {
-      location: "process.on(uncaughtException)",
-    });
-  }
-});
-
-/* =========================
-   CLEAN SHUTDOWN
-   ========================= */
-async function shutdown(signal) {
-  logger.warn(`Shutdown signal received: ${signal}`, {
-    location: "shutdown()",
-  });
-
-  try {
-    if (client.isReady()) {
-      await sendAlert(client, {
-        title: "Bot Shutdown",
-        description: `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
-        severity: "warning",
-      });
-    }
-  } catch (err) {
-    logger.error("Failed to send shutdown alert", err, {
-      location: "shutdown()",
-    });
-  }
-
-  try {
-    client.destroy();
-  } catch (err) {
-    logger.error("Failed to destroy Discord client cleanly", err, {
-      location: "shutdown()",
-    });
-  }
-
-  process.exit(0);
-}
-
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-/* =========================
-   LOGIN
-   ========================= */
-client.login(TOKEN).catch((err) => {
-  logger.error("Failed to login bot", err, {
-    location: "client.login",
-  });
-
-  console.error("❌ Bot login failed:", err);
-  process.exit(1);
-});
+              `👾 **Top Enemy Front:** ${top
