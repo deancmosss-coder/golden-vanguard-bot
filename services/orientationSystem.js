@@ -288,12 +288,6 @@ function buildChecklistButtons() {
         .setLabel("⚔ Divisions Reviewed")
         .setStyle(ButtonStyle.Secondary)
     ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("orientation_request_promotion")
-        .setLabel("⭐ Request Promotion")
-        .setStyle(ButtonStyle.Primary)
-    ),
   ];
 }
 
@@ -344,6 +338,21 @@ function buildPromotionButtons(userId) {
       new ButtonBuilder()
         .setCustomId(`orientation_deny_${userId}`)
         .setLabel("Deny")
+        .setStyle(ButtonStyle.Danger)
+    ),
+  ];
+}
+
+function buildMonitorButtons(userId) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`orientation_promote_now_${userId}`)
+        .setLabel("⭐ Promote Now")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`orientation_kick_${userId}`)
+        .setLabel("❌ Kick Recruit")
         .setStyle(ButtonStyle.Danger)
     ),
   ];
@@ -426,13 +435,17 @@ async function createOrUpdateMonitorCard(member) {
   if (recruit.monitorMessageId) {
     const msg = await channel.messages.fetch(recruit.monitorMessageId).catch(() => null);
     if (msg) {
-      await msg.edit({ embeds: [buildRecruitMonitorEmbed(member)] }).catch(console.error);
+      await msg.edit({
+        embeds: [buildRecruitMonitorEmbed(member)],
+        components: buildMonitorButtons(member.id),
+      }).catch(console.error);
       return msg;
     }
   }
 
   const sent = await channel.send({
     embeds: [buildRecruitMonitorEmbed(member)],
+    components: buildMonitorButtons(member.id),
   }).catch(() => null);
 
   if (sent) {
@@ -632,13 +645,20 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
   await createOrUpdateMonitorCard(member);
 
   if (interaction) {
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Approved by ${approverMember.displayName}` });
+    if (interaction.message?.embeds?.length) {
+      const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setFooter({ text: `Approved by ${approverMember.displayName}` });
 
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: [],
-    }).catch(console.error);
+      await interaction.update({
+        embeds: [updatedEmbed],
+        components: [],
+      }).catch(console.error);
+    } else {
+      await interaction.reply({
+        content: `✅ ${member} has been promoted to **Trooper**.`,
+        ephemeral: true,
+      }).catch(() => null);
+    }
   }
 
   await member.send(
@@ -708,6 +728,51 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
   return { ok: true };
 }
 
+async function kickRecruit(guild, targetUserId, approverMember, interaction = null) {
+  const member = await guild.members.fetch(targetUserId).catch(() => null);
+  if (!member) return { ok: false, reason: "member_not_found" };
+
+  await logOrientation(
+    guild.client,
+    [
+      "❌ **Recruit Removed**",
+      `Diver: ${member.user.tag}`,
+      `Removed by: ${approverMember}`,
+    ].join("\n")
+  );
+
+  try {
+    await member.send(
+      "You have been removed from The Golden Vanguard due to incomplete recruit orientation."
+    ).catch(() => null);
+
+    await guild.members.kick(
+      member.id,
+      `Recruit removed by ${approverMember.user.tag} - orientation action`
+    );
+  } catch (err) {
+    console.error("[orientationSystem] kickRecruit error:", err);
+
+    if (interaction) {
+      await interaction.reply({
+        content: "I could not remove that recruit. Check permissions.",
+        ephemeral: true,
+      }).catch(() => null);
+    }
+
+    return { ok: false, reason: "kick_failed" };
+  }
+
+  if (interaction) {
+    await interaction.reply({
+      content: `❌ ${member.user.tag} has been removed.`,
+      ephemeral: true,
+    }).catch(() => null);
+  }
+
+  return { ok: true };
+}
+
 /* =========================
    BUTTON HANDLER
    ========================= */
@@ -721,12 +786,41 @@ async function handleOrientationButton(interaction) {
     customId !== "orientation_guide" &&
     customId !== "orientation_laws" &&
     customId !== "orientation_divisions" &&
-    customId !== "orientation_request_promotion" &&
     !customId.startsWith("orientation_approve_") &&
     !customId.startsWith("orientation_more_training_") &&
-    !customId.startsWith("orientation_deny_")
+    !customId.startsWith("orientation_deny_") &&
+    !customId.startsWith("orientation_promote_now_") &&
+    !customId.startsWith("orientation_kick_")
   ) {
     return false;
+  }
+
+  if (customId.startsWith("orientation_promote_now_")) {
+    if (!isApprover(member)) {
+      await interaction.reply({
+        content: "You do not have permission to manage recruits.",
+        ephemeral: true,
+      });
+      return true;
+    }
+
+    const targetUserId = customId.split("_").pop();
+    await approvePromotion(guild, targetUserId, member, interaction);
+    return true;
+  }
+
+  if (customId.startsWith("orientation_kick_")) {
+    if (!isApprover(member)) {
+      await interaction.reply({
+        content: "You do not have permission to manage recruits.",
+        ephemeral: true,
+      });
+      return true;
+    }
+
+    const targetUserId = customId.split("_").pop();
+    await kickRecruit(guild, targetUserId, member, interaction);
+    return true;
   }
 
   if (
@@ -806,51 +900,6 @@ async function handleOrientationButton(interaction) {
 
     await interaction.reply({
       content: `✅ Marked as complete.\n\n${buildProgressText(member.id)}`,
-      ephemeral: true,
-    });
-    return true;
-  }
-
-  if (customId === "orientation_request_promotion") {
-    const recruit = ensureRecruit(member.id);
-
-    if (recruit.promoted) {
-      await interaction.reply({
-        content: "You have already been promoted to Trooper.",
-        ephemeral: true,
-      });
-      return true;
-    }
-
-    if (!isComplete(member.id)) {
-      const missing = getMissingSteps(member.id).map((x) => `• ${x}`).join("\n");
-
-      await interaction.reply({
-        content: `You are not ready for promotion yet.\n\nMissing steps:\n${missing}\n\n${buildProgressText(member.id)}`,
-        ephemeral: true,
-      });
-      return true;
-    }
-
-    if (recruit.promotionRequested) {
-      await interaction.reply({
-        content: "Your promotion request has already been sent for review.",
-        ephemeral: true,
-      });
-      return true;
-    }
-
-    const result = await sendPromotionRequest(member);
-    if (!result.ok) {
-      await interaction.reply({
-        content: "I could not send your promotion request.",
-        ephemeral: true,
-      });
-      return true;
-    }
-
-    await interaction.reply({
-      content: "⭐ Your promotion request has been sent for review.",
       ephemeral: true,
     });
     return true;
@@ -1038,6 +1087,22 @@ async function checkOverdueRecruits(client) {
   }
 }
 
+async function refreshAllMonitorCards(client) {
+  if (!client?.guilds?.cache) return;
+
+  const db = loadDb();
+
+  for (const userId of Object.keys(db)) {
+    for (const guild of client.guilds.cache.values()) {
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member) continue;
+
+      await createOrUpdateMonitorCard(member).catch(console.error);
+      break;
+    }
+  }
+}
+
 /* =========================
    EXPORT
    ========================= */
@@ -1074,6 +1139,7 @@ module.exports = {
   logNewRecruit,
   createOrUpdateMonitorCard,
   checkOverdueRecruits,
+  refreshAllMonitorCards,
 
   isRecruitMember,
   isSupervisor,
