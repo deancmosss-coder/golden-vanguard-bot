@@ -1,4 +1,4 @@
-// commands/system.js
+﻿// commands/system.js
 const {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -15,6 +15,8 @@ const {
 const MAX_STATUS_EMBEDS = 10;
 const MAX_TEXT_LENGTH = 180;
 const MAX_STATUS_DESCRIPTION_LENGTH = 3500;
+const MAX_LOG_EMBEDS = 5;
+const MAX_LOG_DESCRIPTION_LENGTH = 3500;
 
 function formatDate(value) {
   if (!value) return "Never";
@@ -162,6 +164,75 @@ function getLogText(logType) {
   }
 
   return "Unknown log type.";
+}
+
+function chunkLogText(text, maxLength = MAX_LOG_DESCRIPTION_LENGTH) {
+  const safeText = String(text || "No log data found.");
+  const lines = safeText.split("\n");
+  const pages = [];
+  let currentLines = [];
+  let currentLength = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine || " ";
+    const lineLength = line.length + 1;
+
+    if (currentLines.length && currentLength + lineLength > maxLength) {
+      pages.push(currentLines.join("\n"));
+      currentLines = [];
+      currentLength = 0;
+    }
+
+    if (lineLength > maxLength) {
+      const chunks = line.match(new RegExp(`.{1,${Math.max(1, maxLength - 1)}}`, "g")) || [line];
+
+      for (const chunk of chunks) {
+        if (currentLines.length && currentLength + chunk.length + 1 > maxLength) {
+          pages.push(currentLines.join("\n"));
+          currentLines = [];
+          currentLength = 0;
+        }
+
+        currentLines.push(chunk);
+        currentLength += chunk.length + 1;
+      }
+
+      continue;
+    }
+
+    currentLines.push(line);
+    currentLength += lineLength;
+  }
+
+  if (currentLines.length) {
+    pages.push(currentLines.join("\n"));
+  }
+
+  return pages.length ? pages : ["No log data found."];
+}
+
+function buildLogEmbeds(logType) {
+  const logText = getLogText(logType);
+  const pages = chunkLogText(logText);
+  const visiblePages = pages.slice(0, MAX_LOG_EMBEDS);
+  const embeds = visiblePages.map((page, index) =>
+    new EmbedBuilder()
+      .setColor(0x3498db)
+      .setTitle(index === 0 ? `System Logs: ${logType}` : `System Logs: ${logType} (Page ${index + 1})`)
+      .setDescription(`\`\`\`\n${page}\n\`\`\``)
+      .setTimestamp()
+      .setFooter({ text: "The Golden Vanguard" })
+  );
+
+  if (pages.length > visiblePages.length && embeds.length) {
+    embeds[embeds.length - 1].addFields({
+      name: "Additional Log Pages",
+      value: `Only the first ${visiblePages.length} of ${pages.length} log page(s) are shown in Discord.`,
+      inline: false,
+    });
+  }
+
+  return embeds;
 }
 
 function ensureManagedFeature(featureName) {
@@ -326,15 +397,10 @@ module.exports = {
 
     if (subcommand === "logs") {
       const type = interaction.options.getString("type", true);
-      const logText = getLogText(type);
-
-      const trimmed =
-        logText.length > 3800
-          ? `${logText.slice(-3800)}`
-          : logText;
+      const embeds = buildLogEmbeds(type);
 
       return interaction.reply({
-        content: `\`\`\`\n${trimmed || "No log data found."}\n\`\`\``,
+        embeds,
         ephemeral: true,
       });
     }
@@ -345,3 +411,4 @@ module.exports = {
     });
   },
 };
+
