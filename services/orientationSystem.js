@@ -313,7 +313,7 @@ function buildPromotionRequestEmbed(member) {
     .setTitle("⭐ Trooper Promotion Review")
     .setDescription(
       [
-        `Recruit: ${member}`,
+        `Recruit: <@${member.id}>`,
         `Guide: ${r.guideRead ? "✅" : "⬜"}`,
         `Laws: ${r.lawsRead ? "✅" : "⬜"}`,
         `Divisions: ${r.divisionsRead ? "✅" : "⬜"}`,
@@ -387,7 +387,7 @@ function buildRecruitMonitorEmbed(member) {
     .setTitle("🪖 Recruit Orientation Status")
     .setDescription(
       [
-        `Recruit: ${member}`,
+        `Recruit: <@${member.id}>`,
         `Joined: <t:${Math.floor(new Date(r.joinedAt).getTime() / 1000)}:D>`,
         `Deadline: <t:${Math.floor(new Date(r.deadlineAt).getTime() / 1000)}:D>`,
         `Status: ${formatRelativeStatus(r.deadlineAt, r.promoted)}`,
@@ -465,13 +465,13 @@ async function announcePromotion(client, member, approverMember) {
     content: [
       "🪖 **WELCOME TO THE GOLDEN VANGUARD**",
       "",
-      `${member} has completed Recruit Orientation and has been promoted to **Trooper**.`,
+      `<@${member.id}> has completed Recruit Orientation and has been promoted to **Trooper**.`,
       "",
       "Recruits observe. Troopers deploy.",
       "",
-      `Approved by: ${approverMember}`,
+      `Approved by: <@${approverMember.id}>`,
     ].join("\n"),
-    allowedMentions: { users: [member.id] },
+    allowedMentions: { users: [member.id, approverMember.id] },
   });
 }
 
@@ -495,7 +495,7 @@ async function sendChatOrientationMessage(member) {
 
   return sendToChannel(member.client, CONFIG.chatChannelId, {
     content: [
-      `🪖 Welcome to The Golden Vanguard, ${member}.`,
+      `🪖 Welcome to The Golden Vanguard, <@${member.id}>.`,
       "",
       "To become a true member of the Vanguard, you must complete your orientation.",
       "",
@@ -561,7 +561,7 @@ async function logProgress(member, label) {
     member.client,
     [
       "📈 **Recruit Progress Update**",
-      `Diver: ${member}`,
+      `Diver: <@${member.id}>`,
       `Update: ${label}`,
       `Progress: ${progress.done}/${progress.total}`,
     ].join("\n")
@@ -588,7 +588,7 @@ async function sendPromotionRequest(member) {
 
   await logOrientation(
     member.client,
-    `⭐ **Promotion Requested**\nDiver: ${member}\nStatus: Awaiting approval`
+    `⭐ **Promotion Requested**\nDiver: <@${member.id}>\nStatus: Awaiting approval`
   );
 
   await createOrUpdateMonitorCard(member);
@@ -635,8 +635,8 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     guild.client,
     [
       "✅ **Recruit Promoted**",
-      `Diver: ${member}`,
-      `Approved by: ${approverMember}`,
+      `Diver: <@${member.id}>`,
+      `Approved by: <@${approverMember.id}>`,
       "Rank: Trooper",
     ].join("\n")
   );
@@ -655,7 +655,7 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
       }).catch(console.error);
     } else {
       await interaction.reply({
-        content: `✅ ${member} has been promoted to **Trooper**.`,
+        content: `✅ <@${member.id}> has been promoted to **Trooper**.`,
         ephemeral: true,
       }).catch(() => null);
     }
@@ -676,8 +676,8 @@ async function moreTraining(guild, targetUserId, approverMember, interaction = n
     guild.client,
     [
       "⚠️ **Orientation Returned For More Training**",
-      `Diver: ${member}`,
-      `Reviewed by: ${approverMember}`,
+      `Diver: <@${member.id}>`,
+      `Reviewed by: <@${approverMember.id}>`,
     ].join("\n")
   );
 
@@ -706,8 +706,8 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
     guild.client,
     [
       "❌ **Promotion Denied**",
-      `Diver: ${member}`,
-      `Reviewed by: ${approverMember}`,
+      `Diver: <@${member.id}>`,
+      `Reviewed by: <@${approverMember.id}>`,
     ].join("\n")
   );
 
@@ -737,7 +737,7 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
     [
       "❌ **Recruit Removed**",
       `Diver: ${member.user.tag}`,
-      `Removed by: ${approverMember}`,
+      `Removed by: <@${approverMember.id}>`,
     ].join("\n")
   );
 
@@ -1068,7 +1068,7 @@ async function checkOverdueRecruits(client) {
             .join(" ") || "Staff";
 
         await sendToChannel(client, CONFIG.recruitMonitorChannelId, {
-          content: `⚠️ ${pingText} Recruit ${member} has exceeded the ${CONFIG.deadlineDays}-day orientation deadline.`,
+          content: `⚠️ ${pingText} Recruit <@${member.id}> has exceeded the ${CONFIG.deadlineDays}-day orientation deadline.`,
           allowedMentions: {
             roles: [
               CONFIG.sergeantRoleId,
