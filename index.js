@@ -937,6 +937,15 @@ client.once(Events.ClientReady, async () => {
     });
   }, 60 * 1000);
 
+  // Refresh recruit monitor cards so countdown text updates
+  setInterval(() => {
+    orientationSystem.refreshAllMonitorCards(client).catch((err) => {
+      logger.error("Recruit monitor refresh failed", err, {
+        location: "index.js -> ClientReady -> setInterval(refreshAllMonitorCards)",
+      });
+    });
+  }, 60 * 60 * 1000);
+
   await runProtected(client, {
     feature: "warboard",
     action: "Refreshing war board on startup",
