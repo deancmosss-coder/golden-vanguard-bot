@@ -47,7 +47,6 @@ CONFIG.supervisorRoleIds = [
   CONFIG.vanguardPrimeRoleId,
 ].filter(Boolean);
 
-// key = `${guildId}:${recruitId}:${supervisorId}:${channelId}`
 const activeVcSessions = new Map();
 
 /* =========================
@@ -84,6 +83,14 @@ function saveDb(db) {
   writeJson(DATA_PATH, db);
 }
 
+function removeRecruitRecord(userId) {
+  const db = loadDb();
+  if (db[userId]) {
+    delete db[userId];
+    saveDb(db);
+  }
+}
+
 /* =========================
    RECRUIT MODEL
    ========================= */
@@ -107,6 +114,7 @@ function defaultRecruitRecord(userId) {
     joinedAt: new Date(now).toISOString(),
     deadlineAt,
     overdueAlertSent: false,
+    overdueDmSent: false,
 
     deploymentCompletedAt: null,
     aarSubmittedAt: null,
@@ -128,6 +136,26 @@ function ensureRecruit(userId) {
     db[userId] = defaultRecruitRecord(userId);
     saveDb(db);
   }
+
+  if (!db[userId].joinedAt) {
+    db[userId].joinedAt = new Date().toISOString();
+  }
+
+  if (!db[userId].deadlineAt) {
+    db[userId].deadlineAt = new Date(
+      Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+  }
+
+  if (typeof db[userId].overdueAlertSent !== "boolean") {
+    db[userId].overdueAlertSent = false;
+  }
+
+  if (typeof db[userId].overdueDmSent !== "boolean") {
+    db[userId].overdueDmSent = false;
+  }
+
+  saveDb(db);
   return db[userId];
 }
 
@@ -358,28 +386,11 @@ function buildMonitorButtons(userId) {
   ];
 }
 
-function formatRelativeStatus(deadlineAt, promoted) {
-  if (promoted) return "✅ Promoted";
-
-  const now = Date.now();
-  const end = new Date(deadlineAt).getTime();
-
-  if (Number.isNaN(end)) return "Unknown";
-  if (now > end) {
-    const days = Math.max(1, Math.floor((now - end) / (1000 * 60 * 60 * 24)));
-    return `❌ Overdue by ${days} day(s)`;
-  }
-
-  const hours = Math.floor((end - now) / (1000 * 60 * 60));
-  const days = Math.floor(hours / 24);
-  if (days >= 1) return `⏳ ${days} day(s) remaining`;
-  return `⏳ ${hours} hour(s) remaining`;
-}
-
 function buildRecruitMonitorEmbed(member) {
   const r = ensureRecruit(member.id);
 
-  const overdue = !r.promoted && Date.now() > new Date(r.deadlineAt).getTime();
+  const deadlineMs = new Date(r.deadlineAt).getTime();
+  const overdue = !r.promoted && Number.isFinite(deadlineMs) && Date.now() > deadlineMs;
   const color = r.promoted ? 0x2ecc71 : overdue ? 0xe74c3c : 0xf1c40f;
 
   return new EmbedBuilder()
@@ -388,9 +399,9 @@ function buildRecruitMonitorEmbed(member) {
     .setDescription(
       [
         `Recruit: <@${member.id}>`,
-        `Joined: <t:${Math.floor(new Date(r.joinedAt).getTime() / 1000)}:D>`,
-        `Deadline: <t:${Math.floor(new Date(r.deadlineAt).getTime() / 1000)}:D>`,
-        `Status: ${formatRelativeStatus(r.deadlineAt, r.promoted)}`,
+        `Joined: ${r.joinedAt ? `<t:${Math.floor(new Date(r.joinedAt).getTime() / 1000)}:D>` : "Unknown"}`,
+        `Deadline: ${r.deadlineAt ? `<t:${Math.floor(new Date(r.deadlineAt).getTime() / 1000)}:D>` : "Unknown"}`,
+        `Status: ${r.promoted ? "✅ Promoted" : overdue ? "❌ Overdue" : "🟡 Active Recruit"}`,
         "",
         `${r.guideRead ? "✅" : "⬜"} Guide`,
         `${r.lawsRead ? "✅" : "⬜"} Laws`,
@@ -424,8 +435,21 @@ async function logOrientation(client, message) {
   return sendToChannel(client, CONFIG.orientationLogChannelId, { content: message });
 }
 
+async function deleteMonitorMessageIfExists(client, recruitRecord) {
+  if (!recruitRecord?.monitorChannelId || !recruitRecord?.monitorMessageId) return;
+
+  const channel = await client.channels.fetch(recruitRecord.monitorChannelId).catch(() => null);
+  if (!channel?.isTextBased?.()) return;
+
+  const msg = await channel.messages.fetch(recruitRecord.monitorMessageId).catch(() => null);
+  if (msg) {
+    await msg.delete().catch(() => null);
+  }
+}
+
 async function createOrUpdateMonitorCard(member) {
   if (!CONFIG.recruitMonitorChannelId) return null;
+  if (!isRecruitMember(member)) return null;
 
   const channel = await member.client.channels.fetch(CONFIG.recruitMonitorChannelId).catch(() => null);
   if (!channel?.isTextBased?.()) return null;
@@ -491,9 +515,12 @@ async function sendChecklistPanel(client) {
 }
 
 async function sendChatOrientationMessage(member) {
-  if (!CONFIG.chatChannelId) return null;
+  if (!CONFIG.chatChannelId) {
+    console.error("[orientationSystem] ORIENTATION_CHAT_CHANNEL_ID is missing");
+    return null;
+  }
 
-  return sendToChannel(member.client, CONFIG.chatChannelId, {
+  const sent = await sendToChannel(member.client, CONFIG.chatChannelId, {
     content: [
       `🪖 Welcome to The Golden Vanguard, <@${member.id}>.`,
       "",
@@ -508,6 +535,14 @@ async function sendChatOrientationMessage(member) {
     ].join("\n"),
     allowedMentions: { users: [member.id] },
   });
+
+  if (!sent) {
+    console.error(
+      `[orientationSystem] Failed to send chat welcome for ${member.id} to channel ${CONFIG.chatChannelId}`
+    );
+  }
+
+  return sent;
 }
 
 async function sendOrientationDM(member) {
@@ -537,7 +572,25 @@ async function sendOrientationDM(member) {
   ).catch(() => null);
 }
 
+async function sendOverdueDM(member) {
+  return member.send(
+    [
+      "⚠️ **Orientation Overdue**",
+      "",
+      "Your Recruit Orientation is now overdue.",
+      "",
+      "You are now at risk of being removed from The Golden Vanguard if this is not completed.",
+      "",
+      "Please complete your orientation as soon as possible and speak to staff if you need help.",
+      "",
+      `Checklist: <#${CONFIG.checklistChannelId}>`,
+    ].join("\n")
+  ).catch(() => null);
+}
+
 async function logNewRecruit(member) {
+  if (!isRecruitMember(member)) return null;
+
   const recruit = ensureRecruit(member.id);
 
   if (!recruit.deadlineAt) {
@@ -597,6 +650,7 @@ async function sendPromotionRequest(member) {
 
 async function autoRequestPromotionIfComplete(member) {
   if (!member) return false;
+  if (!isRecruitMember(member)) return false;
 
   const recruit = ensureRecruit(member.id);
   if (recruit.promoted) return false;
@@ -631,6 +685,10 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     promotedBy: approverMember.id,
   });
 
+  const updatedRecord = getRecruit(targetUserId);
+  await deleteMonitorMessageIfExists(guild.client, updatedRecord);
+  removeRecruitRecord(targetUserId);
+
   await logOrientation(
     guild.client,
     [
@@ -642,7 +700,6 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
   );
 
   await announcePromotion(guild.client, member, approverMember).catch(console.error);
-  await createOrUpdateMonitorCard(member);
 
   if (interaction) {
     if (interaction.message?.embeds?.length) {
@@ -732,6 +789,8 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
   const member = await guild.members.fetch(targetUserId).catch(() => null);
   if (!member) return { ok: false, reason: "member_not_found" };
 
+  const existingRecord = getRecruit(targetUserId);
+
   await logOrientation(
     guild.client,
     [
@@ -762,6 +821,9 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
 
     return { ok: false, reason: "kick_failed" };
   }
+
+  await deleteMonitorMessageIfExists(guild.client, existingRecord);
+  removeRecruitRecord(targetUserId);
 
   if (interaction) {
     await interaction.reply({
@@ -928,6 +990,15 @@ async function maybeCompleteSession(guild, session) {
   const enoughTime = durationMs >= CONFIG.minVcMinutes * 60 * 1000;
   if (!enoughTime) return false;
 
+  const recruitMember =
+    guild.members.cache.get(session.recruitId) ||
+    (await guild.members.fetch(session.recruitId).catch(() => null));
+
+  if (!recruitMember || !isRecruitMember(recruitMember)) {
+    session.completed = true;
+    return false;
+  }
+
   const recruitRecord = ensureRecruit(session.recruitId);
   if (recruitRecord.deploymentComplete) {
     session.completed = true;
@@ -936,18 +1007,12 @@ async function maybeCompleteSession(guild, session) {
 
   markDeployment(session.recruitId, session.supervisorId, session.channelId);
 
-  const recruitMember =
-    guild.members.cache.get(session.recruitId) ||
-    (await guild.members.fetch(session.recruitId).catch(() => null));
+  await logProgress(
+    recruitMember,
+    `Deployment detected with <@${session.supervisorId}>`
+  ).catch(console.error);
 
-  if (recruitMember) {
-    await logProgress(
-      recruitMember,
-      `Deployment detected with <@${session.supervisorId}>`
-    ).catch(console.error);
-
-    await autoRequestPromotionIfComplete(recruitMember).catch(console.error);
-  }
+  await autoRequestPromotionIfComplete(recruitMember).catch(console.error);
 
   session.completed = true;
   return true;
@@ -957,7 +1022,6 @@ async function scanVoiceSessions(guild) {
   if (!guild) return;
 
   const currentKeys = new Set();
-
   const voiceChannels = guild.channels.cache.filter((c) => shouldTrackVoiceChannel(c));
 
   for (const [, channel] of voiceChannels) {
@@ -1040,49 +1104,92 @@ async function checkOverdueRecruits(client) {
 
   for (const userId of Object.keys(db)) {
     const recruit = db[userId];
-    if (!recruit?.deadlineAt) continue;
-    if (recruit.promoted) continue;
+    if (!recruit) continue;
 
-    const deadline = new Date(recruit.deadlineAt).getTime();
-    if (Number.isNaN(deadline)) continue;
-    if (now <= deadline) continue;
+    let activeMember = null;
 
-    const guilds = client.guilds.cache.values();
-
-    for (const guild of guilds) {
+    for (const guild of client.guilds.cache.values()) {
       const member = await guild.members.fetch(userId).catch(() => null);
       if (!member) continue;
 
-      await createOrUpdateMonitorCard(member);
+      activeMember = member;
+      break;
+    }
 
-      if (!recruit.overdueAlertSent) {
-        const pingText =
-          [
-            CONFIG.sergeantRoleId && `<@&${CONFIG.sergeantRoleId}>`,
-            CONFIG.seniorOfficerRoleId && `<@&${CONFIG.seniorOfficerRoleId}>`,
-            CONFIG.strikeCaptainRoleId && `<@&${CONFIG.strikeCaptainRoleId}>`,
-            CONFIG.highCommandRoleId && `<@&${CONFIG.highCommandRoleId}>`,
-            CONFIG.vanguardPrimeRoleId && `<@&${CONFIG.vanguardPrimeRoleId}>`,
-          ]
-            .filter(Boolean)
-            .join(" ") || "Staff";
+    if (!activeMember) {
+      continue;
+    }
 
-        await sendToChannel(client, CONFIG.recruitMonitorChannelId, {
-          content: `⚠️ ${pingText} Recruit <@${member.id}> has exceeded the ${CONFIG.deadlineDays}-day orientation deadline.`,
-          allowedMentions: {
-            roles: [
-              CONFIG.sergeantRoleId,
-              CONFIG.seniorOfficerRoleId,
-              CONFIG.strikeCaptainRoleId,
-              CONFIG.highCommandRoleId,
-              CONFIG.vanguardPrimeRoleId,
-            ].filter(Boolean),
-            users: [member.id],
-          },
-        });
+    if (!isRecruitMember(activeMember)) {
+      await deleteMonitorMessageIfExists(client, recruit);
+      removeRecruitRecord(userId);
+      continue;
+    }
 
-        updateRecruit(userId, { overdueAlertSent: true });
-      }
+    const activeRecruit = ensureRecruit(userId);
+    const deadline = new Date(activeRecruit.deadlineAt).getTime();
+    if (Number.isNaN(deadline)) continue;
+
+    await createOrUpdateMonitorCard(activeMember);
+
+    if (now <= deadline) continue;
+
+    if (!activeRecruit.overdueAlertSent) {
+      const pingText =
+        [
+          CONFIG.sergeantRoleId && `<@&${CONFIG.sergeantRoleId}>`,
+          CONFIG.seniorOfficerRoleId && `<@&${CONFIG.seniorOfficerRoleId}>`,
+          CONFIG.strikeCaptainRoleId && `<@&${CONFIG.strikeCaptainRoleId}>`,
+          CONFIG.highCommandRoleId && `<@&${CONFIG.highCommandRoleId}>`,
+          CONFIG.vanguardPrimeRoleId && `<@&${CONFIG.vanguardPrimeRoleId}>`,
+        ]
+          .filter(Boolean)
+          .join(" ") || "Staff";
+
+      await sendToChannel(client, CONFIG.recruitMonitorChannelId, {
+        content: `⚠️ ${pingText} Recruit <@${activeMember.id}> has exceeded the ${CONFIG.deadlineDays}-day orientation deadline.`,
+        allowedMentions: {
+          roles: [
+            CONFIG.sergeantRoleId,
+            CONFIG.seniorOfficerRoleId,
+            CONFIG.strikeCaptainRoleId,
+            CONFIG.highCommandRoleId,
+            CONFIG.vanguardPrimeRoleId,
+          ].filter(Boolean),
+          users: [activeMember.id],
+        },
+      });
+
+      updateRecruit(userId, { overdueAlertSent: true });
+    }
+
+    const refreshedRecruit = ensureRecruit(userId);
+    if (!refreshedRecruit.overdueDmSent) {
+      await sendOverdueDM(activeMember);
+      updateRecruit(userId, { overdueDmSent: true });
+    }
+  }
+}
+
+async function cleanupNonRecruitRecords(client) {
+  const db = loadDb();
+
+  for (const userId of Object.keys(db)) {
+    const recruit = db[userId];
+    let foundMember = null;
+
+    for (const guild of client.guilds.cache.values()) {
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member) continue;
+      foundMember = member;
+      break;
+    }
+
+    if (!foundMember) continue;
+
+    if (!isRecruitMember(foundMember)) {
+      await deleteMonitorMessageIfExists(client, recruit);
+      removeRecruitRecord(userId);
     }
   }
 }
@@ -1093,13 +1200,25 @@ async function refreshAllMonitorCards(client) {
   const db = loadDb();
 
   for (const userId of Object.keys(db)) {
-    for (const guild of client.guilds.cache.values()) {
-      const member = await guild.members.fetch(userId).catch(() => null);
-      if (!member) continue;
+    const recruit = db[userId];
+    let member = null;
 
-      await createOrUpdateMonitorCard(member).catch(console.error);
+    for (const guild of client.guilds.cache.values()) {
+      const fetched = await guild.members.fetch(userId).catch(() => null);
+      if (!fetched) continue;
+      member = fetched;
       break;
     }
+
+    if (!member) continue;
+
+    if (!isRecruitMember(member)) {
+      await deleteMonitorMessageIfExists(client, recruit);
+      removeRecruitRecord(userId);
+      continue;
+    }
+
+    await createOrUpdateMonitorCard(member).catch(console.error);
   }
 }
 
@@ -1112,6 +1231,7 @@ module.exports = {
   ensureRecruit,
   getRecruit,
   updateRecruit,
+  removeRecruitRecord,
 
   markGuideRead,
   markLawsRead,
@@ -1140,6 +1260,7 @@ module.exports = {
   createOrUpdateMonitorCard,
   checkOverdueRecruits,
   refreshAllMonitorCards,
+  cleanupNonRecruitRecords,
 
   isRecruitMember,
   isSupervisor,
