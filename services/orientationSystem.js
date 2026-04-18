@@ -47,6 +47,7 @@ CONFIG.supervisorRoleIds = [
   CONFIG.vanguardPrimeRoleId,
 ].filter(Boolean);
 
+// key = `${guildId}:${recruitId}:${supervisorId}:${channelId}`
 const activeVcSessions = new Map();
 
 /* =========================
@@ -107,10 +108,6 @@ function tagOf(member) {
   return member?.user?.tag || displayNameOf(member);
 }
 
-function isTrackedRecruitRecord(recruit) {
-  return Boolean(recruit?.trackingEnabled === true);
-}
-
 /* =========================
    RECRUIT MODEL
    ========================= */
@@ -122,8 +119,6 @@ function defaultRecruitRecord(userId) {
 
   return {
     userId,
-    trackingEnabled: false,
-
     guideRead: false,
     lawsRead: false,
     divisionsRead: false,
@@ -135,6 +130,7 @@ function defaultRecruitRecord(userId) {
 
     joinedAt: new Date(now).toISOString(),
     deadlineAt,
+    overdueAlertSent: false,
 
     deploymentCompletedAt: null,
     aarSubmittedAt: null,
@@ -152,27 +148,10 @@ function defaultRecruitRecord(userId) {
 
 function ensureRecruit(userId) {
   const db = loadDb();
-
   if (!db[userId]) {
     db[userId] = defaultRecruitRecord(userId);
     saveDb(db);
   }
-
-  if (!db[userId].joinedAt) {
-    db[userId].joinedAt = new Date().toISOString();
-  }
-
-  if (!db[userId].deadlineAt) {
-    db[userId].deadlineAt = new Date(
-      Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
-    ).toISOString();
-  }
-
-  if (typeof db[userId].trackingEnabled !== "boolean") {
-    db[userId].trackingEnabled = false;
-  }
-
-  saveDb(db);
   return db[userId];
 }
 
@@ -278,18 +257,7 @@ function hasAnyRole(member, roleIds = []) {
 }
 
 function isRecruitMember(member) {
-  if (!member?.roles?.cache) return false;
-  if (!CONFIG.recruitRoleId) return false;
-  if (!member.roles.cache.has(CONFIG.recruitRoleId)) return false;
-
-  if (CONFIG.trooperRoleId && member.roles.cache.has(CONFIG.trooperRoleId)) return false;
-  if (CONFIG.sergeantRoleId && member.roles.cache.has(CONFIG.sergeantRoleId)) return false;
-  if (CONFIG.seniorOfficerRoleId && member.roles.cache.has(CONFIG.seniorOfficerRoleId)) return false;
-  if (CONFIG.strikeCaptainRoleId && member.roles.cache.has(CONFIG.strikeCaptainRoleId)) return false;
-  if (CONFIG.highCommandRoleId && member.roles.cache.has(CONFIG.highCommandRoleId)) return false;
-  if (CONFIG.vanguardPrimeRoleId && member.roles.cache.has(CONFIG.vanguardPrimeRoleId)) return false;
-
-  return true;
+  return Boolean(CONFIG.recruitRoleId && member?.roles?.cache?.has(CONFIG.recruitRoleId));
 }
 
 function isSupervisor(member) {
@@ -459,26 +427,13 @@ async function logOrientation(client, message) {
   return sendToChannel(client, CONFIG.orientationLogChannelId, { content: message });
 }
 
-async function deleteMonitorMessageIfExists(client, recruitRecord) {
-  if (!recruitRecord?.monitorChannelId || !recruitRecord?.monitorMessageId) return;
-
-  const channel = await client.channels.fetch(recruitRecord.monitorChannelId).catch(() => null);
-  if (!channel?.isTextBased?.()) return;
-
-  const msg = await channel.messages.fetch(recruitRecord.monitorMessageId).catch(() => null);
-  if (msg) {
-    await msg.delete().catch(() => null);
-  }
-}
-
 async function createOrUpdateMonitorCard(member) {
   if (!CONFIG.recruitMonitorChannelId) return null;
 
-  const recruit = ensureRecruit(member.id);
-  if (!isTrackedRecruitRecord(recruit)) return null;
-
   const channel = await member.client.channels.fetch(CONFIG.recruitMonitorChannelId).catch(() => null);
   if (!channel?.isTextBased?.()) return null;
+
+  const recruit = ensureRecruit(member.id);
 
   if (recruit.monitorMessageId) {
     const msg = await channel.messages.fetch(recruit.monitorMessageId).catch(() => null);
@@ -539,12 +494,9 @@ async function sendChecklistPanel(client) {
 }
 
 async function sendChatOrientationMessage(member) {
-  if (!CONFIG.chatChannelId) {
-    console.error("[orientationSystem] ORIENTATION_CHAT_CHANNEL_ID is missing");
-    return null;
-  }
+  if (!CONFIG.chatChannelId) return null;
 
-  const sent = await sendToChannel(member.client, CONFIG.chatChannelId, {
+  return sendToChannel(member.client, CONFIG.chatChannelId, {
     content: [
       `🪖 Welcome to The Golden Vanguard, <@${member.id}>.`,
       "",
@@ -559,14 +511,6 @@ async function sendChatOrientationMessage(member) {
     ].join("\n"),
     allowedMentions: { users: [member.id] },
   });
-
-  if (!sent) {
-    console.error(
-      `[orientationSystem] Failed to send chat welcome for ${member.id} to channel ${CONFIG.chatChannelId}`
-    );
-  }
-
-  return sent;
 }
 
 async function sendOrientationDM(member) {
@@ -597,13 +541,15 @@ async function sendOrientationDM(member) {
 }
 
 async function logNewRecruit(member) {
-  updateRecruit(member.id, {
-    trackingEnabled: true,
-    joinedAt: new Date().toISOString(),
-    deadlineAt: new Date(
-      Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
-    ).toISOString(),
-  });
+  const recruit = ensureRecruit(member.id);
+
+  if (!recruit.deadlineAt) {
+    updateRecruit(member.id, {
+      deadlineAt: new Date(
+        Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
+      ).toISOString(),
+    });
+  }
 
   await createOrUpdateMonitorCard(member);
   await sendChatOrientationMessage(member);
@@ -611,9 +557,6 @@ async function logNewRecruit(member) {
 }
 
 async function logProgress(member, label) {
-  const recruit = ensureRecruit(member.id);
-  if (!isTrackedRecruitRecord(recruit)) return;
-
   const progress = progressCount(member.id);
 
   await createOrUpdateMonitorCard(member);
@@ -632,7 +575,6 @@ async function sendPromotionRequest(member) {
   const userId = member.id;
   const recruit = ensureRecruit(userId);
 
-  if (!isTrackedRecruitRecord(recruit)) return { ok: false, reason: "not_tracked" };
   if (recruit.promoted) return { ok: false, reason: "already_promoted" };
   if (!isComplete(userId)) return { ok: false, reason: "incomplete" };
   if (recruit.promotionRequested) return { ok: false, reason: "already_requested" };
@@ -660,7 +602,6 @@ async function autoRequestPromotionIfComplete(member) {
   if (!member) return false;
 
   const recruit = ensureRecruit(member.id);
-  if (!isTrackedRecruitRecord(recruit)) return false;
   if (recruit.promoted) return false;
   if (recruit.promotionRequested) return false;
   if (!isComplete(member.id)) return false;
@@ -692,10 +633,6 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     promotedAt: new Date().toISOString(),
     promotedBy: approverMember.id,
   });
-
-  const updatedRecord = getRecruit(targetUserId);
-  await deleteMonitorMessageIfExists(guild.client, updatedRecord);
-  removeRecruitRecord(targetUserId);
 
   await logOrientation(
     guild.client,
@@ -730,6 +667,7 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     "Welcome to the Vanguard, Diver.\n\nYou have been promoted to **Trooper** and are now cleared for deployment."
   ).catch(() => null);
 
+  removeRecruitRecord(targetUserId);
   return { ok: true };
 }
 
@@ -797,8 +735,6 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
   const member = await guild.members.fetch(targetUserId).catch(() => null);
   if (!member) return { ok: false, reason: "member_not_found" };
 
-  const existingRecord = getRecruit(targetUserId);
-
   await logOrientation(
     guild.client,
     [
@@ -830,7 +766,6 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
     return { ok: false, reason: "kick_failed" };
   }
 
-  await deleteMonitorMessageIfExists(guild.client, existingRecord);
   removeRecruitRecord(targetUserId);
 
   if (interaction) {
@@ -929,10 +864,11 @@ async function handleOrientationButton(interaction) {
     }
   }
 
-  const recruit = ensureRecruit(member.id);
-  if (!isTrackedRecruitRecord(recruit)) {
+  ensureRecruit(member.id);
+
+  if (!isRecruitMember(member)) {
     await interaction.reply({
-      content: "This recruit is not part of the live orientation tracking system.",
+      content: "This orientation panel is for Recruits only.",
       ephemeral: true,
     });
     return true;
@@ -997,21 +933,7 @@ async function maybeCompleteSession(guild, session) {
   const enoughTime = durationMs >= CONFIG.minVcMinutes * 60 * 1000;
   if (!enoughTime) return false;
 
-  const recruitMember =
-    guild.members.cache.get(session.recruitId) ||
-    (await guild.members.fetch(session.recruitId).catch(() => null));
-
-  if (!recruitMember) {
-    session.completed = true;
-    return false;
-  }
-
   const recruitRecord = ensureRecruit(session.recruitId);
-  if (!isTrackedRecruitRecord(recruitRecord)) {
-    session.completed = true;
-    return false;
-  }
-
   if (recruitRecord.deploymentComplete) {
     session.completed = true;
     return false;
@@ -1019,12 +941,18 @@ async function maybeCompleteSession(guild, session) {
 
   markDeployment(session.recruitId, session.supervisorId, session.channelId);
 
-  await logProgress(
-    recruitMember,
-    `Deployment detected with <@${session.supervisorId}>`
-  ).catch(console.error);
+  const recruitMember =
+    guild.members.cache.get(session.recruitId) ||
+    (await guild.members.fetch(session.recruitId).catch(() => null));
 
-  await autoRequestPromotionIfComplete(recruitMember).catch(console.error);
+  if (recruitMember) {
+    await logProgress(
+      recruitMember,
+      `Deployment detected with <@${session.supervisorId}>`
+    ).catch(console.error);
+
+    await autoRequestPromotionIfComplete(recruitMember).catch(console.error);
+  }
 
   session.completed = true;
   return true;
@@ -1038,10 +966,7 @@ async function scanVoiceSessions(guild) {
 
   for (const [, channel] of voiceChannels) {
     const members = [...channel.members.values()];
-    const recruits = members.filter((m) => {
-      const record = getRecruit(m.id);
-      return record && isTrackedRecruitRecord(record);
-    });
+    const recruits = members.filter((m) => isRecruitMember(m));
     const supervisors = members.filter((m) => isSupervisor(m));
 
     if (!recruits.length || !supervisors.length) continue;
@@ -1096,10 +1021,7 @@ async function scanAllTrackedGuilds(client) {
    AAR SUPPORT
    ========================= */
 async function maybeAutoLogAAR(member) {
-  if (!member) return false;
-
-  const recruit = ensureRecruit(member.id);
-  if (!isTrackedRecruitRecord(recruit)) return false;
+  if (!member || !isRecruitMember(member)) return false;
 
   const before = getRecruit(member.id);
   markAAR(member.id);
