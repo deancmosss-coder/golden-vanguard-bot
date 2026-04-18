@@ -92,6 +92,22 @@ function removeRecruitRecord(userId) {
 }
 
 /* =========================
+   HELPERS
+   ========================= */
+function displayNameOf(member) {
+  return (
+    member?.displayName ||
+    member?.user?.globalName ||
+    member?.user?.username ||
+    "Unknown Member"
+  );
+}
+
+function tagOf(member) {
+  return member?.user?.tag || displayNameOf(member);
+}
+
+/* =========================
    RECRUIT MODEL
    ========================= */
 function defaultRecruitRecord(userId) {
@@ -113,8 +129,6 @@ function defaultRecruitRecord(userId) {
 
     joinedAt: new Date(now).toISOString(),
     deadlineAt,
-    overdueAlertSent: false,
-    overdueDmSent: false,
 
     deploymentCompletedAt: null,
     aarSubmittedAt: null,
@@ -132,6 +146,7 @@ function defaultRecruitRecord(userId) {
 
 function ensureRecruit(userId) {
   const db = loadDb();
+
   if (!db[userId]) {
     db[userId] = defaultRecruitRecord(userId);
     saveDb(db);
@@ -145,14 +160,6 @@ function ensureRecruit(userId) {
     db[userId].deadlineAt = new Date(
       Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
     ).toISOString();
-  }
-
-  if (typeof db[userId].overdueAlertSent !== "boolean") {
-    db[userId].overdueAlertSent = false;
-  }
-
-  if (typeof db[userId].overdueDmSent !== "boolean") {
-    db[userId].overdueDmSent = false;
   }
 
   saveDb(db);
@@ -341,7 +348,7 @@ function buildPromotionRequestEmbed(member) {
     .setTitle("⭐ Trooper Promotion Review")
     .setDescription(
       [
-        `Recruit: <@${member.id}>`,
+        `Recruit: ${displayNameOf(member)}`,
         `Guide: ${r.guideRead ? "✅" : "⬜"}`,
         `Laws: ${r.lawsRead ? "✅" : "⬜"}`,
         `Divisions: ${r.divisionsRead ? "✅" : "⬜"}`,
@@ -389,19 +396,15 @@ function buildMonitorButtons(userId) {
 function buildRecruitMonitorEmbed(member) {
   const r = ensureRecruit(member.id);
 
-  const deadlineMs = new Date(r.deadlineAt).getTime();
-  const overdue = !r.promoted && Number.isFinite(deadlineMs) && Date.now() > deadlineMs;
-  const color = r.promoted ? 0x2ecc71 : overdue ? 0xe74c3c : 0xf1c40f;
-
   return new EmbedBuilder()
-    .setColor(color)
+    .setColor(0xf1c40f)
     .setTitle("🪖 Recruit Orientation Status")
     .setDescription(
       [
-        `Recruit: <@${member.id}>`,
+        `Recruit: ${displayNameOf(member)}`,
         `Joined: ${r.joinedAt ? `<t:${Math.floor(new Date(r.joinedAt).getTime() / 1000)}:D>` : "Unknown"}`,
         `Deadline: ${r.deadlineAt ? `<t:${Math.floor(new Date(r.deadlineAt).getTime() / 1000)}:D>` : "Unknown"}`,
-        `Status: ${r.promoted ? "✅ Promoted" : overdue ? "❌ Overdue" : "🟡 Active Recruit"}`,
+        `Status: ${r.promoted ? "✅ Promoted" : "🟡 Active Recruit"}`,
         "",
         `${r.guideRead ? "✅" : "⬜"} Guide`,
         `${r.lawsRead ? "✅" : "⬜"} Laws`,
@@ -489,13 +492,13 @@ async function announcePromotion(client, member, approverMember) {
     content: [
       "🪖 **WELCOME TO THE GOLDEN VANGUARD**",
       "",
-      `<@${member.id}> has completed Recruit Orientation and has been promoted to **Trooper**.`,
+      `${displayNameOf(member)} has completed Recruit Orientation and has been promoted to **Trooper**.`,
       "",
       "Recruits observe. Troopers deploy.",
       "",
-      `Approved by: <@${approverMember.id}>`,
+      `Approved by: ${displayNameOf(approverMember)}`,
     ].join("\n"),
-    allowedMentions: { users: [member.id, approverMember.id] },
+    allowedMentions: { users: [member.id] },
   });
 }
 
@@ -572,22 +575,6 @@ async function sendOrientationDM(member) {
   ).catch(() => null);
 }
 
-async function sendOverdueDM(member) {
-  return member.send(
-    [
-      "⚠️ **Orientation Overdue**",
-      "",
-      "Your Recruit Orientation is now overdue.",
-      "",
-      "You are now at risk of being removed from The Golden Vanguard if this is not completed.",
-      "",
-      "Please complete your orientation as soon as possible and speak to staff if you need help.",
-      "",
-      `Checklist: <#${CONFIG.checklistChannelId}>`,
-    ].join("\n")
-  ).catch(() => null);
-}
-
 async function logNewRecruit(member) {
   if (!isRecruitMember(member)) return null;
 
@@ -614,7 +601,7 @@ async function logProgress(member, label) {
     member.client,
     [
       "📈 **Recruit Progress Update**",
-      `Diver: <@${member.id}>`,
+      `Diver: ${displayNameOf(member)}`,
       `Update: ${label}`,
       `Progress: ${progress.done}/${progress.total}`,
     ].join("\n")
@@ -641,7 +628,7 @@ async function sendPromotionRequest(member) {
 
   await logOrientation(
     member.client,
-    `⭐ **Promotion Requested**\nDiver: <@${member.id}>\nStatus: Awaiting approval`
+    `⭐ **Promotion Requested**\nDiver: ${displayNameOf(member)}\nStatus: Awaiting approval`
   );
 
   await createOrUpdateMonitorCard(member);
@@ -693,8 +680,8 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     guild.client,
     [
       "✅ **Recruit Promoted**",
-      `Diver: <@${member.id}>`,
-      `Approved by: <@${approverMember.id}>`,
+      `Diver: ${displayNameOf(member)}`,
+      `Approved by: ${displayNameOf(approverMember)}`,
       "Rank: Trooper",
     ].join("\n")
   );
@@ -704,7 +691,7 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
   if (interaction) {
     if (interaction.message?.embeds?.length) {
       const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-        .setFooter({ text: `Approved by ${approverMember.displayName}` });
+        .setFooter({ text: `Approved by ${displayNameOf(approverMember)}` });
 
       await interaction.update({
         embeds: [updatedEmbed],
@@ -712,7 +699,7 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
       }).catch(console.error);
     } else {
       await interaction.reply({
-        content: `✅ <@${member.id}> has been promoted to **Trooper**.`,
+        content: `✅ ${displayNameOf(member)} has been promoted to **Trooper**.`,
         ephemeral: true,
       }).catch(() => null);
     }
@@ -733,14 +720,14 @@ async function moreTraining(guild, targetUserId, approverMember, interaction = n
     guild.client,
     [
       "⚠️ **Orientation Returned For More Training**",
-      `Diver: <@${member.id}>`,
-      `Reviewed by: <@${approverMember.id}>`,
+      `Diver: ${displayNameOf(member)}`,
+      `Reviewed by: ${displayNameOf(approverMember)}`,
     ].join("\n")
   );
 
   if (interaction) {
     const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Returned for more training by ${approverMember.displayName}` });
+      .setFooter({ text: `Returned for more training by ${displayNameOf(approverMember)}` });
 
     await interaction.update({
       embeds: [updatedEmbed],
@@ -763,14 +750,14 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
     guild.client,
     [
       "❌ **Promotion Denied**",
-      `Diver: <@${member.id}>`,
-      `Reviewed by: <@${approverMember.id}>`,
+      `Diver: ${displayNameOf(member)}`,
+      `Reviewed by: ${displayNameOf(approverMember)}`,
     ].join("\n")
   );
 
   if (interaction) {
     const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Denied by ${approverMember.displayName}` });
+      .setFooter({ text: `Denied by ${displayNameOf(approverMember)}` });
 
     await interaction.update({
       embeds: [updatedEmbed],
@@ -795,8 +782,8 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
     guild.client,
     [
       "❌ **Recruit Removed**",
-      `Diver: ${member.user.tag}`,
-      `Removed by: <@${approverMember.id}>`,
+      `Diver: ${tagOf(member)}`,
+      `Removed by: ${displayNameOf(approverMember)}`,
     ].join("\n")
   );
 
@@ -807,7 +794,7 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
 
     await guild.members.kick(
       member.id,
-      `Recruit removed by ${approverMember.user.tag} - orientation action`
+      `Recruit removed by ${tagOf(approverMember)} - orientation action`
     );
   } catch (err) {
     console.error("[orientationSystem] kickRecruit error:", err);
@@ -827,7 +814,7 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
 
   if (interaction) {
     await interaction.reply({
-      content: `❌ ${member.user.tag} has been removed.`,
+      content: `❌ ${tagOf(member)} has been removed.`,
       ephemeral: true,
     }).catch(() => null);
   }
@@ -1096,130 +1083,18 @@ async function maybeAutoLogAAR(member) {
 }
 
 /* =========================
-   OVERDUE CHECK
+   FULLY DISABLED AUTO SCANS
    ========================= */
-async function checkOverdueRecruits(client) {
-  const db = loadDb();
-  const now = Date.now();
-
-  for (const userId of Object.keys(db)) {
-    const recruit = db[userId];
-    if (!recruit) continue;
-
-    let activeMember = null;
-
-    for (const guild of client.guilds.cache.values()) {
-      const member = await guild.members.fetch(userId).catch(() => null);
-      if (!member) continue;
-
-      activeMember = member;
-      break;
-    }
-
-    if (!activeMember) {
-      continue;
-    }
-
-    if (!isRecruitMember(activeMember)) {
-      await deleteMonitorMessageIfExists(client, recruit);
-      removeRecruitRecord(userId);
-      continue;
-    }
-
-    const activeRecruit = ensureRecruit(userId);
-    const deadline = new Date(activeRecruit.deadlineAt).getTime();
-    if (Number.isNaN(deadline)) continue;
-
-    await createOrUpdateMonitorCard(activeMember);
-
-    if (now <= deadline) continue;
-
-    if (!activeRecruit.overdueAlertSent) {
-      const pingText =
-        [
-          CONFIG.sergeantRoleId && `<@&${CONFIG.sergeantRoleId}>`,
-          CONFIG.seniorOfficerRoleId && `<@&${CONFIG.seniorOfficerRoleId}>`,
-          CONFIG.strikeCaptainRoleId && `<@&${CONFIG.strikeCaptainRoleId}>`,
-          CONFIG.highCommandRoleId && `<@&${CONFIG.highCommandRoleId}>`,
-          CONFIG.vanguardPrimeRoleId && `<@&${CONFIG.vanguardPrimeRoleId}>`,
-        ]
-          .filter(Boolean)
-          .join(" ") || "Staff";
-
-      await sendToChannel(client, CONFIG.recruitMonitorChannelId, {
-        content: `⚠️ ${pingText} Recruit <@${activeMember.id}> has exceeded the ${CONFIG.deadlineDays}-day orientation deadline.`,
-        allowedMentions: {
-          roles: [
-            CONFIG.sergeantRoleId,
-            CONFIG.seniorOfficerRoleId,
-            CONFIG.strikeCaptainRoleId,
-            CONFIG.highCommandRoleId,
-            CONFIG.vanguardPrimeRoleId,
-          ].filter(Boolean),
-          users: [activeMember.id],
-        },
-      });
-
-      updateRecruit(userId, { overdueAlertSent: true });
-    }
-
-    const refreshedRecruit = ensureRecruit(userId);
-    if (!refreshedRecruit.overdueDmSent) {
-      await sendOverdueDM(activeMember);
-      updateRecruit(userId, { overdueDmSent: true });
-    }
-  }
+async function checkOverdueRecruits() {
+  return;
 }
 
-async function cleanupNonRecruitRecords(client) {
-  const db = loadDb();
-
-  for (const userId of Object.keys(db)) {
-    const recruit = db[userId];
-    let foundMember = null;
-
-    for (const guild of client.guilds.cache.values()) {
-      const member = await guild.members.fetch(userId).catch(() => null);
-      if (!member) continue;
-      foundMember = member;
-      break;
-    }
-
-    if (!foundMember) continue;
-
-    if (!isRecruitMember(foundMember)) {
-      await deleteMonitorMessageIfExists(client, recruit);
-      removeRecruitRecord(userId);
-    }
-  }
+async function refreshAllMonitorCards() {
+  return;
 }
 
-async function refreshAllMonitorCards(client) {
-  if (!client?.guilds?.cache) return;
-
-  const db = loadDb();
-
-  for (const userId of Object.keys(db)) {
-    const recruit = db[userId];
-    let member = null;
-
-    for (const guild of client.guilds.cache.values()) {
-      const fetched = await guild.members.fetch(userId).catch(() => null);
-      if (!fetched) continue;
-      member = fetched;
-      break;
-    }
-
-    if (!member) continue;
-
-    if (!isRecruitMember(member)) {
-      await deleteMonitorMessageIfExists(client, recruit);
-      removeRecruitRecord(userId);
-      continue;
-    }
-
-    await createOrUpdateMonitorCard(member).catch(console.error);
-  }
+async function cleanupNonRecruitRecords() {
+  return;
 }
 
 /* =========================
