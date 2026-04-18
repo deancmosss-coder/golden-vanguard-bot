@@ -318,8 +318,10 @@ client.on(Events.GuildMemberAdd, async (member) => {
       }
     }
 
-    await orientationSystem.logNewRecruit(member);
-    registry.registerSuccess("orientation");
+    if (orientationSystem.isRecruitMember(member)) {
+      await orientationSystem.logNewRecruit(member);
+      registry.registerSuccess("orientation");
+    }
   } catch (err) {
     logger.error("GuildMemberAdd failed", err, {
       location: "index.js -> GuildMemberAdd",
@@ -919,6 +921,13 @@ client.once(Events.ClientReady, async () => {
     });
   }
 
+  // Remove stale old non-recruit records/cards on startup
+  await orientationSystem.cleanupNonRecruitRecords(client).catch((err) => {
+    logger.error("Orientation cleanup failed", err, {
+      location: "index.js -> ClientReady -> cleanupNonRecruitRecords",
+    });
+  });
+
   // Orientation overdue checker
   setInterval(() => {
     orientationSystem.checkOverdueRecruits(client).catch((err) => {
@@ -936,15 +945,6 @@ client.once(Events.ClientReady, async () => {
       });
     });
   }, 60 * 1000);
-
-  // Refresh recruit monitor cards so countdown text updates
-  setInterval(() => {
-    orientationSystem.refreshAllMonitorCards(client).catch((err) => {
-      logger.error("Recruit monitor refresh failed", err, {
-        location: "index.js -> ClientReady -> setInterval(refreshAllMonitorCards)",
-      });
-    });
-  }, 60 * 60 * 1000);
 
   await runProtected(client, {
     feature: "warboard",
