@@ -921,21 +921,11 @@ client.once(Events.ClientReady, async () => {
     });
   }
 
-  // Remove stale old non-recruit records/cards on startup
   await orientationSystem.cleanupNonRecruitRecords(client).catch((err) => {
     logger.error("Orientation cleanup failed", err, {
       location: "index.js -> ClientReady -> cleanupNonRecruitRecords",
     });
   });
-
-  // Orientation overdue checker
-  setInterval(() => {
-    orientationSystem.checkOverdueRecruits(client).catch((err) => {
-      logger.error("Orientation overdue check failed", err, {
-        location: "index.js -> ClientReady -> setInterval(checkOverdueRecruits)",
-      });
-    });
-  }, 60 * 60 * 1000);
 
   // Orientation VC sweep so deployment completes even with no new VC events
   setInterval(() => {
