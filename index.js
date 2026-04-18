@@ -1,16 +1,3 @@
-// =========================
-// index.js
-// CLEAN CORE FILE
-// No automated permission sync logic
-// Includes player VC time tracking
-// Fixed tracker store access
-// Added logging + alert foundation
-// Added feature guard system
-// Added success tracking integration
-// Added review discovery button support
-// PHASE 2: AUTO DISCOVERY SCAN
-// =========================
-
 require("dotenv").config();
 
 const fs = require("fs");
@@ -318,7 +305,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
       }
     }
 
-    // Always start live orientation tracking for genuinely new joins.
     await orientationSystem.logNewRecruit(member);
     registry.registerSuccess("orientation");
   } catch (err) {
@@ -920,7 +906,7 @@ client.once(Events.ClientReady, async () => {
     });
   }
 
-  // VC sweep only - this is safe and only affects tracked live recruits.
+  // Only VC sweep. No monitor refresh spam, no overdue loop, no cleanup loop.
   setInterval(() => {
     orientationSystem.scanAllTrackedGuilds(client).catch((err) => {
       logger.error("Orientation VC sweep failed", err, {
