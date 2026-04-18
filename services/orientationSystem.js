@@ -473,7 +473,6 @@ async function deleteMonitorMessageIfExists(client, recruitRecord) {
 
 async function createOrUpdateMonitorCard(member) {
   if (!CONFIG.recruitMonitorChannelId) return null;
-  if (!isRecruitMember(member)) return null;
 
   const recruit = ensureRecruit(member.id);
   if (!isTrackedRecruitRecord(recruit)) return null;
@@ -598,8 +597,6 @@ async function sendOrientationDM(member) {
 }
 
 async function logNewRecruit(member) {
-  if (!isRecruitMember(member)) return null;
-
   updateRecruit(member.id, {
     trackingEnabled: true,
     joinedAt: new Date().toISOString(),
@@ -661,7 +658,6 @@ async function sendPromotionRequest(member) {
 
 async function autoRequestPromotionIfComplete(member) {
   if (!member) return false;
-  if (!isRecruitMember(member)) return false;
 
   const recruit = ensureRecruit(member.id);
   if (!isTrackedRecruitRecord(recruit)) return false;
@@ -933,16 +929,6 @@ async function handleOrientationButton(interaction) {
     }
   }
 
-  ensureRecruit(member.id);
-
-  if (!isRecruitMember(member)) {
-    await interaction.reply({
-      content: "This orientation panel is for Recruits only.",
-      ephemeral: true,
-    });
-    return true;
-  }
-
   const recruit = ensureRecruit(member.id);
   if (!isTrackedRecruitRecord(recruit)) {
     await interaction.reply({
@@ -1015,7 +1001,7 @@ async function maybeCompleteSession(guild, session) {
     guild.members.cache.get(session.recruitId) ||
     (await guild.members.fetch(session.recruitId).catch(() => null));
 
-  if (!recruitMember || !isRecruitMember(recruitMember)) {
+  if (!recruitMember) {
     session.completed = true;
     return false;
   }
@@ -1052,7 +1038,10 @@ async function scanVoiceSessions(guild) {
 
   for (const [, channel] of voiceChannels) {
     const members = [...channel.members.values()];
-    const recruits = members.filter((m) => isRecruitMember(m));
+    const recruits = members.filter((m) => {
+      const record = getRecruit(m.id);
+      return record && isTrackedRecruitRecord(record);
+    });
     const supervisors = members.filter((m) => isSupervisor(m));
 
     if (!recruits.length || !supervisors.length) continue;
@@ -1107,7 +1096,7 @@ async function scanAllTrackedGuilds(client) {
    AAR SUPPORT
    ========================= */
 async function maybeAutoLogAAR(member) {
-  if (!member || !isRecruitMember(member)) return false;
+  if (!member) return false;
 
   const recruit = ensureRecruit(member.id);
   if (!isTrackedRecruitRecord(recruit)) return false;
@@ -1125,7 +1114,7 @@ async function maybeAutoLogAAR(member) {
 }
 
 /* =========================
-   FULLY DISABLED AUTO SCANS
+   DISABLED AUTO SCANS
    ========================= */
 async function checkOverdueRecruits() {
   return;
