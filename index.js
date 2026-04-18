@@ -318,10 +318,9 @@ client.on(Events.GuildMemberAdd, async (member) => {
       }
     }
 
-    if (orientationSystem.isRecruitMember(member)) {
-      await orientationSystem.logNewRecruit(member);
-      registry.registerSuccess("orientation");
-    }
+    // Always start live orientation tracking for genuinely new joins.
+    await orientationSystem.logNewRecruit(member);
+    registry.registerSuccess("orientation");
   } catch (err) {
     logger.error("GuildMemberAdd failed", err, {
       location: "index.js -> GuildMemberAdd",
@@ -921,13 +920,7 @@ client.once(Events.ClientReady, async () => {
     });
   }
 
-  await orientationSystem.cleanupNonRecruitRecords(client).catch((err) => {
-    logger.error("Orientation cleanup failed", err, {
-      location: "index.js -> ClientReady -> cleanupNonRecruitRecords",
-    });
-  });
-
-  // Orientation VC sweep so deployment completes even with no new VC events
+  // VC sweep only - this is safe and only affects tracked live recruits.
   setInterval(() => {
     orientationSystem.scanAllTrackedGuilds(client).catch((err) => {
       logger.error("Orientation VC sweep failed", err, {
