@@ -107,6 +107,10 @@ function tagOf(member) {
   return member?.user?.tag || displayNameOf(member);
 }
 
+function isTrackedRecruitRecord(recruit) {
+  return Boolean(recruit?.trackingEnabled === true);
+}
+
 /* =========================
    RECRUIT MODEL
    ========================= */
@@ -118,6 +122,8 @@ function defaultRecruitRecord(userId) {
 
   return {
     userId,
+    trackingEnabled: false,
+
     guideRead: false,
     lawsRead: false,
     divisionsRead: false,
@@ -160,6 +166,10 @@ function ensureRecruit(userId) {
     db[userId].deadlineAt = new Date(
       Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
     ).toISOString();
+  }
+
+  if (typeof db[userId].trackingEnabled !== "boolean") {
+    db[userId].trackingEnabled = false;
   }
 
   saveDb(db);
@@ -268,7 +278,18 @@ function hasAnyRole(member, roleIds = []) {
 }
 
 function isRecruitMember(member) {
-  return Boolean(CONFIG.recruitRoleId && member?.roles?.cache?.has(CONFIG.recruitRoleId));
+  if (!member?.roles?.cache) return false;
+  if (!CONFIG.recruitRoleId) return false;
+  if (!member.roles.cache.has(CONFIG.recruitRoleId)) return false;
+
+  if (CONFIG.trooperRoleId && member.roles.cache.has(CONFIG.trooperRoleId)) return false;
+  if (CONFIG.sergeantRoleId && member.roles.cache.has(CONFIG.sergeantRoleId)) return false;
+  if (CONFIG.seniorOfficerRoleId && member.roles.cache.has(CONFIG.seniorOfficerRoleId)) return false;
+  if (CONFIG.strikeCaptainRoleId && member.roles.cache.has(CONFIG.strikeCaptainRoleId)) return false;
+  if (CONFIG.highCommandRoleId && member.roles.cache.has(CONFIG.highCommandRoleId)) return false;
+  if (CONFIG.vanguardPrimeRoleId && member.roles.cache.has(CONFIG.vanguardPrimeRoleId)) return false;
+
+  return true;
 }
 
 function isSupervisor(member) {
@@ -454,10 +475,11 @@ async function createOrUpdateMonitorCard(member) {
   if (!CONFIG.recruitMonitorChannelId) return null;
   if (!isRecruitMember(member)) return null;
 
+  const recruit = ensureRecruit(member.id);
+  if (!isTrackedRecruitRecord(recruit)) return null;
+
   const channel = await member.client.channels.fetch(CONFIG.recruitMonitorChannelId).catch(() => null);
   if (!channel?.isTextBased?.()) return null;
-
-  const recruit = ensureRecruit(member.id);
 
   if (recruit.monitorMessageId) {
     const msg = await channel.messages.fetch(recruit.monitorMessageId).catch(() => null);
@@ -578,15 +600,13 @@ async function sendOrientationDM(member) {
 async function logNewRecruit(member) {
   if (!isRecruitMember(member)) return null;
 
-  const recruit = ensureRecruit(member.id);
-
-  if (!recruit.deadlineAt) {
-    updateRecruit(member.id, {
-      deadlineAt: new Date(
-        Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
-      ).toISOString(),
-    });
-  }
+  updateRecruit(member.id, {
+    trackingEnabled: true,
+    joinedAt: new Date().toISOString(),
+    deadlineAt: new Date(
+      Date.now() + CONFIG.deadlineDays * 24 * 60 * 60 * 1000
+    ).toISOString(),
+  });
 
   await createOrUpdateMonitorCard(member);
   await sendChatOrientationMessage(member);
@@ -594,6 +614,9 @@ async function logNewRecruit(member) {
 }
 
 async function logProgress(member, label) {
+  const recruit = ensureRecruit(member.id);
+  if (!isTrackedRecruitRecord(recruit)) return;
+
   const progress = progressCount(member.id);
 
   await createOrUpdateMonitorCard(member);
@@ -612,6 +635,7 @@ async function sendPromotionRequest(member) {
   const userId = member.id;
   const recruit = ensureRecruit(userId);
 
+  if (!isTrackedRecruitRecord(recruit)) return { ok: false, reason: "not_tracked" };
   if (recruit.promoted) return { ok: false, reason: "already_promoted" };
   if (!isComplete(userId)) return { ok: false, reason: "incomplete" };
   if (recruit.promotionRequested) return { ok: false, reason: "already_requested" };
@@ -640,6 +664,7 @@ async function autoRequestPromotionIfComplete(member) {
   if (!isRecruitMember(member)) return false;
 
   const recruit = ensureRecruit(member.id);
+  if (!isTrackedRecruitRecord(recruit)) return false;
   if (recruit.promoted) return false;
   if (recruit.promotionRequested) return false;
   if (!isComplete(member.id)) return false;
@@ -918,6 +943,15 @@ async function handleOrientationButton(interaction) {
     return true;
   }
 
+  const recruit = ensureRecruit(member.id);
+  if (!isTrackedRecruitRecord(recruit)) {
+    await interaction.reply({
+      content: "This recruit is not part of the live orientation tracking system.",
+      ephemeral: true,
+    });
+    return true;
+  }
+
   if (customId === "orientation_guide") {
     markGuideRead(member.id);
     await logProgress(member, "Guide reviewed");
@@ -987,6 +1021,11 @@ async function maybeCompleteSession(guild, session) {
   }
 
   const recruitRecord = ensureRecruit(session.recruitId);
+  if (!isTrackedRecruitRecord(recruitRecord)) {
+    session.completed = true;
+    return false;
+  }
+
   if (recruitRecord.deploymentComplete) {
     session.completed = true;
     return false;
@@ -1069,6 +1108,9 @@ async function scanAllTrackedGuilds(client) {
    ========================= */
 async function maybeAutoLogAAR(member) {
   if (!member || !isRecruitMember(member)) return false;
+
+  const recruit = ensureRecruit(member.id);
+  if (!isTrackedRecruitRecord(recruit)) return false;
 
   const before = getRecruit(member.id);
   markAAR(member.id);
