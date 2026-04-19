@@ -651,6 +651,18 @@ function formatUnlockedMedals(unlocked) {
   return unlocked.map((m) => `🏅 **${m.name}**`).join("\n");
 }
 
+async function safeAcknowledge(interaction) {
+  if (interaction.deferred || interaction.replied) return;
+  await interaction.deferReply({ flags: 64 });
+}
+
+async function safeRespond(interaction, content) {
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply({ content });
+  }
+  return interaction.reply({ content, flags: 64 });
+}
+
 const data = new SlashCommandBuilder()
   .setName("run")
   .setDescription("Log your mission run (Player Stats) for the Vanguard tracker.")
@@ -670,10 +682,19 @@ const data = new SlashCommandBuilder()
       .addChoices(...ENEMIES.map((e) => ({ name: e, value: e })))
   )
   .addIntegerOption((o) =>
-    o.setName("difficulty").setDescription("Difficulty 1–10").setRequired(true).setMinValue(1).setMaxValue(10)
+    o
+      .setName("difficulty")
+      .setDescription("Difficulty 1–10")
+      .setRequired(true)
+      .setMinValue(1)
+      .setMaxValue(10)
   )
   .addStringOption((o) =>
-    o.setName("mission_type").setDescription("Mission type").setRequired(true).setAutocomplete(true)
+    o
+      .setName("mission_type")
+      .setDescription("Mission type")
+      .setRequired(true)
+      .setAutocomplete(true)
   )
   .addStringOption((o) =>
     o
@@ -743,16 +764,36 @@ const data = new SlashCommandBuilder()
       )
   )
   .addIntegerOption((o) =>
-    o.setName("divers_missing").setDescription("Divers missing on extraction (0–4)").setRequired(true).setMinValue(0).setMaxValue(4)
+    o
+      .setName("divers_missing")
+      .setDescription("Divers missing on extraction (0–4)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(4)
   )
   .addIntegerOption((o) =>
-    o.setName("kills").setDescription("Your kills (Player Stats)").setRequired(true).setMinValue(0).setMaxValue(9999)
+    o
+      .setName("kills")
+      .setDescription("Your kills (Player Stats)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(9999)
   )
   .addIntegerOption((o) =>
-    o.setName("deaths").setDescription("Your deaths (Player Stats)").setRequired(true).setMinValue(0).setMaxValue(9999)
+    o
+      .setName("deaths")
+      .setDescription("Your deaths (Player Stats)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(9999)
   )
   .addIntegerOption((o) =>
-    o.setName("accidentals").setDescription("Your accidentals/teamkills (Player Stats)").setRequired(true).setMinValue(0).setMaxValue(9999)
+    o
+      .setName("accidentals")
+      .setDescription("Your accidentals/teamkills (Player Stats)")
+      .setRequired(true)
+      .setMinValue(0)
+      .setMaxValue(9999)
   );
 
 async function autocomplete(interaction) {
@@ -790,7 +831,7 @@ async function autocomplete(interaction) {
 }
 
 async function execute(interaction) {
-  await interaction.deferReply({ flags: 64 }).catch(() => {});
+  await interaction.deferReply({ flags: 64 });
 
   const store = readStore();
   ensureCurrentMonth(store);
@@ -807,7 +848,8 @@ async function execute(interaction) {
 
   if (hasLockedPending) {
     return interaction.editReply({
-      content: "🛑 You already have a proof-required run waiting for screenshots. Finish or delete it before logging another run.",
+      content:
+        "🛑 You already have a proof-required run waiting for screenshots. Finish or delete it before logging another run.",
     });
   }
 
@@ -942,20 +984,21 @@ async function execute(interaction) {
 
 async function handleTrackerButton(interaction) {
   console.log("HANDLE BUTTON START:", interaction.customId);
+
   try {
-    const store = readStore();
     const [action, runId] = String(interaction.customId || "").split(":");
+    const store = readStore();
     const run = store.runs.find((r) => r.runId === runId && r.guildId === interaction.guildId);
 
     if (!run || run.status === "deleted") {
-      return interaction.reply({ content: "Run not found.", flags: 64 }).catch(() => {});
+      return safeRespond(interaction, "Run not found.");
     }
 
     if (interaction.user.id !== run.loggerId) {
-      return interaction.reply({
-        content: "Only the diver who submitted this run can use these buttons.",
-        flags: 64,
-      }).catch(() => {});
+      return safeRespond(
+        interaction,
+        "Only the diver who submitted this run can use these buttons."
+      );
     }
 
     const now = Date.now();
@@ -963,10 +1006,7 @@ async function handleTrackerButton(interaction) {
     if (action === "gv_edit") {
       if (!isEditable(run, interaction.user.id, now)) {
         await editRunMessage(interaction.client, run).catch(() => {});
-        return interaction.reply({
-          content: "The edit window has expired.",
-          flags: 64,
-        }).catch(() => {});
+        return safeRespond(interaction, "The edit window has expired.");
       }
 
       const modal = new ModalBuilder()
@@ -1014,14 +1054,14 @@ async function handleTrackerButton(interaction) {
       return interaction.showModal(modal);
     }
 
-    await interaction.deferReply({ flags: 64 }).catch(() => {});
+    await safeAcknowledge(interaction);
 
     if (action === "gv_proof_add") {
       if (now > run.proofExpireAt) {
         await expireSingleRun(interaction.client, store, run);
         writeStore(store);
         await refreshOpsBoardFromCache(interaction.client).catch(() => {});
-        return interaction.editReply("The proof window has expired.");
+        return safeRespond(interaction, "The proof window has expired.");
       }
 
       store.proofSessions[runId] = {
@@ -1038,7 +1078,8 @@ async function handleTrackerButton(interaction) {
       writeStore(store);
       registry.registerSuccess("tracker");
 
-      return interaction.editReply(
+      return safeRespond(
+        interaction,
         `📎 Proof started for **${runId}**.\n` +
           `Upload **${PROOF_REQUIRED_IMAGES} screenshots** in **#${AAR_NAME}** within **${PROOF_WINDOW_MINUTES} minutes**:\n` +
           `• Mission Report\n• Player Stats`
@@ -1047,18 +1088,21 @@ async function handleTrackerButton(interaction) {
 
     if (action === "gv_proof_skip") {
       if (run.requiresProof) {
-        return interaction.editReply("🛑 Proof is required after 5 unverified runs. You must use **Add Proof (x2)**.");
+        return safeRespond(
+          interaction,
+          "🛑 Proof is required after 5 unverified runs. You must use **Add Proof (x2)**."
+        );
       }
 
       if (now > run.proofExpireAt) {
         await expireSingleRun(interaction.client, store, run);
         writeStore(store);
         await refreshOpsBoardFromCache(interaction.client).catch(() => {});
-        return interaction.editReply("The proof window has expired.");
+        return safeRespond(interaction, "The proof window has expired.");
       }
 
       if (run.status !== "awaiting_proof") {
-        return interaction.editReply("This run has already been finalised.");
+        return safeRespond(interaction, "This run has already been finalised.");
       }
 
       finalizeUnverified(store, run);
@@ -1073,16 +1117,19 @@ async function handleTrackerButton(interaction) {
       registry.registerSuccess("tracker");
       registry.registerSuccess("leaderboard");
 
-      return interaction.editReply(
+      return safeRespond(
+        interaction,
         `✔ Submitted without proof. (**${run.runId}**)` +
-          (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+          (unlockedMedals.length
+            ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}`
+            : "")
       );
     }
 
     if (action === "gv_delete") {
       if (!isDeletable(run, interaction.user.id, now)) {
         await editRunMessage(interaction.client, run).catch(() => {});
-        return interaction.editReply("The delete window has expired.");
+        return safeRespond(interaction, "The delete window has expired.");
       }
 
       const removedScore = Number(run.scoreAwarded || 0);
@@ -1103,8 +1150,10 @@ async function handleTrackerButton(interaction) {
       try {
         const guild = await interaction.client.guilds.fetch(run.guildId);
         const ch = await guild.channels.fetch(run.aarChannelId).catch(() => null);
-        const msg = ch?.isTextBased?.() ? await ch.messages.fetch(run.aarMessageId).catch(() => null) : null;
-        if (msg) await msg.delete().catch(() => {});
+        const msg = ch?.isTextBased?.()
+          ? await ch.messages.fetch(run.aarMessageId).catch(() => null)
+          : null;
+        if (msg) await msg.delete();
       } catch (err) {
         console.error("DELETE MESSAGE ERROR:", err);
       }
@@ -1115,27 +1164,28 @@ async function handleTrackerButton(interaction) {
       registry.registerSuccess("tracker");
       registry.registerSuccess("leaderboard");
 
-      return interaction.editReply(`🗑 Deleted **${run.runId}** and removed **${removedScore}** point(s).`);
+      return safeRespond(
+        interaction,
+        `🗑 Deleted **${run.runId}** and removed **${removedScore}** point(s).`
+      );
     }
 
-    return interaction.editReply("Unknown action.");
+    return safeRespond(interaction, "Unknown action.");
   } catch (err) {
     console.error("TRACKER BUTTON ERROR:", err);
 
     try {
-      if (interaction.deferred || interaction.replied) {
-        return interaction.editReply("Button action failed. Check bot console.");
-      }
-      return interaction.reply({
-        content: "Button action failed. Check bot console.",
-        flags: 64,
-      });
-    } catch {}
+      return safeRespond(interaction, "Button action failed. Check bot console.");
+    } catch (replyErr) {
+      console.error("TRACKER BUTTON REPLY ERROR:", replyErr);
+    }
+
+    throw err;
   }
 }
 
 async function handleTrackerModal(interaction) {
-  await interaction.deferReply({ flags: 64 }).catch(() => {});
+  await interaction.deferReply({ flags: 64 });
 
   const runId = interaction.customId.split(":")[1];
   const store = readStore();
@@ -1152,11 +1202,30 @@ async function handleTrackerModal(interaction) {
   const missions = readMissionList();
 
   try {
-    const [mainObjectiveRaw, ratingRaw, diversRaw] = interaction.fields.getTextInputValue("basic").split(",").map((s) => s.trim());
-    const [sideRaw, outRaw] = interaction.fields.getTextInputValue("objectives").split(",").map((s) => s.trim());
-    const [fortRaw, hviRaw] = interaction.fields.getTextInputValue("d10").split(",").map((s) => s.trim());
-    const [killsRaw, deathsRaw, accRaw] = interaction.fields.getTextInputValue("combat").split(",").map((s) => s.trim());
-    const [enemyRaw, missionTypeRaw] = interaction.fields.getTextInputValue("meta").split(",").map((s) => s.trim());
+    const [mainObjectiveRaw, ratingRaw, diversRaw] = interaction.fields
+      .getTextInputValue("basic")
+      .split(",")
+      .map((s) => s.trim());
+
+    const [sideRaw, outRaw] = interaction.fields
+      .getTextInputValue("objectives")
+      .split(",")
+      .map((s) => s.trim());
+
+    const [fortRaw, hviRaw] = interaction.fields
+      .getTextInputValue("d10")
+      .split(",")
+      .map((s) => s.trim());
+
+    const [killsRaw, deathsRaw, accRaw] = interaction.fields
+      .getTextInputValue("combat")
+      .split(",")
+      .map((s) => s.trim());
+
+    const [enemyRaw, missionTypeRaw] = interaction.fields
+      .getTextInputValue("meta")
+      .split(",")
+      .map((s) => s.trim());
 
     const mainObjective = mainObjectiveRaw === "Yes" || mainObjectiveRaw === "No" ? mainObjectiveRaw : null;
     const missionRating = clamp(ratingRaw, 1, 5);
@@ -1179,7 +1248,9 @@ async function handleTrackerModal(interaction) {
     if (!["Yes", "No", NA_VALUE].includes(hviExtracted)) hviExtracted = NA_VALUE;
 
     if (!mainObjective || !enemy || !missionType) {
-      return interaction.editReply("Invalid edit values. Use exact values like `Yes,5,0` and a valid enemy/mission type.");
+      return interaction.editReply(
+        "Invalid edit values. Use exact values like `Yes,5,0` and a valid enemy/mission type."
+      );
     }
 
     if (run.difficulty !== 10 || enemy === "Illuminate") {
@@ -1223,7 +1294,11 @@ async function handleTrackerModal(interaction) {
 
     let newAwarded = 0;
     if (run.status === "proof_applied") newAwarded = run.basePoints * 2;
-    else if (run.status === "submitted_without_proof" || (run.status === "awaiting_proof" && !run.requiresProof)) newAwarded = run.basePoints;
+    else if (
+      run.status === "submitted_without_proof" ||
+      (run.status === "awaiting_proof" && !run.requiresProof)
+    )
+      newAwarded = run.basePoints;
     else newAwarded = 0;
 
     applyRunScoreChange(store, run, newAwarded);
@@ -1241,10 +1316,14 @@ async function handleTrackerModal(interaction) {
 
     return interaction.editReply(
       `✏ Updated **${run.runId}**. New score awarded: **${run.scoreAwarded}**.` +
-        (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+        (unlockedMedals.length
+          ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}`
+          : "")
     );
   } catch {
-    return interaction.editReply("Invalid edit format. Keep the comma-separated format shown in each box.");
+    return interaction.editReply(
+      "Invalid edit format. Keep the comma-separated format shown in each box."
+    );
   }
 }
 
@@ -1315,7 +1394,9 @@ async function handleTrackerProofMessage(message) {
     await message
       .reply(
         `✅ Proof accepted for **${run.runId}** — score changed from **${previousAwarded}** to **${run.scoreAwarded}**.` +
-          (unlockedMedals.length ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}` : "")
+          (unlockedMedals.length
+            ? `\n\n**New Medals Unlocked**\n${formatUnlockedMedals(unlockedMedals)}`
+            : "")
       )
       .catch(() => {});
   } catch (e) {
