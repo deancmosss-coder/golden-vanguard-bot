@@ -23,6 +23,10 @@ const {
 const githubDeployService = require("./services/githubDeployService");
 const registry = require("./services/featureRegistry");
 const { runProtected } = require("./services/featureGuard");
+const {
+  handleModalSubmit: handleCreatorModalSubmit,
+  handleButtonInteraction: handleCreatorButtonInteraction,
+} = require("./services/creatorApplication");
 
 const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
@@ -512,6 +516,23 @@ client.on(Events.MessageCreate, async (message) => {
    ========================= */
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    // ===== CREATOR SYSTEM FIRST =====
+    if (interaction.isModalSubmit()) {
+      const handled = await handleCreatorModalSubmit(interaction);
+      if (handled) {
+        registry.registerSuccess("commands");
+        return;
+      }
+    }
+
+    if (interaction.isButton()) {
+      const handled = await handleCreatorButtonInteraction(interaction);
+      if (handled) {
+        registry.registerSuccess("commands");
+        return;
+      }
+    }
+
     if (interaction.isAutocomplete()) {
       const cmd = commands.get(interaction.commandName);
       if (cmd?.autocomplete) return cmd.autocomplete(interaction);
@@ -906,7 +927,6 @@ client.once(Events.ClientReady, async () => {
     });
   }
 
-  // Only VC sweep. No monitor refresh spam, no overdue loop, no cleanup loop.
   setInterval(() => {
     orientationSystem.scanAllTrackedGuilds(client).catch((err) => {
       logger.error("Orientation VC sweep failed", err, {
