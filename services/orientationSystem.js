@@ -18,6 +18,7 @@ const CONFIG = {
   strikeCaptainRoleId: (process.env.ORIENTATION_STRIKE_CAPTAIN_ROLE_ID || "").trim(),
   highCommandRoleId: (process.env.ORIENTATION_HIGH_COMMAND_ROLE_ID || "").trim(),
   vanguardPrimeRoleId: (process.env.ORIENTATION_VANGUARD_PRIME_ROLE_ID || "").trim(),
+  recruitmentTeamRoleId: (process.env.ORIENTATION_RECRUITMENT_TEAM_ROLE_ID || "").trim(),
 
   recruitMonitorChannelId: (process.env.ORIENTATION_RECRUIT_MONITOR_CHANNEL_ID || "").trim(),
   promotionRequestsChannelId: (process.env.ORIENTATION_PROMOTION_REQUESTS_CHANNEL_ID || "").trim(),
@@ -37,6 +38,7 @@ CONFIG.approverRoleIds = [
   CONFIG.strikeCaptainRoleId,
   CONFIG.highCommandRoleId,
   CONFIG.vanguardPrimeRoleId,
+  CONFIG.recruitmentTeamRoleId,
 ].filter(Boolean);
 
 CONFIG.supervisorRoleIds = [
