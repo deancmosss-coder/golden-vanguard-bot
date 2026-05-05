@@ -47,6 +47,7 @@ CONFIG.supervisorRoleIds = [
   CONFIG.strikeCaptainRoleId,
   CONFIG.highCommandRoleId,
   CONFIG.vanguardPrimeRoleId,
+  CONFIG.recruitmentTeamRoleId,
 ].filter(Boolean);
 
 // key = `${guildId}:${recruitId}:${supervisorId}:${channelId}`
