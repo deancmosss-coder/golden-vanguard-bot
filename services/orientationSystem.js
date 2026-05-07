@@ -50,7 +50,6 @@ CONFIG.supervisorRoleIds = [
   CONFIG.recruitmentTeamRoleId,
 ].filter(Boolean);
 
-// key = `${guildId}:${recruitId}:${supervisorId}:${channelId}`
 const activeVcSessions = new Map();
 
 /* =========================
@@ -229,7 +228,7 @@ function getMissingSteps(userId) {
   if (!r.divisionsRead) missing.push("Review the Divisions");
   if (!r.deploymentComplete) {
     missing.push(
-      "Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, or Vanguard Prime"
+      "Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team"
     );
   }
   if (!r.aarSubmitted) missing.push("Submit an AAR with /run");
@@ -290,7 +289,7 @@ function buildChecklistEmbed() {
         "⬜ Read the Vanguard Field Manual",
         "⬜ Review the Community Laws",
         "⬜ Review the Vanguard Divisions",
-        "⬜ Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, or Vanguard Prime",
+        "⬜ Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team",
         "⬜ Submit an After Action Report (AAR) using /run",
         "",
         "Once all stages are complete, your promotion request will be sent automatically.",
@@ -471,7 +470,7 @@ async function announcePromotion(client, member, approverMember) {
     content: [
       "🪖 **WELCOME TO THE GOLDEN VANGUARD**",
       "",
-      `${username} has completed Recruit Orientation and has been promoted to **Trooper**.`,
+      `${displayNameOf(member)} has completed Recruit Orientation and has been promoted to **Trooper**.`,
       "",
       "Recruits observe. Troopers deploy.",
       "",
@@ -501,7 +500,7 @@ async function sendChatOrientationMessage(member) {
 
   return sendToChannel(member.client, CONFIG.chatChannelId, {
     content: [
-      `🪖 Welcome to The Golden Vanguard, <@${username}>.`,
+      `🪖 Welcome to The Golden Vanguard, <@${member.id}>.`,
       "",
       "To become a true member of the Vanguard, you must complete your orientation.",
       "",
@@ -533,7 +532,7 @@ async function sendOrientationDM(member) {
       "• Read the Vanguard Field Manual",
       "• Review the Community Laws",
       "• Review the Divisions",
-      "• Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, or Vanguard Prime",
+      "• Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team",
       "• Submit an After Action Report using /run",
       "",
       "Once complete, your promotion request will be reviewed.",
@@ -698,7 +697,7 @@ async function moreTraining(guild, targetUserId, approverMember, interaction = n
   }
 
   await member.send(
-    "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to Sergeant, Senior Officer, Strike Captain, High Command, or Vanguard Prime."
+    "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team."
   ).catch(() => null);
 
   return { ok: true };
@@ -728,7 +727,7 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
   }
 
   await member.send(
-    "Your Trooper promotion request was denied. Speak to Sergeant, Senior Officer, Strike Captain, High Command, or Vanguard Prime if you need help completing orientation."
+    "Your Trooper promotion request was denied. Speak to a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team if you need help completing orientation."
   ).catch(() => null);
 
   return { ok: true };
@@ -839,7 +838,7 @@ async function handleOrientationButton(interaction) {
     if (!isApprover(member)) {
       await interaction.reply({
         content:
-          "Only Sergeants, Senior Officers, Strike Captains, High Command, or Vanguard Prime can approve or review recruit promotions.",
+          "Only Sergeants, Senior Officers, Strike Captains, High Command, Vanguard Prime, or Recruitment Team can approve or review recruit promotions.",
         ephemeral: true,
       });
       return true;
