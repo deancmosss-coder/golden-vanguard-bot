@@ -270,6 +270,12 @@ async function renameHostVcFromSession(session, guild) {
    AUTO WELCOME
    ========================= */
 function buildWelcomeEmbed(member, memberCount) {
+  const username =
+    member.displayName ||
+    member.user?.globalName ||
+    member.user?.username ||
+    "Recruit";
+
   return new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle("🛡 Welcome to The Golden Vanguard")
