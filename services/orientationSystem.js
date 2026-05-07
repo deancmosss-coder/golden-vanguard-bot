@@ -471,7 +471,7 @@ async function announcePromotion(client, member, approverMember) {
     content: [
       "🪖 **WELCOME TO THE GOLDEN VANGUARD**",
       "",
-      `${displayNameOf(member)} has completed Recruit Orientation and has been promoted to **Trooper**.`,
+      `${username} has completed Recruit Orientation and has been promoted to **Trooper**.`,
       "",
       "Recruits observe. Troopers deploy.",
       "",
@@ -501,7 +501,7 @@ async function sendChatOrientationMessage(member) {
 
   return sendToChannel(member.client, CONFIG.chatChannelId, {
     content: [
-      `🪖 Welcome to The Golden Vanguard, <@${member.id}>.`,
+      `🪖 Welcome to The Golden Vanguard, <@${username}>.`,
       "",
       "To become a true member of the Vanguard, you must complete your orientation.",
       "",
