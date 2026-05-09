@@ -2,6 +2,7 @@
 // index.js
 // CLEAN CORE FILE
 // InteractionCreate moved to handlers/interactionHandler.js
+// MessageCreate moved to handlers/messageHandler.js
 // Preserves GitHub deployment recovery
 // Preserves creator application handling via interaction handler
 // Preserves welcome username display
@@ -41,6 +42,7 @@ const playerStats = require("./services/playerStats");
 const { scanForReviews } = require("./services/discoveryReviewService");
 
 const { registerInteractionHandler } = require("./handlers/interactionHandler");
+const { registerMessageHandler } = require("./handlers/messageHandler");
 
 // ===== ENV =====
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -435,7 +437,7 @@ async function updateAskMessage(session) {
 }
 
 /* =========================
-   REGISTER INTERACTION HANDLER
+   REGISTER HANDLERS
    ========================= */
 registerInteractionHandler(client, commands, sessions, {
   FACTION_SELECT_ID,
@@ -444,74 +446,14 @@ registerInteractionHandler(client, commands, sessions, {
   renameHostVcFromSession,
 });
 
-/* =========================
-   MESSAGE CREATE
-   ========================= */
-client.on(Events.MessageCreate, async (message) => {
-  try {
-    if (message.author.bot || !message.guild) return;
-
-    try {
-      const runCmd = require("./commands/run.js");
-      if (typeof runCmd.handleTrackerProofMessage === "function") {
-        await runCmd.handleTrackerProofMessage(message);
-      }
-    } catch {
-      // ignore
-    }
-
-    if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
-
-    const contentLower = (message.content || "").toLowerCase();
-    const roleMentionTrigger = !!ASK_ROLE_ID && message.mentions?.roles?.has(ASK_ROLE_ID);
-    const textTrigger = contentLower.includes(TRIGGER_TEXT);
-
-    if (!roleMentionTrigger && !textTrigger) return;
-
-    const guild = message.guild;
-    const owner = await guild.members.fetch(message.author.id).catch(() => null);
-    if (!owner) return;
-
-    const vc = owner.voice?.channel || null;
-
-    const session = {
-      ownerId: owner.id,
-      guildId: guild.id,
-      textChannelId: message.channel.id,
-      messageId: "pending",
-      faction: null,
-      difficulty: null,
-      roster: new Set([owner.id]),
-    };
-
-    syncRosterFromVc(session, vc);
-
-    const sent = await message.channel.send({
-      content: ASK_ROLE_ID ? `<@&${ASK_ROLE_ID}>` : undefined,
-      embeds: [buildAskEmbed(session, vc?.name || null)],
-      components: buildAskComponents(session),
-      allowedMentions: ASK_ROLE_ID ? { roles: [ASK_ROLE_ID] } : undefined,
-    });
-
-    session.messageId = sent.id;
-    sessions.set(sent.id, session);
-    registry.registerSuccess("askToPlay");
-  } catch (err) {
-    logger.error("MessageCreate error", err, {
-      location: "index.js -> MessageCreate",
-      messageId: message?.id,
-      authorId: message?.author?.id,
-      channelId: message?.channel?.id,
-    });
-
-    await sendErrorAlert(client, "Message Handler Failed", err, {
-      feature: "askToPlay",
-      location: "MessageCreate",
-      action: "Handling Ask-to-Play trigger",
-      likelyCause: "Command flow, channel access, or session build failure.",
-      severity: "warning",
-    });
-  }
+registerMessageHandler(client, {
+  ASK_ROLE_ID,
+  ALLOWED_CHANNEL_ID,
+  TRIGGER_TEXT,
+  buildAskEmbed,
+  buildAskComponents,
+  syncRosterFromVc,
+  sessions,
 });
 
 /* =========================
@@ -840,7 +782,7 @@ client.once(Events.ClientReady, async () => {
               content:
                 `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
                 `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-                `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}` : "_None_"}\n` +
+                `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
                 `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
                 `📌 Live leaderboard: **#${LB_NAME}**`,
               allowedMentions: topP ? { users: [topP.key] } : undefined,
