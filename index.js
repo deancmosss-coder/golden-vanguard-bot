@@ -1,16 +1,15 @@
 // =========================
 // index.js
 // CLEAN CORE FILE
-// Tracker store moved to services/trackerStore.js
+// Scheduler extracted
+// Tracker store extracted
 // Interaction handler modular
-// Preserves all existing functionality
 // =========================
 
 require("dotenv").config();
 
 const fs = require("fs");
 const path = require("path");
-const cron = require("node-cron");
 
 const {
   Client,
@@ -30,11 +29,17 @@ const {
   sendStartupAlert,
 } = require("./services/alertService");
 
-const githubDeployService = require("./services/githubDeployService");
-
 const registry = require("./services/featureRegistry");
 
-const { runProtected } = require("./services/featureGuard");
+const orientationSystem = require("./services/orientationSystem");
+
+const playerStats = require("./services/playerStats");
+
+const { setupVoiceHubs } = require("./voiceHubs");
+
+const {
+  registerInteractionHandler,
+} = require("./handlers/interactionHandler");
 
 const {
   currentMonthKeyLocal,
@@ -42,23 +47,13 @@ const {
   writeTrackerStore,
 } = require("./services/trackerStore");
 
-const { setupVoiceHubs } = require("./voiceHubs");
-
-const { refreshWarBoard } = require("./jobs/refreshWarBoard");
-
-const orientationSystem = require("./services/orientationSystem");
-
-const playerStats = require("./services/playerStats");
-
 const {
-  scanForReviews,
-} = require("./services/discoveryReviewService");
+  startScheduler,
+} = require("./jobs/scheduler");
 
-const {
-  registerInteractionHandler,
-} = require("./handlers/interactionHandler");
-
-// ===== ENV =====
+// =========================
+// ENV
+// =========================
 
 const TOKEN = process.env.DISCORD_TOKEN;
 
@@ -71,33 +66,8 @@ const ALLOWED_CHANNEL_ID =
 const WELCOME_CHANNEL_ID =
   (process.env.WELCOME_CHANNEL_ID || "").trim() || null;
 
-const AAR_NAME =
-  (process.env.AAR_CHANNEL_NAME || "after-action-reports").trim();
-
-const LB_NAME =
-  (process.env.LB_CHANNEL_NAME || "leaderboards").trim();
-
-const ANN_NAME =
-  (process.env.ANN_CHANNEL_NAME || "top-rankers").trim();
-
 const TRACKER_TZ =
   process.env.TRACKER_TIMEZONE || "Europe/London";
-
-const SUNDAY_ANNOUNCE_TIME =
-  (process.env.SUNDAY_ANNOUNCE_TIME || "23:00").trim();
-
-const MONDAY_RESET_TIME =
-  (
-    process.env.MONDAY_RESET_TIME ||
-    process.env.MONDAY_RESET ||
-    "00:00"
-  ).trim();
-
-const DISCOVERY_SCAN_CRON =
-  (
-    process.env.DISCOVERY_SCAN_CRON ||
-    "*/10 * * * *"
-  ).trim();
 
 const TRIGGER_TEXT = "@ask to play";
 
@@ -120,6 +90,10 @@ if (!ASK_ROLE_ID) {
   );
 }
 
+// =========================
+// CLIENT
+// =========================
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -133,18 +107,21 @@ const client = new Client({
 });
 
 // =========================
-// VC SYSTEM
+// SYSTEMS
 // =========================
 
 setupVoiceHubs(client);
 
 // =========================
-// LOAD COMMANDS
+// COMMAND LOADER
 // =========================
 
 const commands = new Map();
 
-const commandsPath = path.join(__dirname, "commands");
+const commandsPath = path.join(
+  __dirname,
+  "commands"
+);
 
 if (fs.existsSync(commandsPath)) {
   const files = fs
@@ -153,27 +130,42 @@ if (fs.existsSync(commandsPath)) {
 
   for (const file of files) {
     try {
-      const mod = require(`./commands/${file}`);
+      const mod = require(
+        `./commands/${file}`
+      );
 
       if (
         mod?.data?.name &&
-        typeof mod.execute === "function"
+        typeof mod.execute ===
+          "function"
       ) {
-        commands.set(mod.data.name, mod);
+        commands.set(
+          mod.data.name,
+          mod
+        );
       }
 
       if (
         mod?.adminData?.name &&
-        typeof mod.executeAdmin === "function"
+        typeof mod.executeAdmin ===
+          "function"
       ) {
-        commands.set(mod.adminData.name, {
-          execute: mod.executeAdmin,
-        });
+        commands.set(
+          mod.adminData.name,
+          {
+            execute:
+              mod.executeAdmin,
+          }
+        );
       }
     } catch (err) {
-      logger.error("Failed to load command file", err, {
-        file,
-      });
+      logger.error(
+        "Failed to load command file",
+        err,
+        {
+          file,
+        }
+      );
     }
   }
 
@@ -183,25 +175,26 @@ if (fs.existsSync(commandsPath)) {
 }
 
 // =========================
-// ASK TO PLAY SESSION STORE
+// ASK TO PLAY SESSIONS
 // =========================
 
 const sessions = new Map();
 
 // =========================
-// VOICE RENAME HELPERS
+// VC HELPERS
 // =========================
 
 function factionToTag(faction) {
   if (!faction) return null;
 
-  if (faction === "Automatons") return "BOTS";
+  if (faction === "Automatons")
+    return "BOTS";
 
-  if (faction === "Terminids") return "BUGS";
+  if (faction === "Terminids")
+    return "BUGS";
 
-  if (faction === "Illuminate") return "SQUIDS";
-
-  if (faction === "Any / Flexible") return null;
+  if (faction === "Illuminate")
+    return "SQUIDS";
 
   return null;
 }
@@ -224,11 +217,13 @@ async function renameHostVcFromSession(
 
   if (!vc) return;
 
-  if (vc.parentId !== HUB_CATEGORY_ID) return;
+  if (vc.parentId !== HUB_CATEGORY_ID)
+    return;
 
   if (!session.difficulty) return;
 
-  const chosenTag = factionToTag(session.faction);
+  const chosenTag =
+    factionToTag(session.faction);
 
   let tag = chosenTag;
 
@@ -237,12 +232,15 @@ async function renameHostVcFromSession(
       /^(MO|BOTS|BUGS|SQUIDS|DANGER)\s\|/i
     );
 
-    tag = m ? m[1].toUpperCase() : null;
+    tag = m
+      ? m[1].toUpperCase()
+      : null;
   }
 
   if (!tag) return;
 
-  const hostName = safeUsername(host.user);
+  const hostName =
+    safeUsername(host.user);
 
   const desired =
     `${tag} | D${session.difficulty} | ${hostName}`;
@@ -255,135 +253,19 @@ async function renameHostVcFromSession(
       "Auto rename from Ask to Play difficulty selection"
     );
   } catch (err) {
-    logger.error("VC rename failed", err, {
-      location:
-        "index.js -> renameHostVcFromSession",
-      channelId: vc.id,
-      desiredName: desired,
-    });
-
-    await sendErrorAlert(
-      client,
-      "VC Rename Failed",
+    logger.error(
+      "VC rename failed",
       err,
       {
-        feature: "askToPlay",
-        location: "renameHostVcFromSession",
-        action: "Renaming host voice channel",
-        likelyCause:
-          "Missing permission or invalid channel state.",
-        severity: "warning",
+        location:
+          "index.js -> renameHostVcFromSession",
       }
     );
   }
 }
 
 // =========================
-// WELCOME EMBED
-// =========================
-
-function buildWelcomeEmbed(
-  member,
-  memberCount
-) {
-  const username =
-    member.displayName ||
-    member.user?.globalName ||
-    member.user?.username ||
-    "Recruit";
-
-  return new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle(
-      "🛡 Welcome to The Golden Vanguard"
-    )
-    .setDescription(
-      [
-        `Welcome ${username},`,
-        "",
-        "You’ve joined a tactical squad-based community built for coordination, growth, and winning together.",
-        "",
-        "Here, we don’t just play — we deploy with purpose.",
-        "",
-        "━━━━━━━━━━━━━━━━━━",
-        "",
-        "🪖 **Become a True Vanguard Member**",
-        "To unlock full access and fight alongside the Vanguard, you must complete your Recruit Orientation.",
-        "",
-        "📍 Head to **#orientation-checklist** to begin",
-        "⏳ You have **7 days** to complete it",
-        "",
-        "━━━━━━━━━━━━━━━━━━",
-        "",
-        "Form up. Drop in. Execute.",
-        "",
-        `🎖 Member #${memberCount}`,
-      ].join("\n")
-    )
-    .setTimestamp()
-    .setFooter({
-      text: "The Golden Vanguard",
-    });
-}
-
-// =========================
-// GUILD MEMBER ADD
-// =========================
-
-client.on(
-  Events.GuildMemberAdd,
-  async (member) => {
-    try {
-      if (WELCOME_CHANNEL_ID) {
-        const ch =
-          await member.guild.channels
-            .fetch(WELCOME_CHANNEL_ID)
-            .catch(() => null);
-
-        if (ch?.isTextBased()) {
-          await ch.send({
-            embeds: [
-              buildWelcomeEmbed(
-                member,
-                member.guild.memberCount
-              ),
-            ],
-          });
-        }
-      }
-
-      await orientationSystem.logNewRecruit(
-        member
-      );
-
-      registry.registerSuccess("orientation");
-    } catch (err) {
-      logger.error("GuildMemberAdd failed", err, {
-        location:
-          "index.js -> GuildMemberAdd",
-        memberId: member?.id,
-      });
-
-      await sendErrorAlert(
-        client,
-        "Welcome/Recruit Logging Failed",
-        err,
-        {
-          feature: "orientation",
-          location: "GuildMemberAdd",
-          action:
-            "Welcoming new member / logging recruit",
-          likelyCause:
-            "Channel issue, permissions, or orientation handler failure.",
-          severity: "warning",
-        }
-      );
-    }
-  }
-);
-
-// =========================
-// ASK TO PLAY HELPERS
+// ASK TO PLAY EMBEDS
 // =========================
 
 function rosterText(roster) {
@@ -391,7 +273,10 @@ function rosterText(roster) {
     return "_No one in VC yet._";
 
   return [...roster]
-    .map((id, i) => `${i + 1}. <@${id}>`)
+    .map(
+      (id, i) =>
+        `${i + 1}. <@${id}>`
+    )
     .join("\n");
 }
 
@@ -401,7 +286,9 @@ function buildAskEmbed(
 ) {
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("🎯 Ask-to-Play Alert")
+    .setTitle(
+      "🎯 Ask-to-Play Alert"
+    )
     .setDescription(
       ASK_ROLE_ID
         ? `<@${session.ownerId}> pinged <@&${ASK_ROLE_ID}>`
@@ -441,7 +328,10 @@ function buildAskEmbed(
 
       {
         name: "Roster",
-        value: rosterText(session.roster),
+        value:
+          rosterText(
+            session.roster
+          ),
         inline: false,
       }
     )
@@ -493,7 +383,8 @@ function buildAskComponents(
         },
 
         {
-          label: "Any / Flexible",
+          label:
+            "Any / Flexible",
           value:
             "Any / Flexible",
         }
@@ -536,7 +427,7 @@ function buildAskComponents(
 }
 
 // =========================
-// REGISTER INTERACTIONS
+// INTERACTION HANDLER
 // =========================
 
 registerInteractionHandler(
@@ -551,7 +442,57 @@ registerInteractionHandler(
 );
 
 // =========================
-// READY EVENT
+// MEMBER JOIN
+// =========================
+
+client.on(
+  Events.GuildMemberAdd,
+  async (member) => {
+    try {
+      if (WELCOME_CHANNEL_ID) {
+        const ch =
+          await member.guild.channels
+            .fetch(
+              WELCOME_CHANNEL_ID
+            )
+            .catch(() => null);
+
+        if (ch?.isTextBased()) {
+          await ch.send({
+            embeds: [
+              new EmbedBuilder()
+                .setColor(
+                  0xf1c40f
+                )
+                .setTitle(
+                  "🛡 Welcome to The Golden Vanguard"
+                )
+                .setDescription(
+                  `Welcome ${member.displayName}`
+                ),
+            ],
+          });
+        }
+      }
+
+      await orientationSystem.logNewRecruit(
+        member
+      );
+
+      registry.registerSuccess(
+        "orientation"
+      );
+    } catch (err) {
+      logger.error(
+        "GuildMemberAdd failed",
+        err
+      );
+    }
+  }
+);
+
+// =========================
+// READY
 // =========================
 
 client.once(
@@ -569,93 +510,8 @@ client.once(
       `Golden Vanguard bot is now online as **${client.user.tag}**`
     );
 
-    try {
-      await githubDeployService.resumePendingDeployment(
-        client
-      );
-
-      registry.registerSuccess(
-        "registry"
-      );
-    } catch (err) {
-      logger.error(
-        "GitHub deployment recovery failed",
-        err
-      );
-    }
-
-    await runProtected(client, {
-      feature: "warboard",
-
-      action:
-        "Refreshing war board on startup",
-
-      location:
-        "index.js -> ClientReady -> refreshWarBoard",
-
-      likelyCause:
-        "Refresh job failed",
-
-      retries: 1,
-
-      retryDelayMs: 2000,
-
-      maxFailures: 3,
-
-      job: async () => {
-        await refreshWarBoard(
-          client
-        );
-
-        logger.info(
-          "War board refreshed on startup"
-        );
-
-        registry.registerSuccess(
-          "warboard"
-        );
-      },
-    });
-
-    cron.schedule(
-      "*/15 * * * *",
-      async () => {
-        await refreshWarBoard(
-          client
-        );
-      },
-      {
-        timezone: TRACKER_TZ,
-      }
-    );
-
-    cron.schedule(
-      DISCOVERY_SCAN_CRON,
-      async () => {
-        await scanForReviews(
-          client,
-          "Scheduled Scan"
-        );
-      },
-      {
-        timezone: TRACKER_TZ,
-      }
-    );
-
-    logger.info(
-      `Tracker enabled: AAR=#${AAR_NAME} LB=#${LB_NAME} ANN=#${ANN_NAME}`
-    );
-
-    logger.info(
-      `Weekly: Sun ${SUNDAY_ANNOUNCE_TIME} announce | Mon ${MONDAY_RESET_TIME} reset (${TRACKER_TZ})`
-    );
-
-    logger.info(
-      `War: 15m board refresh (${TRACKER_TZ})`
-    );
-
-    logger.info(
-      `Discovery: ${DISCOVERY_SCAN_CRON} (${TRACKER_TZ})`
+    await startScheduler(
+      client
     );
   }
 );
@@ -669,11 +525,7 @@ client.on(
   async (err) => {
     logger.error(
       "Discord Client Error",
-      err,
-      {
-        location:
-          "client.on(Events.Error)",
-      }
+      err
     );
   }
 );
@@ -684,8 +536,6 @@ client.on(
     logger.warn(
       "Discord Client Warning",
       {
-        location:
-          "client.on(Events.Warn)",
         warning,
       }
     );
@@ -703,19 +553,12 @@ process.on(
       reason instanceof Error
         ? reason
         : new Error(
-            String(
-              reason ||
-                "Unknown rejection"
-            )
+            String(reason)
           );
 
     logger.error(
       "Unhandled Promise Rejection",
-      err,
-      {
-        location:
-          "process.on(unhandledRejection)",
-      }
+      err
     );
   }
 );
@@ -725,55 +568,40 @@ process.on(
   async (err) => {
     logger.error(
       "Uncaught Exception",
-      err,
-      {
-        location:
-          "process.on(uncaughtException)",
-      }
+      err
     );
   }
 );
 
 // =========================
-// CLEAN SHUTDOWN
+// SHUTDOWN
 // =========================
 
 async function shutdown(
   signal
 ) {
   logger.warn(
-    `Shutdown signal received: ${signal}`,
-    {
-      location: "shutdown()",
-    }
+    `Shutdown signal received: ${signal}`
   );
 
   try {
     if (client.isReady()) {
       await sendAlert(client, {
-        title: "Bot Shutdown",
+        title:
+          "Bot Shutdown",
 
         description:
           `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
 
-        severity: "warning",
+        severity:
+          "warning",
       });
     }
-  } catch (err) {
-    logger.error(
-      "Failed to send shutdown alert",
-      err
-    );
-  }
+  } catch {}
 
   try {
     client.destroy();
-  } catch (err) {
-    logger.error(
-      "Failed to destroy Discord client cleanly",
-      err
-    );
-  }
+  } catch {}
 
   process.exit(0);
 }
@@ -796,11 +624,7 @@ client.login(TOKEN).catch(
   (err) => {
     logger.error(
       "Failed to login bot",
-      err,
-      {
-        location:
-          "client.login",
-      }
+      err
     );
 
     console.error(
