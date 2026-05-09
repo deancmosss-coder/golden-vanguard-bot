@@ -1,69 +1,235 @@
+// =========================
+// jobs/scheduler.js
+// Handles all startup jobs + cron schedules
+// =========================
+
 const cron = require("node-cron");
 
-const { refreshWarBoard } = require("./refreshWarBoard");
-const { postWarEffort } = require("./warEffortReport");
-const { checkWarAlerts } = require("./highCommandAlerts");
-const { postTopRankers } = require("./postTopRankers");
-const { postMedalHall } = require("./postMedalHall");
+const logger = require("../services/logger");
 
-function startScheduler(client) {
-  console.log("[SCHEDULER] Starting jobs...");
+const {
+  sendErrorAlert,
+} = require("../services/alertService");
 
-  // 🔄 WAR BOARD (every 5 minutes)
-  cron.schedule("*/5 * * * *", async () => {
-    console.log("[CRON] War Board Refresh");
-    await refreshWarBoard(client);
-  });
+const registry = require("../services/featureRegistry");
 
-  // ⚠️ WAR ALERTS (every 10 minutes)
-  cron.schedule("*/10 * * * *", async () => {
-    console.log("[CRON] War Alerts Check");
-    await checkWarAlerts(client);
-  });
+const { runProtected } = require("../services/featureGuard");
 
-  // 📡 WAR EFFORT REPORT (every 30 minutes)
-  cron.schedule("*/30 * * * *", async () => {
-    console.log("[CRON] War Effort Report");
-    await postWarEffort(client);
-  });
+const githubDeployService = require("../services/githubDeployService");
 
-  // 🏆 WEEKLY RESET + ANNOUNCEMENTS (Sunday 23:00 UK)
-  cron.schedule("0 23 * * 0", async () => {
-    console.log("[CRON] Weekly Results");
+const {
+  scanForReviews,
+} = require("../services/discoveryReviewService");
 
-    await postTopRankers(client, "weekly");
-    await postMedalHall(client);
+const {
+  refreshWarBoard,
+} = require("./refreshWarBoard");
 
-    // OPTIONAL: reset weekly stats after posting
-    try {
-      const fs = require("fs");
-      const path = require("path");
-      const STORE = path.join(__dirname, "..", "tracker_store.json");
+const TRACKER_TZ =
+  process.env.TRACKER_TIMEZONE || "Europe/London";
 
-      const store = JSON.parse(fs.readFileSync(STORE, "utf8"));
+const DISCOVERY_SCAN_CRON =
+  (
+    process.env.DISCOVERY_SCAN_CRON ||
+    "*/10 * * * *"
+  ).trim();
 
-      store.weekly = {
-        players: {},
-        divisions: {},
-        enemies: {},
-      };
+async function startScheduler(client) {
+  let resumedGitHubDeployment = null;
 
-      fs.writeFileSync(STORE, JSON.stringify(store, null, 2), "utf8");
+  try {
+    resumedGitHubDeployment =
+      await githubDeployService.resumePendingDeployment(
+        client
+      );
 
-      console.log("[CRON] Weekly reset complete");
-    } catch (err) {
-      console.error("[CRON] Weekly reset failed:", err.message);
+    if (
+      resumedGitHubDeployment?.scanPerformed
+    ) {
+      registry.registerSuccess(
+        "registry"
+      );
     }
+  } catch (err) {
+    logger.error(
+      "GitHub deployment recovery failed",
+      err,
+      {
+        location:
+          "jobs/scheduler.js -> githubDeployService.resumePendingDeployment",
+      }
+    );
+
+    await sendErrorAlert(
+      client,
+      "GitHub Deployment Recovery Failed",
+      err,
+      {
+        feature: "registry",
+        location:
+          "jobs/scheduler.js -> githubDeployService.resumePendingDeployment",
+        action:
+          "Finalising pending GitHub deployment after restart",
+        likelyCause:
+          "Deployment state mismatch, scan failure, or channel access issue.",
+        severity: "warning",
+      }
+    );
+  }
+
+  await runProtected(client, {
+    feature: "warboard",
+
+    action:
+      "Refreshing war board on startup",
+
+    location:
+      "jobs/scheduler.js -> refreshWarBoard",
+
+    likelyCause:
+      "Refresh job failed, missing channel, or bad data.",
+
+    retries: 1,
+
+    retryDelayMs: 2000,
+
+    maxFailures: 3,
+
+    job: async () => {
+      await refreshWarBoard(client);
+
+      logger.info(
+        "War board refreshed on startup"
+      );
+
+      registry.registerSuccess(
+        "warboard"
+      );
+    },
   });
 
-  // 🏅 MONTHLY ANNOUNCEMENT (1st of month at 00:05)
-  cron.schedule("5 0 1 * *", async () => {
-    console.log("[CRON] Monthly Results");
+  if (
+    !resumedGitHubDeployment?.scanPerformed
+  ) {
+    await runProtected(client, {
+      feature: "registry",
 
-    await postTopRankers(client, "monthly");
-  });
+      action:
+        "Startup discovery scan",
 
-  console.log("[SCHEDULER] All jobs running");
+      location:
+        "jobs/scheduler.js -> scanForReviews",
+
+      likelyCause:
+        "Discovery scan failed on startup.",
+
+      retries: 0,
+
+      maxFailures: 3,
+
+      job: async () => {
+        await scanForReviews(
+          client,
+          "System Startup"
+        );
+
+        registry.registerSuccess(
+          "registry"
+        );
+      },
+    });
+  }
+
+  // =========================
+  // WAR BOARD REFRESH
+  // =========================
+
+  cron.schedule(
+    "*/15 * * * *",
+    async () => {
+      await runProtected(client, {
+        feature: "warboard",
+
+        action:
+          "Scheduled war board refresh",
+
+        location:
+          "jobs/scheduler.js -> cron refreshWarBoard",
+
+        likelyCause:
+          "Refresh job failed repeatedly.",
+
+        retries: 1,
+
+        retryDelayMs: 3000,
+
+        maxFailures: 3,
+
+        job: async () => {
+          await refreshWarBoard(
+            client
+          );
+
+          registry.registerSuccess(
+            "warboard"
+          );
+        },
+      });
+    },
+    {
+      timezone: TRACKER_TZ,
+    }
+  );
+
+  // =========================
+  // DISCOVERY SCAN
+  // =========================
+
+  cron.schedule(
+    DISCOVERY_SCAN_CRON,
+    async () => {
+      await runProtected(client, {
+        feature: "registry",
+
+        action:
+          "Scheduled discovery scan",
+
+        location:
+          "jobs/scheduler.js -> cron scanForReviews",
+
+        likelyCause:
+          "Discovery scan failed on schedule.",
+
+        retries: 0,
+
+        maxFailures: 3,
+
+        job: async () => {
+          await scanForReviews(
+            client,
+            "Scheduled Scan"
+          );
+
+          registry.registerSuccess(
+            "registry"
+          );
+        },
+      });
+    },
+    {
+      timezone: TRACKER_TZ,
+    }
+  );
+
+  logger.info(
+    `War: 15m board refresh (${TRACKER_TZ})`
+  );
+
+  logger.info(
+    `Discovery: ${DISCOVERY_SCAN_CRON} (${TRACKER_TZ})`
+  );
 }
 
-module.exports = { startScheduler };
+module.exports = {
+  startScheduler,
+};
