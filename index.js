@@ -1,11 +1,6 @@
 // =========================
 // index.js
-// CLEAN CORE FILE
-// Ask-to-Play extracted
-// Scheduler extracted
-// Tracker store extracted
-// Command loader extracted
-// Ready handler extracted
+// CLEAN CORE ENTRY POINT
 // =========================
 
 require("dotenv").config();
@@ -14,16 +9,13 @@ const {
   Client,
   GatewayIntentBits,
   Partials,
-  Events,
 } = require("discord.js");
 
-const logger = require("./services/logger");
-
-const {
-  sendAlert,
-} = require("./services/alertService");
-
 const { setupVoiceHubs } = require("./voiceHubs");
+
+const { loadCommands } = require("./loaders/commandLoader");
+
+const askToPlayService = require("./services/askToPlayService");
 
 const {
   registerInteractionHandler,
@@ -46,10 +38,8 @@ const {
 } = require("./handlers/readyHandler");
 
 const {
-  loadCommands,
-} = require("./loaders/commandLoader");
-
-const askToPlayService = require("./services/askToPlayService");
+  registerErrorHandlers,
+} = require("./handlers/errorHandler");
 
 // =========================
 // ENV
@@ -57,8 +47,7 @@ const askToPlayService = require("./services/askToPlayService");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 
-const ASK_ROLE_ID =
-  (process.env.PING_ROLE_ID || "").trim();
+const ASK_ROLE_ID = (process.env.PING_ROLE_ID || "").trim();
 
 const ALLOWED_CHANNEL_ID =
   (process.env.ALLOWED_CHANNEL_ID || "").trim() || null;
@@ -101,19 +90,19 @@ const client = new Client({
 setupVoiceHubs(client);
 
 // =========================
-// COMMANDS
+// LOADERS
 // =========================
 
 const commands = loadCommands();
 
 // =========================
-// ASK TO PLAY SESSIONS
+// SESSION STORES
 // =========================
 
 const sessions = new Map();
 
 // =========================
-// ASK TO PLAY WRAPPERS
+// ASK-TO-PLAY WRAPPERS
 // =========================
 
 async function updateAskMessage(session) {
@@ -125,7 +114,7 @@ async function renameHostVcFromSession(session, guild) {
 }
 
 // =========================
-// REGISTER HANDLERS
+// HANDLERS
 // =========================
 
 registerInteractionHandler(client, commands, sessions, {
@@ -158,90 +147,13 @@ registerGuildMemberHandler(client, {
 
 registerReadyHandler(client);
 
-// =========================
-// CLIENT WARN / ERROR
-// =========================
-
-client.on(Events.Error, async (err) => {
-  logger.error("Discord Client Error", err, {
-    location: "client.on(Events.Error)",
-  });
-});
-
-client.on(Events.Warn, (warning) => {
-  logger.warn("Discord Client Warning", {
-    location: "client.on(Events.Warn)",
-    warning,
-  });
-});
-
-// =========================
-// PROCESS HANDLERS
-// =========================
-
-process.on("unhandledRejection", async (reason) => {
-  const err =
-    reason instanceof Error
-      ? reason
-      : new Error(String(reason || "Unknown rejection"));
-
-  logger.error("Unhandled Promise Rejection", err, {
-    location: "process.on(unhandledRejection)",
-  });
-});
-
-process.on("uncaughtException", async (err) => {
-  logger.error("Uncaught Exception", err, {
-    location: "process.on(uncaughtException)",
-  });
-});
-
-// =========================
-// CLEAN SHUTDOWN
-// =========================
-
-async function shutdown(signal) {
-  logger.warn(`Shutdown signal received: ${signal}`, {
-    location: "shutdown()",
-  });
-
-  try {
-    if (client.isReady()) {
-      await sendAlert(client, {
-        title: "Bot Shutdown",
-        description: `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
-        severity: "warning",
-      });
-    }
-  } catch (err) {
-    logger.error("Failed to send shutdown alert", err, {
-      location: "shutdown()",
-    });
-  }
-
-  try {
-    client.destroy();
-  } catch (err) {
-    logger.error("Failed to destroy Discord client cleanly", err, {
-      location: "shutdown()",
-    });
-  }
-
-  process.exit(0);
-}
-
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+registerErrorHandlers(client);
 
 // =========================
 // LOGIN
 // =========================
 
 client.login(TOKEN).catch((err) => {
-  logger.error("Failed to login bot", err, {
-    location: "client.login",
-  });
-
   console.error("❌ Bot login failed:", err);
   process.exit(1);
 });
