@@ -3,8 +3,8 @@
 // CLEAN CORE FILE
 // InteractionCreate moved to handlers/interactionHandler.js
 // MessageCreate moved to handlers/messageHandler.js
+// VoiceStateUpdate moved to handlers/voiceStateHandler.js
 // Preserves GitHub deployment recovery
-// Preserves creator application handling via interaction handler
 // Preserves welcome username display
 // Preserves ask-to-play, tracker, orientation, warboard, discovery, alerts
 // =========================
@@ -43,6 +43,7 @@ const { scanForReviews } = require("./services/discoveryReviewService");
 
 const { registerInteractionHandler } = require("./handlers/interactionHandler");
 const { registerMessageHandler } = require("./handlers/messageHandler");
+const { registerVoiceStateHandler } = require("./handlers/voiceStateHandler");
 
 // ===== ENV =====
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -456,103 +457,11 @@ registerMessageHandler(client, {
   sessions,
 });
 
-/* =========================
-   VOICE STATE UPDATE
-   ========================= */
-client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-  try {
-    if (registry.isFeatureEnabled("orientation")) {
-      try {
-        orientationSystem.handleVoiceStateUpdate(oldState, newState);
-        registry.registerSuccess("orientation");
-      } catch (err) {
-        const state = registry.registerFailure("orientation", err);
-
-        logger.error("Orientation voice update failed", err, {
-          location: "index.js -> VoiceStateUpdate -> orientationSystem.handleVoiceStateUpdate",
-          failCount: state.failCount,
-        });
-
-        if (state.failCount >= 3) {
-          registry.disableFeature("orientation", "Disabled after repeated voice update failures.");
-
-          await sendErrorAlert(client, "orientation isolated", err, {
-            feature: "orientation",
-            location: "VoiceStateUpdate",
-            action: "Handling orientation voice update",
-            likelyCause: "Orientation VC tracking failed repeatedly.",
-            severity: "critical",
-          });
-
-          await sendAlert(client, {
-            title: "orientation paused",
-            description:
-              "The **orientation** feature has been temporarily disabled after repeated voice update failures.",
-            severity: "warning",
-          });
-        } else {
-          await sendErrorAlert(client, "orientation failed", err, {
-            feature: "orientation",
-            location: "VoiceStateUpdate",
-            action: "Handling orientation voice update",
-            likelyCause: "Orientation VC tracking failed.",
-            severity: "warning",
-          });
-        }
-      }
-    }
-
-    if (!oldState.channelId && newState.channelId) {
-      playerStats.startVoiceSession(newState.id);
-      registry.registerSuccess("playerStats");
-    }
-
-    if (oldState.channelId && !newState.channelId) {
-      playerStats.endVoiceSession(oldState.id);
-      registry.registerSuccess("playerStats");
-    }
-
-    if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
-      playerStats.endVoiceSession(oldState.id);
-      playerStats.startVoiceSession(newState.id);
-      registry.registerSuccess("playerStats");
-    }
-
-    const guild = newState.guild || oldState.guild;
-    if (!guild) return;
-
-    for (const session of sessions.values()) {
-      if (session.guildId !== guild.id) continue;
-
-      const vc = await resolveHostVc(guild, session.ownerId);
-
-      const touchedHost = oldState.id === session.ownerId || newState.id === session.ownerId;
-      const touchedVc = vc && (oldState.channelId === vc.id || newState.channelId === vc.id);
-
-      if (!touchedHost && !touchedVc) continue;
-
-      const changed = syncRosterFromVc(session, vc);
-      if (changed) {
-        await updateAskMessage(session);
-        registry.registerSuccess("askToPlay");
-      }
-    }
-  } catch (err) {
-    logger.error("VoiceStateUpdate error", err, {
-      location: "index.js -> VoiceStateUpdate",
-      oldChannelId: oldState?.channelId || null,
-      newChannelId: newState?.channelId || null,
-      userId: newState?.id || oldState?.id || null,
-    });
-
-    await sendErrorAlert(client, "Voice State Update Failed", err, {
-      feature: "voiceTracking",
-      location: "VoiceStateUpdate",
-      action: "Updating VC sessions / roster tracking",
-      likelyCause: "Voice session tracking or roster sync error.",
-      severity: "warning",
-    });
-  }
+registerVoiceStateHandler(client, {
+  sessions,
+  resolveHostVc,
+  syncRosterFromVc,
+  updateAskMessage,
 });
 
 /* =========================
