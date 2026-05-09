@@ -1,3 +1,13 @@
+// =========================
+// index.js
+// CLEAN CORE FILE
+// InteractionCreate moved to handlers/interactionHandler.js
+// Preserves GitHub deployment recovery
+// Preserves creator application handling via interaction handler
+// Preserves welcome username display
+// Preserves ask-to-play, tracker, orientation, warboard, discovery, alerts
+// =========================
+
 require("dotenv").config();
 
 const fs = require("fs");
@@ -23,16 +33,14 @@ const {
 const githubDeployService = require("./services/githubDeployService");
 const registry = require("./services/featureRegistry");
 const { runProtected } = require("./services/featureGuard");
-const {
-  handleModalSubmit: handleCreatorModalSubmit,
-  handleButtonInteraction: handleCreatorButtonInteraction,
-} = require("./services/creatorApplication");
 
 const { setupVoiceHubs } = require("./voiceHubs");
 const { refreshWarBoard } = require("./jobs/refreshWarBoard");
 const orientationSystem = require("./services/orientationSystem");
 const playerStats = require("./services/playerStats");
 const { scanForReviews } = require("./services/discoveryReviewService");
+
+const { registerInteractionHandler } = require("./handlers/interactionHandler");
 
 // ===== ENV =====
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -60,16 +68,6 @@ const DIFFICULTY_SELECT_ID = "gv_difficulty";
 
 const HUB_CATEGORY_ID = "1478464677783666778";
 const TRACKER_STORE_PATH = path.join(__dirname, "tracker_store.json");
-
-// ===== DIVISION ROLE IDS =====
-const DIVISION_ROLE_IDS = {
-  eclipse: "1474609575415255092",
-  bastion: "1474610126693466202",
-  purifier: "1474610277927354638",
-  orbital: "1474609906580455495",
-};
-
-const ALL_DIVISION_ROLE_IDS = Object.values(DIVISION_ROLE_IDS);
 
 if (!TOKEN) {
   console.error("❌ Missing DISCORD_TOKEN in .env");
@@ -120,22 +118,6 @@ if (fs.existsSync(commandsPath)) {
   logger.info(`Loaded ${commands.size} slash command(s) from ./commands`);
 }
 
-let enlistment = null;
-try {
-  enlistment = require("./commands/enlistment.js");
-  logger.info("Loaded ./commands/enlistment.js (button handler enabled)");
-} catch {
-  logger.info("No ./commands/enlistment.js found (enlistment buttons disabled).");
-}
-
-let reviewCommand = null;
-try {
-  reviewCommand = require("./commands/review.js");
-  logger.info("Loaded ./commands/review.js (review button handler enabled)");
-} catch {
-  logger.info("No ./commands/review.js found (review buttons disabled).");
-}
-
 const sessions = new Map();
 
 /* =========================
@@ -176,6 +158,7 @@ function defaultTrackerStore() {
 function readTrackerStore() {
   try {
     if (!fs.existsSync(TRACKER_STORE_PATH)) return defaultTrackerStore();
+
     const raw = fs.readFileSync(TRACKER_STORE_PATH, "utf8");
     const parsed = JSON.parse(raw);
     const base = defaultTrackerStore();
@@ -195,7 +178,9 @@ function readTrackerStore() {
       medals: parsed.medals || base.medals,
     };
   } catch (err) {
-    logger.error("readTrackerStore failed", err, { location: "index.js -> readTrackerStore" });
+    logger.error("readTrackerStore failed", err, {
+      location: "index.js -> readTrackerStore",
+    });
     return defaultTrackerStore();
   }
 }
@@ -204,7 +189,9 @@ function writeTrackerStore(store) {
   try {
     fs.writeFileSync(TRACKER_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
   } catch (err) {
-    logger.error("writeTrackerStore failed", err, { location: "index.js -> writeTrackerStore" });
+    logger.error("writeTrackerStore failed", err, {
+      location: "index.js -> writeTrackerStore",
+    });
   }
 }
 
@@ -227,8 +214,8 @@ function safeUsername(user) {
 async function renameHostVcFromSession(session, guild) {
   const host = await guild.members.fetch(session.ownerId).catch(() => null);
   const vc = host?.voice?.channel;
-  if (!vc) return;
 
+  if (!vc) return;
   if (vc.parentId !== HUB_CATEGORY_ID) return;
   if (!session.difficulty) return;
 
@@ -448,6 +435,16 @@ async function updateAskMessage(session) {
 }
 
 /* =========================
+   REGISTER INTERACTION HANDLER
+   ========================= */
+registerInteractionHandler(client, commands, sessions, {
+  FACTION_SELECT_ID,
+  DIFFICULTY_SELECT_ID,
+  updateAskMessage,
+  renameHostVcFromSession,
+});
+
+/* =========================
    MESSAGE CREATE
    ========================= */
 client.on(Events.MessageCreate, async (message) => {
@@ -514,290 +511,6 @@ client.on(Events.MessageCreate, async (message) => {
       likelyCause: "Command flow, channel access, or session build failure.",
       severity: "warning",
     });
-  }
-});
-
-/* =========================
-   INTERACTIONS
-   ========================= */
-client.on(Events.InteractionCreate, async (interaction) => {
-  try {
-    // ===== CREATOR SYSTEM FIRST =====
-    if (interaction.isModalSubmit()) {
-      const handled = await handleCreatorModalSubmit(interaction);
-      if (handled) {
-        registry.registerSuccess("commands");
-        return;
-      }
-    }
-
-    if (interaction.isButton()) {
-      const handled = await handleCreatorButtonInteraction(interaction);
-      if (handled) {
-        registry.registerSuccess("commands");
-        return;
-      }
-    }
-
-    if (interaction.isAutocomplete()) {
-      const cmd = commands.get(interaction.commandName);
-      if (cmd?.autocomplete) return cmd.autocomplete(interaction);
-      return;
-    }
-
-    if (interaction.isButton()) {
-      const handled = await orientationSystem.handleOrientationButton(interaction);
-      if (handled) {
-        registry.registerSuccess("orientation");
-        return;
-      }
-    }
-
-    if (interaction.isButton() && interaction.customId.startsWith("review:") && reviewCommand) {
-      return reviewCommand.handleButton(interaction);
-    }
-
-    if (interaction.isButton()) {
-      const validDivisionButtons = [
-        "division_eclipse",
-        "division_bastion",
-        "division_purifier",
-        "division_orbital",
-        "division_leave",
-      ];
-
-      if (validDivisionButtons.includes(interaction.customId)) {
-        await interaction.deferReply({ flags: 64 });
-
-        const member = interaction.member;
-        if (!member) {
-          return interaction.editReply("Could not find your server member profile.");
-        }
-
-        const rolesToRemove = ALL_DIVISION_ROLE_IDS.filter((roleId) =>
-          member.roles.cache.has(roleId)
-        );
-
-        if (rolesToRemove.length) {
-          await member.roles.remove(rolesToRemove);
-        }
-
-        if (interaction.customId === "division_leave") {
-          registry.registerSuccess("askToPlay");
-          return interaction.editReply("You have left your current division.");
-        }
-
-        let roleId = null;
-        let divisionName = null;
-
-        if (interaction.customId === "division_eclipse") {
-          roleId = DIVISION_ROLE_IDS.eclipse;
-          divisionName = "Eclipse Vanguard";
-        }
-
-        if (interaction.customId === "division_bastion") {
-          roleId = DIVISION_ROLE_IDS.bastion;
-          divisionName = "Bastion Guard";
-        }
-
-        if (interaction.customId === "division_purifier") {
-          roleId = DIVISION_ROLE_IDS.purifier;
-          divisionName = "Purifier Corps";
-        }
-
-        if (interaction.customId === "division_orbital") {
-          roleId = DIVISION_ROLE_IDS.orbital;
-          divisionName = "Orbital Directive";
-        }
-
-        if (!roleId) {
-          return interaction.editReply("That division could not be assigned.");
-        }
-
-        await member.roles.add(roleId);
-        registry.registerSuccess("askToPlay");
-        return interaction.editReply(`You are now enlisted in **${divisionName}**.`);
-      }
-    }
-
-    if (interaction.isButton() && interaction.customId?.startsWith("gv_")) {
-      const runCmd = require("./commands/run.js");
-      return runProtected(client, {
-        feature: "tracker",
-        action: "Tracker button interaction",
-        location: "index.js -> InteractionCreate -> Tracker Button",
-        likelyCause: "Tracker button failure",
-        retries: 0,
-        maxFailures: 3,
-        job: async () => {
-          await runCmd.handleTrackerButton(interaction);
-        },
-      });
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId?.startsWith("gv_run_edit:")) {
-      const runCmd = require("./commands/run.js");
-      return runProtected(client, {
-        feature: "tracker",
-        action: "Tracker modal interaction",
-        location: "index.js -> InteractionCreate -> Tracker Modal",
-        likelyCause: "Tracker modal failure",
-        retries: 0,
-        maxFailures: 3,
-        job: async () => {
-          await runCmd.handleTrackerModal(interaction);
-        },
-      });
-    }
-
-    if (interaction.isChatInputCommand()) {
-      const cmd = commands.get(interaction.commandName);
-      if (!cmd) return;
-
-      return runProtected(client, {
-        feature: interaction.commandName === "run" ? "tracker" : "commands",
-        action: `Executing /${interaction.commandName}`,
-        location: "index.js -> InteractionCreate -> ChatInputCommand",
-        likelyCause: "Command execution failure",
-        retries: 0,
-        maxFailures: 3,
-        job: async () => {
-          await cmd.execute(interaction);
-
-          if (interaction.commandName === "run") {
-            registry.registerSuccess("tracker");
-            registry.registerSuccess("leaderboard");
-          } else {
-            registry.registerSuccess("commands");
-          }
-        },
-      });
-    }
-
-    if (interaction.isButton() && interaction.customId.startsWith("enlist:") && enlistment) {
-      const result = await enlistment.handleButton(interaction);
-      registry.registerSuccess("orientation");
-      return result;
-    }
-
-    if (interaction.isStringSelectMenu()) {
-      const session = sessions.get(interaction.message.id);
-
-      if (!session) {
-        if (interaction.deferred || interaction.replied) {
-          return interaction
-            .followUp({ content: "Session expired.", flags: 64 })
-            .catch(() => {});
-        }
-
-        return interaction.reply({ content: "Session expired.", flags: 64 }).catch(() => {});
-      }
-
-      if (interaction.user.id !== session.ownerId) {
-        if (interaction.deferred || interaction.replied) {
-          return interaction
-            .followUp({
-              content: "Only the host can set faction/difficulty.",
-              flags: 64,
-            })
-            .catch(() => {});
-        }
-
-        return interaction
-          .reply({
-            content: "Only the host can set faction/difficulty.",
-            flags: 64,
-          })
-          .catch(() => {});
-      }
-
-      try {
-        await interaction.deferReply({ flags: 64 });
-
-        if (interaction.customId === FACTION_SELECT_ID) {
-          session.faction = interaction.values[0];
-          await updateAskMessage(session);
-          registry.registerSuccess("askToPlay");
-
-          return interaction.editReply({
-            content: `✅ Faction set to **${session.faction}**`,
-          });
-        }
-
-        if (interaction.customId === DIFFICULTY_SELECT_ID) {
-          session.difficulty = interaction.values[0];
-          await updateAskMessage(session);
-
-          if (interaction.guild) {
-            await renameHostVcFromSession(session, interaction.guild);
-          }
-
-          registry.registerSuccess("askToPlay");
-
-          return interaction.editReply({
-            content: `✅ Difficulty set to **${session.difficulty}**`,
-          });
-        }
-      } catch (error) {
-        logger.error("String select menu error", error, {
-          location: "index.js -> InteractionCreate -> StringSelectMenu",
-          customId: interaction.customId,
-          userId: interaction.user?.id,
-        });
-
-        await sendErrorAlert(client, "Ask-to-Play Menu Failed", error, {
-          feature: "askToPlay",
-          location: "StringSelectMenu",
-          action: "Updating faction/difficulty selection",
-          likelyCause: "Expired interaction, invalid session, or message edit issue.",
-          severity: "warning",
-        });
-
-        if (interaction.deferred || interaction.replied) {
-          return interaction
-            .editReply({
-              content: "❌ Something went wrong while updating the session.",
-            })
-            .catch(() => {});
-        }
-
-        return interaction
-          .reply({
-            content: "❌ Something went wrong while updating the session.",
-            flags: 64,
-          })
-          .catch(() => {});
-      }
-    }
-  } catch (err) {
-    logger.error("InteractionCreate error", err, {
-      location: "index.js -> InteractionCreate",
-      userId: interaction?.user?.id || null,
-      guildId: interaction?.guildId || null,
-      commandName: interaction?.isChatInputCommand?.() ? interaction.commandName : null,
-      customId:
-        interaction?.isButton?.() || interaction?.isStringSelectMenu?.()
-          ? interaction.customId
-          : null,
-    });
-
-    await sendErrorAlert(client, "Interaction Handler Failed", err, {
-      feature: "askToPlay",
-      location: "InteractionCreate",
-      action: "Processing interaction",
-      likelyCause: "Command, button, or modal error.",
-      severity: "error",
-    });
-
-    if (interaction?.isRepliable?.()) {
-      try {
-        if (interaction.deferred || interaction.replied) {
-          await interaction.followUp({ content: "Something went wrong.", flags: 64 });
-        } else {
-          await interaction.reply({ content: "Something went wrong.", flags: 64 });
-        }
-      } catch {}
-    }
   }
 });
 
@@ -914,6 +627,7 @@ client.once(Events.ClientReady, async () => {
   );
 
   let resumedGitHubDeployment = null;
+
   try {
     resumedGitHubDeployment = await githubDeployService.resumePendingDeployment(client);
     if (resumedGitHubDeployment?.scanPerformed) {
@@ -1013,6 +727,7 @@ client.once(Events.ClientReady, async () => {
   );
 
   let runCmd = null;
+
   try {
     runCmd = require("./commands/run.js");
   } catch {
@@ -1056,6 +771,7 @@ client.once(Events.ClientReady, async () => {
 
   for (const guild of client.guilds.cache.values()) {
     const store = readTrackerStore();
+
     if (typeof runCmd.ensureLeaderboardMessage === "function") {
       await runCmd
         .ensureLeaderboardMessage(guild, store)
@@ -1105,6 +821,7 @@ client.once(Events.ClientReady, async () => {
   );
 
   const [sunH, sunM] = SUNDAY_ANNOUNCE_TIME.split(":").map(Number);
+
   cron.schedule(
     `${sunM} ${sunH} * * 0`,
     async () => {
@@ -1118,15 +835,17 @@ client.once(Events.ClientReady, async () => {
           const ann = findTextChannelByName(guild, ANN_NAME);
           if (!ann) continue;
 
-          await ann.send({
-            content:
-              `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
-              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-              `📌 Live leaderboard: **#${LB_NAME}**`,
-            allowedMentions: topP ? { users: [topP.key] } : undefined,
-          }).catch(() => {});
+          await ann
+            .send({
+              content:
+                `🏆 **WEEKLY RESULTS — THE GOLDEN VANGUARD**\n\n` +
+                `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+                `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}` : "_None_"}\n` +
+                `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+                `📌 Live leaderboard: **#${LB_NAME}**`,
+              allowedMentions: topP ? { users: [topP.key] } : undefined,
+            })
+            .catch(() => {});
 
           store.history = store.history || { weeks: [] };
           store.history.weeks.push({
@@ -1163,6 +882,7 @@ client.once(Events.ClientReady, async () => {
   );
 
   const [monH, monM] = MONDAY_RESET_TIME.split(":").map(Number);
+
   cron.schedule(
     `${monM} ${monH} * * 1`,
     async () => {
@@ -1230,15 +950,17 @@ client.once(Events.ClientReady, async () => {
           const ann = findTextChannelByName(guild, ANN_NAME);
           if (!ann) continue;
 
-          await ann.send({
-            content:
-              `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
-              `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
-              `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
-              `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
-              `📌 Leaderboards: **#${LB_NAME}**`,
-            allowedMentions: topP ? { users: [topP.key] } : undefined,
-          }).catch(() => {});
+          await ann
+            .send({
+              content:
+                `🏅 **MONTHLY RESULTS — ${monthKey}**\n\n` +
+                `🥇 **Top Diver:** ${topP ? `<@${topP.key}> — **${topP.val}**` : "_None_"}\n` +
+                `🛡 **Top Division:** ${topD ? `**${topD.key}** — **${topD.val}**` : "_None_"}\n` +
+                `👾 **Top Enemy Front:** ${topE ? `**${topE.key}** — **${topE.val}**` : "_None_"}\n\n` +
+                `📌 Leaderboards: **#${LB_NAME}**`,
+              allowedMentions: topP ? { users: [topP.key] } : undefined,
+            })
+            .catch(() => {});
 
           registry.registerSuccess("tracker");
           registry.registerSuccess("leaderboard");
