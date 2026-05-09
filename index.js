@@ -5,6 +5,7 @@
 // Scheduler extracted
 // Tracker store extracted
 // Command loader extracted
+// Ready handler extracted
 // =========================
 
 require("dotenv").config();
@@ -20,7 +21,6 @@ const logger = require("./services/logger");
 
 const {
   sendAlert,
-  sendStartupAlert,
 } = require("./services/alertService");
 
 const { setupVoiceHubs } = require("./voiceHubs");
@@ -42,8 +42,8 @@ const {
 } = require("./handlers/guildMemberHandler");
 
 const {
-  startScheduler,
-} = require("./jobs/scheduler");
+  registerReadyHandler,
+} = require("./handlers/readyHandler");
 
 const {
   loadCommands,
@@ -91,7 +91,6 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
   ],
-
   partials: [Partials.Channel],
 });
 
@@ -117,75 +116,39 @@ const sessions = new Map();
 // ASK TO PLAY WRAPPERS
 // =========================
 
-async function updateAskMessage(
-  session
-) {
-  return askToPlayService.updateAskMessage(
-    client,
-    session
-  );
+async function updateAskMessage(session) {
+  return askToPlayService.updateAskMessage(client, session);
 }
 
-async function renameHostVcFromSession(
-  session,
-  guild
-) {
-  return askToPlayService.renameHostVcFromSession(
-    client,
-    session,
-    guild
-  );
+async function renameHostVcFromSession(session, guild) {
+  return askToPlayService.renameHostVcFromSession(client, session, guild);
 }
 
 // =========================
 // REGISTER HANDLERS
 // =========================
 
-registerInteractionHandler(
-  client,
-  commands,
-  sessions,
-  {
-    FACTION_SELECT_ID:
-      askToPlayService.FACTION_SELECT_ID,
-
-    DIFFICULTY_SELECT_ID:
-      askToPlayService.DIFFICULTY_SELECT_ID,
-
-    updateAskMessage,
-
-    renameHostVcFromSession,
-  }
-);
+registerInteractionHandler(client, commands, sessions, {
+  FACTION_SELECT_ID: askToPlayService.FACTION_SELECT_ID,
+  DIFFICULTY_SELECT_ID: askToPlayService.DIFFICULTY_SELECT_ID,
+  updateAskMessage,
+  renameHostVcFromSession,
+});
 
 registerMessageHandler(client, {
   ASK_ROLE_ID,
-
   ALLOWED_CHANNEL_ID,
-
   TRIGGER_TEXT,
-
-  buildAskEmbed:
-    askToPlayService.buildAskEmbed,
-
-  buildAskComponents:
-    askToPlayService.buildAskComponents,
-
-  syncRosterFromVc:
-    askToPlayService.syncRosterFromVc,
-
+  buildAskEmbed: askToPlayService.buildAskEmbed,
+  buildAskComponents: askToPlayService.buildAskComponents,
+  syncRosterFromVc: askToPlayService.syncRosterFromVc,
   sessions,
 });
 
 registerVoiceStateHandler(client, {
   sessions,
-
-  resolveHostVc:
-    askToPlayService.resolveHostVc,
-
-  syncRosterFromVc:
-    askToPlayService.syncRosterFromVc,
-
+  resolveHostVc: askToPlayService.resolveHostVc,
+  syncRosterFromVc: askToPlayService.syncRosterFromVc,
   updateAskMessage,
 });
 
@@ -193,184 +156,92 @@ registerGuildMemberHandler(client, {
   WELCOME_CHANNEL_ID,
 });
 
-// =========================
-// READY
-// =========================
-
-client.once(
-  Events.ClientReady,
-  async () => {
-    logger.info(
-      `Logged in as ${client.user.tag}`,
-      {
-        botId: client.user.id,
-      }
-    );
-
-    await sendStartupAlert(
-      client,
-      `Golden Vanguard bot is now online as **${client.user.tag}**`
-    );
-
-    await startScheduler(client);
-  }
-);
+registerReadyHandler(client);
 
 // =========================
 // CLIENT WARN / ERROR
 // =========================
 
-client.on(
-  Events.Error,
-  async (err) => {
-    logger.error(
-      "Discord Client Error",
-      err,
-      {
-        location:
-          "client.on(Events.Error)",
-      }
-    );
-  }
-);
+client.on(Events.Error, async (err) => {
+  logger.error("Discord Client Error", err, {
+    location: "client.on(Events.Error)",
+  });
+});
 
-client.on(
-  Events.Warn,
-  (warning) => {
-    logger.warn(
-      "Discord Client Warning",
-      {
-        location:
-          "client.on(Events.Warn)",
-
-        warning,
-      }
-    );
-  }
-);
+client.on(Events.Warn, (warning) => {
+  logger.warn("Discord Client Warning", {
+    location: "client.on(Events.Warn)",
+    warning,
+  });
+});
 
 // =========================
 // PROCESS HANDLERS
 // =========================
 
-process.on(
-  "unhandledRejection",
-  async (reason) => {
-    const err =
-      reason instanceof Error
-        ? reason
-        : new Error(
-            String(
-              reason ||
-                "Unknown rejection"
-            )
-          );
+process.on("unhandledRejection", async (reason) => {
+  const err =
+    reason instanceof Error
+      ? reason
+      : new Error(String(reason || "Unknown rejection"));
 
-    logger.error(
-      "Unhandled Promise Rejection",
-      err,
-      {
-        location:
-          "process.on(unhandledRejection)",
-      }
-    );
-  }
-);
+  logger.error("Unhandled Promise Rejection", err, {
+    location: "process.on(unhandledRejection)",
+  });
+});
 
-process.on(
-  "uncaughtException",
-  async (err) => {
-    logger.error(
-      "Uncaught Exception",
-      err,
-      {
-        location:
-          "process.on(uncaughtException)",
-      }
-    );
-  }
-);
+process.on("uncaughtException", async (err) => {
+  logger.error("Uncaught Exception", err, {
+    location: "process.on(uncaughtException)",
+  });
+});
 
 // =========================
 // CLEAN SHUTDOWN
 // =========================
 
-async function shutdown(
-  signal
-) {
-  logger.warn(
-    `Shutdown signal received: ${signal}`,
-    {
-      location: "shutdown()",
-    }
-  );
+async function shutdown(signal) {
+  logger.warn(`Shutdown signal received: ${signal}`, {
+    location: "shutdown()",
+  });
 
   try {
     if (client.isReady()) {
       await sendAlert(client, {
         title: "Bot Shutdown",
-
-        description:
-          `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
-
+        description: `Golden Vanguard bot is shutting down after receiving **${signal}**.`,
         severity: "warning",
       });
     }
   } catch (err) {
-    logger.error(
-      "Failed to send shutdown alert",
-      err,
-      {
-        location: "shutdown()",
-      }
-    );
+    logger.error("Failed to send shutdown alert", err, {
+      location: "shutdown()",
+    });
   }
 
   try {
     client.destroy();
   } catch (err) {
-    logger.error(
-      "Failed to destroy Discord client cleanly",
-      err,
-      {
-        location: "shutdown()",
-      }
-    );
+    logger.error("Failed to destroy Discord client cleanly", err, {
+      location: "shutdown()",
+    });
   }
 
   process.exit(0);
 }
 
-process.on(
-  "SIGINT",
-  () => shutdown("SIGINT")
-);
-
-process.on(
-  "SIGTERM",
-  () => shutdown("SIGTERM")
-);
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 // =========================
 // LOGIN
 // =========================
 
-client.login(TOKEN).catch(
-  (err) => {
-    logger.error(
-      "Failed to login bot",
-      err,
-      {
-        location:
-          "client.login",
-      }
-    );
+client.login(TOKEN).catch((err) => {
+  logger.error("Failed to login bot", err, {
+    location: "client.login",
+  });
 
-    console.error(
-      "❌ Bot login failed:",
-      err
-    );
-
-    process.exit(1);
-  }
-);
+  console.error("❌ Bot login failed:", err);
+  process.exit(1);
+});
