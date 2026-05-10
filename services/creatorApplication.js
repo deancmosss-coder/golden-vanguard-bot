@@ -29,15 +29,11 @@ function hasApproverAccess(member) {
     return true;
   }
 
-  const approverRoleIds = parseRoleIds(
-    process.env.CREATOR_APPROVER_ROLE_IDS
-  );
+  const approverRoleIds = parseRoleIds(process.env.CREATOR_APPROVER_ROLE_IDS);
 
   if (!approverRoleIds.length) return false;
 
-  return approverRoleIds.some((roleId) =>
-    member.roles.cache.has(roleId)
-  );
+  return approverRoleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
 function normalisePlatformName(name) {
@@ -50,6 +46,7 @@ function normalisePlatformName(name) {
   if (lower.includes("facebook")) return "facebook";
   if (lower.includes("instagram")) return "instagram";
   if (lower.includes("discord")) return "discord";
+  if (lower.includes("twitter") || lower === "x") return "x";
 
   return lower.trim() || "other";
 }
@@ -63,8 +60,7 @@ function parseLinesToLinks(rawText) {
   return lines.map((line) => {
     const parts = line.split(/[-–—:]/);
 
-    const label =
-      parts.length > 1 ? parts[0].trim() : "other";
+    const label = parts.length > 1 ? parts[0].trim() : "other";
 
     const value =
       parts.length > 1
@@ -82,7 +78,7 @@ function parseLinesToLinks(rawText) {
 function buildApplicationModal(existing = null) {
   const modal = new ModalBuilder()
     .setCustomId(MODAL_ID)
-    .setTitle("Creator Application");
+    .setTitle(existing?.approved ? "Edit Creator Profile" : "Creator Application");
 
   const platformsInput = new TextInputBuilder()
     .setCustomId("platforms")
@@ -143,11 +139,7 @@ function buildApplicationModal(existing = null) {
   return modal;
 }
 
-function buildApplicationEmbed(
-  user,
-  application,
-  statusText = "Pending Review"
-) {
+function buildApplicationEmbed(user, application, statusText = "Pending Review") {
   return new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle("🎥 Creator Application")
@@ -179,6 +171,37 @@ function buildApplicationEmbed(
     .setTimestamp(new Date());
 }
 
+function buildProfileUpdatedEmbed(user, creator) {
+  return new EmbedBuilder()
+    .setColor(0x3498db)
+    .setTitle("✏️ Creator Profile Updated")
+    .setDescription(
+      [
+        `**Creator:** ${user}`,
+        `**User ID:** \`${creator.discordUserId}\``,
+        "",
+        "**Streaming Platforms**",
+        creator.platformsRaw || "Not provided",
+        "",
+        "**Socials**",
+        creator.socialsRaw || "Not provided",
+        "",
+        "**Content Type**",
+        creator.contentType || "Not provided",
+        "",
+        "**Schedule**",
+        creator.schedule || "Not provided",
+        "",
+        "**Bio**",
+        creator.bio || "Not provided",
+      ].join("\n")
+    )
+    .setFooter({
+      text: "Golden Vanguard • Creator Network",
+    })
+    .setTimestamp(new Date());
+}
+
 function buildApprovalRows(discordUserId) {
   return [
     new ActionRowBuilder().addComponents(
@@ -195,33 +218,38 @@ function buildApprovalRows(discordUserId) {
   ];
 }
 
-async function sendApplicationToStaff(
-  interaction,
-  application
-) {
-  const channelId =
-    process.env.CREATOR_APPLICATIONS_CHANNEL_ID;
+async function sendApplicationToStaff(interaction, application) {
+  const channelId = process.env.CREATOR_APPLICATIONS_CHANNEL_ID;
 
   const channel = await interaction.client.channels
     .fetch(channelId)
     .catch(() => null);
 
   if (!channel || !channel.isTextBased()) {
-    throw new Error(
-      "Creator applications channel invalid."
-    );
+    throw new Error("Creator applications channel invalid.");
   }
 
   await channel.send({
-    embeds: [
-      buildApplicationEmbed(
-        interaction.user,
-        application
-      ),
-    ],
-    components: buildApprovalRows(
-      application.discordUserId
-    ),
+    embeds: [buildApplicationEmbed(interaction.user, application)],
+    components: buildApprovalRows(application.discordUserId),
+    allowedMentions: { parse: [] },
+  });
+}
+
+async function sendProfileUpdateToStaff(interaction, creator) {
+  const channelId = process.env.CREATOR_APPLICATIONS_CHANNEL_ID;
+
+  if (!channelId) return;
+
+  const channel = await interaction.client.channels
+    .fetch(channelId)
+    .catch(() => null);
+
+  if (!channel || !channel.isTextBased()) return;
+
+  await channel.send({
+    embeds: [buildProfileUpdatedEmbed(interaction.user, creator)],
+    allowedMentions: { parse: [] },
   });
 }
 
@@ -230,52 +258,30 @@ async function handleModalSubmit(interaction) {
     return false;
   }
 
-  const existingCreator =
-    creatorStore.getCreatorByUserId(
-      interaction.user.id
-    );
+  const platformsRaw = interaction.fields
+    .getTextInputValue("platforms")
+    .trim();
 
-  if (existingCreator) {
-    await interaction.reply({
-      content:
-        "You are already an approved creator.",
-      flags: 64,
-    });
+  const socialsRaw = interaction.fields
+    .getTextInputValue("socials")
+    .trim();
 
-    return true;
-  }
+  const contentType = interaction.fields
+    .getTextInputValue("contentType")
+    .trim();
 
-  const platformsRaw =
-    interaction.fields
-      .getTextInputValue("platforms")
-      .trim();
+  const schedule = interaction.fields
+    .getTextInputValue("schedule")
+    .trim();
 
-  const socialsRaw =
-    interaction.fields
-      .getTextInputValue("socials")
-      .trim();
+  const bio = interaction.fields
+    .getTextInputValue("bio")
+    .trim();
 
-  const contentType =
-    interaction.fields
-      .getTextInputValue("contentType")
-      .trim();
-
-  const schedule =
-    interaction.fields
-      .getTextInputValue("schedule")
-      .trim();
-
-  const bio =
-    interaction.fields
-      .getTextInputValue("bio")
-      .trim();
-
-  const application = {
+  const payload = {
     discordUserId: interaction.user.id,
     discordTag: interaction.user.tag,
-    displayName:
-      interaction.member?.displayName ||
-      interaction.user.username,
+    displayName: interaction.member?.displayName || interaction.user.username,
 
     platformsRaw,
     socialsRaw,
@@ -287,59 +293,66 @@ async function handleModalSubmit(interaction) {
     socials: parseLinesToLinks(socialsRaw),
   };
 
-  const pendingApplication =
-    creatorStore.upsertPendingApplication(
-      application
-    );
+  const existingCreator = creatorStore.getCreatorByUserId(interaction.user.id);
 
-  await sendApplicationToStaff(
-    interaction,
-    pendingApplication
-  );
+  if (existingCreator) {
+    const result = creatorStore.updateCreatorProfile(interaction.user.id, payload);
 
-  await interaction.reply({
-    content:
-      "Your creator application has been submitted.",
-    flags: 64,
-  });
+    if (!result.ok) {
+      await interaction.reply({
+        content: result.reason || "Could not update your creator profile.",
+        flags: 64,
+      });
 
-  return true;
-}
+      return true;
+    }
 
-async function approveCreator(
-  interaction,
-  discordUserId
-) {
-  const result =
-    creatorStore.approveApplication(
-      discordUserId,
-      interaction.user.id
-    );
+    await sendProfileUpdateToStaff(interaction, result.creator);
 
-  if (!result.ok) {
     await interaction.reply({
-      content:
-        result.reason ||
-        "Could not approve application.",
+      content: "Your creator profile has been updated.",
       flags: 64,
     });
 
     return true;
   }
 
-  const creatorRoleId =
-    process.env.CREATOR_ROLE_ID;
+  const pendingApplication = creatorStore.upsertPendingApplication(payload);
+
+  await sendApplicationToStaff(interaction, pendingApplication);
+
+  await interaction.reply({
+    content: "Your creator application has been submitted.",
+    flags: 64,
+  });
+
+  return true;
+}
+
+async function approveCreator(interaction, discordUserId) {
+  const result = creatorStore.approveApplication(
+    discordUserId,
+    interaction.user.id
+  );
+
+  if (!result.ok) {
+    await interaction.reply({
+      content: result.reason || "Could not approve application.",
+      flags: 64,
+    });
+
+    return true;
+  }
+
+  const creatorRoleId = process.env.CREATOR_ROLE_ID;
 
   if (creatorRoleId && interaction.guild) {
-    const member =
-      await interaction.guild.members
-        .fetch(discordUserId)
-        .catch(() => null);
+    const member = await interaction.guild.members
+      .fetch(discordUserId)
+      .catch(() => null);
 
     if (member) {
-      await member.roles
-        .add(creatorRoleId)
-        .catch(() => null);
+      await member.roles.add(creatorRoleId).catch(() => null);
     }
   }
 
@@ -352,20 +365,12 @@ async function approveCreator(
   return true;
 }
 
-async function denyCreator(
-  interaction,
-  discordUserId
-) {
-  const result =
-    creatorStore.denyApplication(
-      discordUserId
-    );
+async function denyCreator(interaction, discordUserId) {
+  const result = creatorStore.denyApplication(discordUserId);
 
   if (!result.ok) {
     await interaction.reply({
-      content:
-        result.reason ||
-        "Could not deny application.",
+      content: result.reason || "Could not deny application.",
       flags: 64,
     });
 
@@ -381,47 +386,31 @@ async function denyCreator(
   return true;
 }
 
-async function handleButtonInteraction(
-  interaction
-) {
+async function handleButtonInteraction(interaction) {
   if (
-    !interaction.customId.startsWith(
-      APPROVE_PREFIX
-    ) &&
-    !interaction.customId.startsWith(
-      DENY_PREFIX
-    )
+    !interaction.customId.startsWith(APPROVE_PREFIX) &&
+    !interaction.customId.startsWith(DENY_PREFIX)
   ) {
     return false;
   }
 
-  if (
-    !hasApproverAccess(interaction.member)
-  ) {
+  if (!hasApproverAccess(interaction.member)) {
     await interaction.reply({
-      content:
-        "You do not have permission.",
+      content: "You do not have permission.",
       flags: 64,
     });
 
     return true;
   }
 
-  const [action, discordUserId] =
-    interaction.customId.split(":");
+  const [action, discordUserId] = interaction.customId.split(":");
 
   if (action === APPROVE_PREFIX) {
-    return approveCreator(
-      interaction,
-      discordUserId
-    );
+    return approveCreator(interaction, discordUserId);
   }
 
   if (action === DENY_PREFIX) {
-    return denyCreator(
-      interaction,
-      discordUserId
-    );
+    return denyCreator(interaction, discordUserId);
   }
 
   return false;
