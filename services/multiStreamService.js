@@ -10,19 +10,8 @@ const {
 const logger = require("./logger");
 const creatorStore = require("./creatorStore");
 
-const MULTISTREAM_STORE_PATH = path.join(
-  __dirname,
-  "..",
-  "data",
-  "multistreams.json"
-);
-
-const STREAM_ALERT_STORE_PATH = path.join(
-  __dirname,
-  "..",
-  "data",
-  "streamAlerts.json"
-);
+const MULTISTREAM_STORE_PATH = path.join(__dirname, "..", "data", "multistreams.json");
+const STREAM_ALERT_STORE_PATH = path.join(__dirname, "..", "data", "streamAlerts.json");
 
 function defaultStore() {
   return {
@@ -38,11 +27,7 @@ function ensureStoreFile() {
   }
 
   if (!fs.existsSync(MULTISTREAM_STORE_PATH)) {
-    fs.writeFileSync(
-      MULTISTREAM_STORE_PATH,
-      JSON.stringify(defaultStore(), null, 2),
-      "utf8"
-    );
+    fs.writeFileSync(MULTISTREAM_STORE_PATH, JSON.stringify(defaultStore(), null, 2), "utf8");
   }
 }
 
@@ -69,38 +54,27 @@ function readStore() {
 
 function writeStore(store) {
   ensureStoreFile();
-
-  fs.writeFileSync(
-    MULTISTREAM_STORE_PATH,
-    JSON.stringify(store, null, 2),
-    "utf8"
-  );
+  fs.writeFileSync(MULTISTREAM_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
 }
 
 function readStreamAlertStore() {
   try {
     if (!fs.existsSync(STREAM_ALERT_STORE_PATH)) {
-      return {
-        liveStreams: [],
-      };
+      return { liveStreams: [] };
     }
 
     const raw = fs.readFileSync(STREAM_ALERT_STORE_PATH, "utf8");
     const parsed = JSON.parse(raw);
 
     return {
-      liveStreams: Array.isArray(parsed.liveStreams)
-        ? parsed.liveStreams
-        : [],
+      liveStreams: Array.isArray(parsed.liveStreams) ? parsed.liveStreams : [],
     };
   } catch (err) {
     logger.error("Failed to read stream alert store for multistreams", err, {
       location: "multiStreamService.js -> readStreamAlertStore",
     });
 
-    return {
-      liveStreams: [],
-    };
+    return { liveStreams: [] };
   }
 }
 
@@ -113,23 +87,15 @@ function getAllowedVcCategoryIds() {
 
 function isApprovedVanguardVc(vc) {
   if (!vc) return false;
-
-  const allowed = getAllowedVcCategoryIds();
-
-  return allowed.includes(vc.parentId);
+  return getAllowedVcCategoryIds().includes(vc.parentId);
 }
 
 function getCreatorById(creators, creatorId) {
-  return (
-    creators.find((creator) => creator.discordUserId === creatorId) ||
-    null
-  );
+  return creators.find((creator) => creator.discordUserId === creatorId) || null;
 }
 
 function buildMultiStreamKey(vcId, creatorIds) {
-  const sortedIds = [...creatorIds].sort();
-
-  return `${vcId}:${sortedIds.join(",")}`;
+  return `${vcId}:${[...creatorIds].sort().join(",")}`;
 }
 
 function hasActiveAlert(store, key) {
@@ -137,26 +103,26 @@ function hasActiveAlert(store, key) {
 }
 
 function markActiveAlert(store, data) {
-  if (hasActiveAlert(store, data.key)) {
-    return;
-  }
+  if (hasActiveAlert(store, data.key)) return;
 
   store.activeMultiStreams.push(data);
   writeStore(store);
 }
 
 function clearInactiveAlerts(store, activeKeys) {
-  store.activeMultiStreams = store.activeMultiStreams.filter((entry) =>
-    activeKeys.has(entry.key)
-  );
-
+  store.activeMultiStreams = store.activeMultiStreams.filter((entry) => activeKeys.has(entry.key));
   writeStore(store);
 }
 
+function cleanTwitchUsername(username) {
+  return String(username || "")
+    .trim()
+    .replace(/^@/, "")
+    .replace(/[^a-zA-Z0-9_]/g, "");
+}
+
 function buildMultiTwitchUrl(twitchUsernames) {
-  const names = twitchUsernames
-    .map((name) => String(name || "").trim())
-    .filter(Boolean);
+  const names = twitchUsernames.map(cleanTwitchUsername).filter(Boolean);
 
   if (names.length < 2) return null;
 
@@ -169,7 +135,6 @@ function formatCreatorNames(creators) {
   }
 
   const names = creators.map((creator) => `**${creator.displayName}**`);
-
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
@@ -178,9 +143,7 @@ function findSharedGame(creators) {
 
   if (!firstGame) return "Streaming";
 
-  const allSame = creators.every(
-    (creator) => creator.contentType === firstGame
-  );
+  const allSame = creators.every((creator) => creator.contentType === firstGame);
 
   return allSame ? firstGame : "Multiple games";
 }
@@ -209,7 +172,7 @@ function buildMultiStreamMessage({ creators, vcName, multitwitchUrl }) {
           vcName || "Vanguard Voice Channel",
           "",
           "👀 **Watch All Perspectives Live**",
-          multitwitchUrl,
+          `<${multitwitchUrl}>`,
           "",
           "━━━━━━━━━━━━━━━━━━",
           "",
@@ -251,41 +214,28 @@ async function getLiveCreatorsWithVc(client) {
   const results = [];
 
   for (const liveStream of liveStreams) {
-    if (liveStream.platform !== "twitch") {
-      continue;
-    }
+    if (liveStream.platform !== "twitch") continue;
 
     const creator = getCreatorById(creators, liveStream.creatorId);
 
-    if (!creator) {
-      continue;
-    }
-
-    if (creator.alertsEnabled === false) {
-      continue;
-    }
+    if (!creator) continue;
+    if (creator.alertsEnabled === false) continue;
 
     for (const guild of client.guilds.cache.values()) {
-      const member = await guild.members
-        .fetch(creator.discordUserId)
-        .catch(() => null);
+      const member = await guild.members.fetch(creator.discordUserId).catch(() => null);
 
-      if (!member?.voice?.channel) {
-        continue;
-      }
+      if (!member?.voice?.channel) continue;
 
       const vc = member.voice.channel;
 
-      if (!isApprovedVanguardVc(vc)) {
-        continue;
-      }
+      if (!isApprovedVanguardVc(vc)) continue;
 
       results.push({
         creator,
         liveStream,
         guild,
         vc,
-        twitchUsername: liveStream.twitchUsername,
+        twitchUsername: cleanTwitchUsername(liveStream.twitchUsername),
       });
 
       break;
@@ -324,14 +274,10 @@ async function scanMultiStreams(client) {
       return;
     }
 
-    const alertChannel = await client.channels
-      .fetch(channelId)
-      .catch(() => null);
+    const alertChannel = await client.channels.fetch(channelId).catch(() => null);
 
     if (!alertChannel || !alertChannel.isTextBased()) {
-      logger.warn("Multistream alert channel missing or invalid", {
-        channelId,
-      });
+      logger.warn("Multistream alert channel missing or invalid", { channelId });
       return;
     }
 
@@ -341,30 +287,19 @@ async function scanMultiStreams(client) {
     const activeKeys = new Set();
 
     for (const group of groups) {
-      if (group.items.length < 2) {
-        continue;
-      }
+      if (group.items.length < 2) continue;
 
-      const creatorIds = group.items.map(
-        (item) => item.creator.discordUserId
-      );
-
+      const creatorIds = group.items.map((item) => item.creator.discordUserId);
       const key = buildMultiStreamKey(group.vc.id, creatorIds);
+
       activeKeys.add(key);
 
-      if (hasActiveAlert(store, key)) {
-        continue;
-      }
+      if (hasActiveAlert(store, key)) continue;
 
-      const twitchUsernames = group.items
-        .map((item) => item.twitchUsername)
-        .filter(Boolean);
-
+      const twitchUsernames = group.items.map((item) => item.twitchUsername).filter(Boolean);
       const multitwitchUrl = buildMultiTwitchUrl(twitchUsernames);
 
-      if (!multitwitchUrl) {
-        continue;
-      }
+      if (!multitwitchUrl) continue;
 
       const creators = group.items.map((item) => item.creator);
 
