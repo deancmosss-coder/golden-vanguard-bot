@@ -20,7 +20,7 @@ function startStreamAlertScheduler(client) {
   );
 
   cron.schedule(
-    "*/5 * * * *",
+    "*/30 * * * * *",
     async () => {
       try {
         await streamAlertService.scanCreators(
