@@ -3,6 +3,7 @@
 // DISCOVERY + UPGRADE REVIEW COMMAND
 // STRICT ADMIN ONLY
 // PHASE 4: VERSION HISTORY + HOTFIX + VERSION ROLLBACK
+// FIXED: safe expired button handling
 // =========================
 
 const {
@@ -39,9 +40,90 @@ const featureVersions = require("../services/featureVersionService");
 
 function relTime(iso) {
   if (!iso) return "Never";
+
   const unix = Math.floor(new Date(iso).getTime() / 1000);
+
   if (!Number.isFinite(unix)) return "Never";
+
   return `<t:${unix}:R>`;
+}
+
+function isUnknownInteractionError(err) {
+  return (
+    err?.code === 10062 ||
+    String(err?.message || "").includes("Unknown interaction") ||
+    String(err?.rawError?.message || "").includes("Unknown interaction")
+  );
+}
+
+function friendlyReviewErrorMessage(err) {
+  const message = String(err?.message || "Unknown review error");
+
+  if (message.includes("Only approved reviews can be promoted to staging")) {
+    return "This review must be **approved** before it can be promoted to **staging**.";
+  }
+
+  if (message.includes("Only staging reviews can be promoted to live")) {
+    return "This review must be in **staging** before it can be promoted to **live**.";
+  }
+
+  if (message.includes("Only live reviews can be rolled back to staging")) {
+    return "This review must be **live** before it can be rolled back to **staging**.";
+  }
+
+  if (message.includes("Only staging reviews can be rolled back to approved")) {
+    return "This review must be in **staging** before it can be rolled back to **approved**.";
+  }
+
+  if (message.includes("Review not found")) {
+    return "Review not found. It may have been removed or already processed.";
+  }
+
+  return message;
+}
+
+async function safeDeferInteraction(interaction) {
+  try {
+    if (interaction.deferred || interaction.replied) return true;
+
+    await interaction.deferReply({ flags: 64 });
+    return true;
+  } catch (err) {
+    if (isUnknownInteractionError(err)) {
+      console.warn("[REVIEW] Interaction expired before deferReply.");
+      return false;
+    }
+
+    throw err;
+  }
+}
+
+async function safeInteractionReply(interaction, payload) {
+  try {
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply(payload);
+    }
+
+    if (typeof payload === "string") {
+      return await interaction.reply({
+        content: payload,
+        flags: 64,
+      });
+    }
+
+    return await interaction.reply({
+      ...payload,
+      flags: payload.flags ?? 64,
+    });
+  } catch (err) {
+    if (isUnknownInteractionError(err)) {
+      console.warn("[REVIEW] Interaction expired before reply could be sent.");
+      return null;
+    }
+
+    console.error("[REVIEW SAFE REPLY ERROR]", err);
+    return null;
+  }
 }
 
 function buildReviewListEmbed(title, items, color = 0xf1c40f) {
@@ -49,6 +131,7 @@ function buildReviewListEmbed(title, items, color = 0xf1c40f) {
     ? items
         .map((item) => {
           const progress = buildReviewProgress(item);
+
           return [
             `**${item.reviewId}**`,
             `Feature: **${item.feature}**`,
@@ -308,54 +391,55 @@ async function executeAdmin(interaction) {
   const sub = interaction.options.getSubcommand();
   const actor = `${interaction.user.tag} (${interaction.user.id})`;
 
-  await interaction.deferReply({ flags: 64 });
+  const deferred = await safeDeferInteraction(interaction);
+  if (!deferred) return;
 
   try {
     if (sub === "scan") {
       await scanForReviews(interaction.client, actor);
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f)],
       });
     }
 
     if (sub === "pending") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("Items Under Review", getPendingReviews(), 0xf1c40f)],
       });
     }
 
     if (sub === "approved") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("Approved Review Items", getApprovedReviews(), 0x27ae60)],
       });
     }
 
     if (sub === "staging") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("Staging Review Items", getStagingReviews(), 0x3498db)],
       });
     }
 
     if (sub === "live") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("Live Review Items", getLiveReviews(), 0x2ecc71)],
       });
     }
 
     if (sub === "frozen") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("Frozen Review Items", getFrozenReviews(), 0x95a5a6)],
       });
     }
 
     if (sub === "declined") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("Declined Review Items", getDeclinedReviews(), 0xe74c3c)],
       });
     }
 
     if (sub === "all") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildReviewListEmbed("All Review Items", getAllReviews(), 0x95a5a6)],
       });
     }
@@ -364,11 +448,9 @@ async function executeAdmin(interaction) {
       const reviewId = interaction.options.getString("review_id", true);
       const item = getReview(reviewId);
 
-      if (!item) {
-        return interaction.editReply("Review not found.");
-      }
+      if (!item) return safeInteractionReply(interaction, "Review not found.");
 
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildSingleReviewEmbed(item)],
       });
     }
@@ -377,11 +459,9 @@ async function executeAdmin(interaction) {
       const reviewId = interaction.options.getString("review_id", true);
       const item = getReview(reviewId);
 
-      if (!item) {
-        return interaction.editReply("Review not found.");
-      }
+      if (!item) return safeInteractionReply(interaction, "Review not found.");
 
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildVersionsEmbed(item.feature)],
       });
     }
@@ -389,73 +469,76 @@ async function executeAdmin(interaction) {
     if (sub === "approve") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await approveReview(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "decline") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await declineReview(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "promote-staging") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await promoteReviewToStaging(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "promote-live") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await promoteReviewToLive(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "hotfix") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await hotfixReviewToLive(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "rollback-staging") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await rollbackReviewToStaging(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "rollback-approved") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await rollbackReviewToApproved(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "rollback-version") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await rollbackReviewToPreviousVersion(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "freeze") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await freezeReview(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "unfreeze") {
       const reviewId = interaction.options.getString("review_id", true);
       const item = await unfreezeReview(interaction.client, reviewId, actor);
-      return interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      return safeInteractionReply(interaction, { embeds: [buildSingleReviewEmbed(item)] });
     }
 
     if (sub === "audit") {
-      return interaction.editReply({
+      return safeInteractionReply(interaction, {
         embeds: [buildAuditEmbed(getRecentAudit(10))],
       });
     }
 
-    return interaction.editReply("Unknown review action.");
+    return safeInteractionReply(interaction, "Unknown review action.");
   } catch (err) {
     console.error("[REVIEW COMMAND ERROR]", err);
-    return interaction.editReply(`❌ Review command failed: ${err.message}`);
+    return safeInteractionReply(
+      interaction,
+      `❌ Review command failed: ${friendlyReviewErrorMessage(err)}`
+    );
   }
 }
 
@@ -464,10 +547,7 @@ async function handleButton(interaction) {
   if (parts[0] !== "review") return false;
 
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-    await interaction.reply({
-      content: "Admin only.",
-      flags: 64,
-    });
+    await safeInteractionReply(interaction, "Admin only.");
     return true;
   }
 
@@ -475,74 +555,50 @@ async function handleButton(interaction) {
   const reviewId = parts[2];
   const actor = `${interaction.user.tag} (${interaction.user.id})`;
 
-  await interaction.deferReply({ flags: 64 });
+  const deferred = await safeDeferInteraction(interaction);
+  if (!deferred) return true;
 
   try {
+    let item = null;
+
     if (action === "approve") {
-      const item = await approveReview(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
+      item = await approveReview(interaction.client, reviewId, actor);
+    } else if (action === "decline") {
+      item = await declineReview(interaction.client, reviewId, actor);
+    } else if (action === "promote_staging") {
+      item = await promoteReviewToStaging(interaction.client, reviewId, actor);
+    } else if (action === "promote_live") {
+      item = await promoteReviewToLive(interaction.client, reviewId, actor);
+    } else if (action === "hotfix_live") {
+      item = await hotfixReviewToLive(interaction.client, reviewId, actor);
+    } else if (action === "rollback_staging") {
+      item = await rollbackReviewToStaging(interaction.client, reviewId, actor);
+    } else if (action === "rollback_approved") {
+      item = await rollbackReviewToApproved(interaction.client, reviewId, actor);
+    } else if (action === "rollback_version") {
+      item = await rollbackReviewToPreviousVersion(interaction.client, reviewId, actor);
+    } else if (action === "freeze") {
+      item = await freezeReview(interaction.client, reviewId, actor);
+    } else if (action === "unfreeze") {
+      item = await unfreezeReview(interaction.client, reviewId, actor);
+    } else {
+      await safeInteractionReply(interaction, "Unknown review button action.");
       return true;
     }
 
-    if (action === "decline") {
-      const item = await declineReview(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
+    await safeInteractionReply(interaction, {
+      embeds: [buildSingleReviewEmbed(item)],
+    });
 
-    if (action === "promote_staging") {
-      const item = await promoteReviewToStaging(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    if (action === "promote_live") {
-      const item = await promoteReviewToLive(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    if (action === "hotfix_live") {
-      const item = await hotfixReviewToLive(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    if (action === "rollback_staging") {
-      const item = await rollbackReviewToStaging(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    if (action === "rollback_approved") {
-      const item = await rollbackReviewToApproved(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    if (action === "rollback_version") {
-      const item = await rollbackReviewToPreviousVersion(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    if (action === "freeze") {
-      const item = await freezeReview(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    if (action === "unfreeze") {
-      const item = await unfreezeReview(interaction.client, reviewId, actor);
-      await interaction.editReply({ embeds: [buildSingleReviewEmbed(item)] });
-      return true;
-    }
-
-    await interaction.editReply("Unknown review button action.");
     return true;
   } catch (err) {
     console.error("[REVIEW BUTTON ERROR]", err);
-    await interaction.editReply(`❌ Review action failed: ${err.message}`);
+
+    await safeInteractionReply(
+      interaction,
+      `❌ Review action failed: ${friendlyReviewErrorMessage(err)}`
+    );
+
     return true;
   }
 }
