@@ -8,9 +8,8 @@ const { Events } = require("discord.js");
 const logger = require("../services/logger");
 const { sendStartupAlert } = require("../services/alertService");
 const { startScheduler } = require("../jobs/scheduler");
-const {
-  startStreamAlertScheduler,
-} = require("../jobs/streamAlertScheduler");
+const { startStreamAlertScheduler } = require("../jobs/streamAlertScheduler");
+const { startMultiStreamScheduler } = require("../jobs/multiStreamScheduler");
 
 function registerReadyHandler(client) {
   client.once(Events.ClientReady, async () => {
@@ -26,6 +25,7 @@ function registerReadyHandler(client) {
     await startScheduler(client);
 
     startStreamAlertScheduler(client);
+    startMultiStreamScheduler(client);
   });
 }
 
