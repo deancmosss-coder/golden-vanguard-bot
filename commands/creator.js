@@ -1,254 +1,143 @@
 const {
   SlashCommandBuilder,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require("discord.js");
+
+const fs = require("fs");
+const path = require("path");
 
 const creatorStore = require("../services/creatorStore");
 
 const {
   buildApplicationModal,
-  hasApproverAccess,
 } = require("../services/creatorApplication");
 
-function formatLinkList(items, fallbackText) {
-  if (!Array.isArray(items) || !items.length) {
-    return fallbackText || "Not provided";
+const STREAM_ALERTS_PATH = path.join(
+  __dirname,
+  "..",
+  "data",
+  "streamAlerts.json"
+);
+
+const MULTISTREAMS_PATH = path.join(
+  __dirname,
+  "..",
+  "data",
+  "multistreams.json"
+);
+
+function readJson(filePath, fallback) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return fallback;
+    }
+
+    return JSON.parse(
+      fs.readFileSync(filePath, "utf8")
+    );
+  } catch {
+    return fallback;
   }
-
-  return items
-    .map((item) => {
-      const label =
-        item.label ||
-        item.platform ||
-        "Link";
-
-      const url =
-        item.url || "Not provided";
-
-      return `**${label}:** ${url}`;
-    })
-    .join("\n");
 }
 
-function buildCreatorProfileEmbed(
-  user,
-  creator
-) {
-  return new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle(
-      `🎥 ${
-        creator.displayName ||
-        user.username
-      } • Creator Profile`
-    )
-    .setDescription(
-      [
-        `**Creator:** <@${creator.discordUserId}>`,
-        "",
-        "**Alerts Enabled**",
-        creator.alertsEnabled
-          ? "Yes"
-          : "No",
-        "",
-        "━━━━━━━━━━━━━━━━━━",
-        "",
-        "**Streaming Platforms**",
-        formatLinkList(
-          creator.platforms,
-          creator.platformsRaw
-        ),
-        "",
-        "**Socials**",
-        formatLinkList(
-          creator.socials,
-          creator.socialsRaw
-        ),
-        "",
-        "**Content Type**",
-        creator.contentType ||
-          "Not provided",
-        "",
-        "**Schedule**",
-        creator.schedule ||
-          "Not provided",
-        "",
-        "**Bio**",
-        creator.bio ||
-          "Not provided",
-      ].join("\n")
-    )
-    .setFooter({
-      text:
-        "Golden Vanguard • Creator Network",
-    })
-    .setTimestamp(new Date());
+function getLiveStreams() {
+  const data = readJson(STREAM_ALERTS_PATH, {
+    liveStreams: [],
+  });
+
+  return Array.isArray(data.liveStreams)
+    ? data.liveStreams
+    : [];
+}
+
+function getMultiStreams() {
+  const data = readJson(MULTISTREAMS_PATH, {
+    activeMultiStreams: [],
+  });
+
+  return Array.isArray(data.activeMultiStreams)
+    ? data.activeMultiStreams
+    : [];
+}
+
+function buildTwitchUrl(username) {
+  return `https://twitch.tv/${username}`;
+}
+
+function buildMultiStreamUrl(usernames) {
+  return `https://multitwitch.tv/${usernames.join("/")}`;
+}
+
+async function findMemberVoice(client, creatorId) {
+  for (const guild of client.guilds.cache.values()) {
+    const member = await guild.members
+      .fetch(creatorId)
+      .catch(() => null);
+
+    if (!member?.voice?.channel) {
+      continue;
+    }
+
+    return member.voice.channel.name;
+  }
+
+  return null;
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("creator")
-    .setDescription(
-      "Creator Network commands"
-    )
+    .setDescription("Creator tools")
 
-    .addSubcommand((subcommand) =>
-      subcommand
+    .addSubcommand((sub) =>
+      sub
         .setName("apply")
         .setDescription(
-          "Apply to become a creator"
+          "Apply for the creator network"
         )
     )
 
-    .addSubcommand((subcommand) =>
-      subcommand
+    .addSubcommand((sub) =>
+      sub
         .setName("edit")
         .setDescription(
           "Edit your creator profile"
         )
     )
 
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("remove")
+    .addSubcommand((sub) =>
+      sub
+        .setName("live")
         .setDescription(
-          "Leave the creator network"
-        )
-    )
-
-    .addSubcommandGroup((group) =>
-      group
-        .setName("alerts")
-        .setDescription(
-          "Creator alert settings"
-        )
-
-        .addSubcommand((subcommand) =>
-          subcommand
-            .setName("on")
-            .setDescription(
-              "Enable live alerts"
-            )
-        )
-
-        .addSubcommand((subcommand) =>
-          subcommand
-            .setName("off")
-            .setDescription(
-              "Disable live alerts"
-            )
-        )
-    )
-
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("profile")
-        .setDescription(
-          "View a creator profile"
-        )
-        .addUserOption((option) =>
-          option
-            .setName("user")
-            .setDescription(
-              "Creator to view"
-            )
-            .setRequired(false)
-        )
-    )
-
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("list")
-        .setDescription(
-          "List approved creators"
-        )
-    )
-
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("pending")
-        .setDescription(
-          "List pending creator applications"
-        )
-    )
-
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("approve")
-        .setDescription(
-          "Approve creator application"
-        )
-        .addUserOption((option) =>
-          option
-            .setName("user")
-            .setDescription(
-              "User to approve"
-            )
-            .setRequired(true)
-        )
-    )
-
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("deny")
-        .setDescription(
-          "Deny creator application"
-        )
-        .addUserOption((option) =>
-          option
-            .setName("user")
-            .setDescription(
-              "User to deny"
-            )
-            .setRequired(true)
+          "View all live Vanguard creators"
         )
     ),
 
   async execute(interaction) {
-    const group =
-      interaction.options.getSubcommandGroup(
-        false
-      );
-
     const subcommand =
       interaction.options.getSubcommand();
 
-    // =========================
-    // APPLY
-    // =========================
-
     if (subcommand === "apply") {
-      const existingCreator =
+      const existing =
         creatorStore.getCreatorByUserId(
           interaction.user.id
         );
 
-      if (existingCreator) {
+      if (existing) {
         return interaction.reply({
           content:
-            "You are already an approved creator.",
+            "You are already an approved creator. Use `/creator edit` instead.",
           flags: 64,
         });
       }
 
-      const existingPending =
-        creatorStore.getPendingApplicationByUserId(
-          interaction.user.id
-        );
+      const modal = buildApplicationModal();
 
-      const modal =
-        buildApplicationModal(
-          existingPending || null
-        );
-
-      return interaction.showModal(
-        modal
-      );
+      return interaction.showModal(modal);
     }
-
-    // =========================
-    // EDIT
-    // =========================
 
     if (subcommand === "edit") {
       const creator =
@@ -265,338 +154,113 @@ module.exports = {
       }
 
       const modal =
-        buildApplicationModal(
-          creator
-        );
+        buildApplicationModal(creator);
 
-      return interaction.showModal(
-        modal
-      );
+      return interaction.showModal(modal);
     }
 
-    // =========================
-    // REMOVE
-    // =========================
+    if (subcommand === "live") {
+      const liveStreams = getLiveStreams();
 
-    if (subcommand === "remove") {
-      const result =
-        creatorStore.removeCreator(
-          interaction.user.id
-        );
-
-      if (!result.ok) {
+      if (!liveStreams.length) {
         return interaction.reply({
           content:
-            result.reason ||
-            "Could not remove creator.",
+            "No Vanguard creators are currently live.",
           flags: 64,
         });
       }
 
-      const creatorRoleId =
-        process.env.CREATOR_ROLE_ID;
+      const multiStreams =
+        getMultiStreams();
 
-      if (
-        creatorRoleId &&
-        interaction.guild
-      ) {
-        const member =
-          await interaction.guild.members
-            .fetch(
-              interaction.user.id
-            )
-            .catch(() => null);
+      const embed = new EmbedBuilder()
+        .setColor(0xf1c40f)
+        .setTitle(
+          "🔴 Vanguard Creator Network"
+        )
+        .setDescription(
+          "Currently live Vanguard creators."
+        )
+        .setFooter({
+          text: "The Golden Vanguard",
+        })
+        .setTimestamp();
 
-        if (member) {
-          await member.roles
-            .remove(
-              creatorRoleId
-            )
-            .catch(() => null);
+      const rows = [];
+
+      for (const stream of liveStreams) {
+        const creator =
+          creatorStore.getCreatorByUserId(
+            stream.creatorId
+          );
+
+        if (!creator) {
+          continue;
         }
-      }
 
-      return interaction.reply({
-        content:
-          "You have left the creator network.",
-        flags: 64,
-      });
-    }
-
-    // =========================
-    // ALERTS
-    // =========================
-
-    if (group === "alerts") {
-      const creator =
-        creatorStore.getCreatorByUserId(
-          interaction.user.id
-        );
-
-      if (!creator) {
-        return interaction.reply({
-          content:
-            "You are not an approved creator.",
-          flags: 64,
-        });
-      }
-
-      const enabled =
-        subcommand === "on";
-
-      creatorStore.setCreatorAlerts(
-        interaction.user.id,
-        enabled
-      );
-
-      return interaction.reply({
-        content: enabled
-          ? "Creator alerts enabled."
-          : "Creator alerts disabled.",
-        flags: 64,
-      });
-    }
-
-    // =========================
-    // PROFILE
-    // =========================
-
-    if (subcommand === "profile") {
-      const targetUser =
-        interaction.options.getUser(
-          "user"
-        ) || interaction.user;
-
-      const creator =
-        creatorStore.getCreatorByUserId(
-          targetUser.id
-        );
-
-      if (!creator) {
-        return interaction.reply({
-          content:
-            "That user is not an approved creator.",
-          flags: 64,
-        });
-      }
-
-      const embed =
-        buildCreatorProfileEmbed(
-          targetUser,
-          creator
-        );
-
-      return interaction.reply({
-        embeds: [embed],
-      });
-    }
-
-    // =========================
-    // LIST
-    // =========================
-
-    if (subcommand === "list") {
-      const creators =
-        creatorStore.listCreators();
-
-      if (!creators.length) {
-        return interaction.reply({
-          content:
-            "There are no approved creators yet.",
-          flags: 64,
-        });
-      }
-
-      const lines = creators
-        .slice(0, 25)
-        .map(
-          (
-            creator,
-            index
-          ) => {
-            const content =
-              creator.contentType ||
-              "No content listed";
-
-            return `${
-              index + 1
-            }. <@${
-              creator.discordUserId
-            }> — ${content}`;
-          }
-        );
-
-      const embed =
-        new EmbedBuilder()
-          .setColor(0xf1c40f)
-          .setTitle(
-            "🎥 Approved Creators"
-          )
-          .setDescription(
-            lines.join("\n")
-          )
-          .setFooter({
-            text:
-              creators.length > 25
-                ? `Showing 25 of ${creators.length} creators`
-                : `Total creators: ${creators.length}`,
-          })
-          .setTimestamp(
-            new Date()
+        const vcName =
+          await findMemberVoice(
+            interaction.client,
+            stream.creatorId
           );
 
-      return interaction.reply({
-        embeds: [embed],
-      });
-    }
-
-    // =========================
-    // PENDING
-    // =========================
-
-    if (subcommand === "pending") {
-      if (
-        !hasApproverAccess(
-          interaction.member
-        )
-      ) {
-        return interaction.reply({
-          content:
-            "You do not have permission.",
-          flags: 64,
+        embed.addFields({
+          name: `🎥 ${creator.displayName}`,
+          value: [
+            `**Platform:** Twitch`,
+            `**Channel:** ${stream.twitchUsername}`,
+            `**Voice Channel:** ${
+              vcName || "Not in VC"
+            }`,
+          ].join("\n"),
+          inline: false,
         });
-      }
 
-      const pending =
-        creatorStore.listPendingApplications();
-
-      if (!pending.length) {
-        return interaction.reply({
-          content:
-            "There are no pending creator applications.",
-          flags: 64,
-        });
-      }
-
-      const lines = pending
-        .slice(0, 25)
-        .map(
-          (
-            application,
-            index
-          ) => {
-            return `${
-              index + 1
-            }. <@${
-              application.discordUserId
-            }> — ${
-              application.contentType ||
-              "No content listed"
-            }`;
-          }
+        rows.push(
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setLabel(
+                `Watch ${creator.displayName}`
+              )
+              .setStyle(ButtonStyle.Link)
+              .setURL(
+                buildTwitchUrl(
+                  stream.twitchUsername
+                )
+              )
+          )
         );
+      }
 
-      const embed =
-        new EmbedBuilder()
-          .setColor(0xf1c40f)
-          .setTitle(
-            "📝 Pending Creator Applications"
+      for (const multi of multiStreams) {
+        const usernames =
+          Array.isArray(multi.streamers)
+            ? multi.streamers
+            : [];
+
+        if (usernames.length < 2) {
+          continue;
+        }
+
+        rows.push(
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setLabel(
+                `Watch Multi-Stream (${usernames.length})`
+              )
+              .setStyle(ButtonStyle.Link)
+              .setURL(
+                buildMultiStreamUrl(
+                  usernames
+                )
+              )
           )
-          .setDescription(
-            lines.join("\n")
-          )
-          .setTimestamp(
-            new Date()
-          );
+        );
+      }
 
       return interaction.reply({
         embeds: [embed],
-        flags: 64,
-      });
-    }
-
-    // =========================
-    // APPROVE
-    // =========================
-
-    if (subcommand === "approve") {
-      if (
-        !hasApproverAccess(
-          interaction.member
-        )
-      ) {
-        return interaction.reply({
-          content:
-            "You do not have permission.",
-          flags: 64,
-        });
-      }
-
-      const user =
-        interaction.options.getUser(
-          "user",
-          true
-        );
-
-      const result =
-        creatorStore.approveApplication(
-          user.id,
-          interaction.user.id
-        );
-
-      if (!result.ok) {
-        return interaction.reply({
-          content:
-            result.reason ||
-            "Could not approve application.",
-          flags: 64,
-        });
-      }
-
-      return interaction.reply({
-        content: `Approved ${user}.`,
-      });
-    }
-
-    // =========================
-    // DENY
-    // =========================
-
-    if (subcommand === "deny") {
-      if (
-        !hasApproverAccess(
-          interaction.member
-        )
-      ) {
-        return interaction.reply({
-          content:
-            "You do not have permission.",
-          flags: 64,
-        });
-      }
-
-      const user =
-        interaction.options.getUser(
-          "user",
-          true
-        );
-
-      const result =
-        creatorStore.denyApplication(
-          user.id
-        );
-
-      if (!result.ok) {
-        return interaction.reply({
-          content:
-            result.reason ||
-            "Could not deny application.",
-          flags: 64,
-        });
-      }
-
-      return interaction.reply({
-        content: `Denied ${user}.`,
+        components: rows.slice(0, 5),
       });
     }
   },
