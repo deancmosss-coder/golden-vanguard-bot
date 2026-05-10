@@ -1,11 +1,22 @@
 const fs = require("fs");
 const path = require("path");
 
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
+
 const logger = require("./logger");
 const twitchService = require("./platformServices/twitchService");
 const creatorStore = require("./creatorStore");
 
-const ALERT_STORE_PATH = path.join(__dirname, "..", "data", "streamAlerts.json");
+const ALERT_STORE_PATH = path.join(
+  __dirname,
+  "..",
+  "data",
+  "streamAlerts.json"
+);
 
 function defaultStore() {
   return {
@@ -21,7 +32,11 @@ function ensureStoreFile() {
   }
 
   if (!fs.existsSync(ALERT_STORE_PATH)) {
-    fs.writeFileSync(ALERT_STORE_PATH, JSON.stringify(defaultStore(), null, 2), "utf8");
+    fs.writeFileSync(
+      ALERT_STORE_PATH,
+      JSON.stringify(defaultStore(), null, 2),
+      "utf8"
+    );
   }
 }
 
@@ -33,7 +48,9 @@ function readStore() {
     const parsed = JSON.parse(raw);
 
     return {
-      liveStreams: Array.isArray(parsed.liveStreams) ? parsed.liveStreams : [],
+      liveStreams: Array.isArray(parsed.liveStreams)
+        ? parsed.liveStreams
+        : [],
     };
   } catch (err) {
     logger.error("Failed to read stream alert store", err, {
@@ -47,23 +64,27 @@ function readStore() {
 function writeStore(store) {
   ensureStoreFile();
 
-  try {
-    fs.writeFileSync(ALERT_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
-  } catch (err) {
-    logger.error("Failed to write stream alert store", err, {
-      location: "streamAlertService.js -> writeStore",
-    });
-  }
+  fs.writeFileSync(
+    ALERT_STORE_PATH,
+    JSON.stringify(store, null, 2),
+    "utf8"
+  );
 }
 
 function isAlreadyLive(store, creatorId, platform) {
   return store.liveStreams.some(
-    (stream) => stream.creatorId === creatorId && stream.platform === platform
+    (stream) =>
+      stream.creatorId === creatorId &&
+      stream.platform === platform
   );
 }
 
 function markLive(store, data) {
-  const alreadyLive = isAlreadyLive(store, data.creatorId, data.platform);
+  const alreadyLive = isAlreadyLive(
+    store,
+    data.creatorId,
+    data.platform
+  );
 
   if (!alreadyLive) {
     store.liveStreams.push(data);
@@ -73,21 +94,31 @@ function markLive(store, data) {
 
 function clearLive(store, creatorId, platform) {
   store.liveStreams = store.liveStreams.filter(
-    (stream) => !(stream.creatorId === creatorId && stream.platform === platform)
+    (stream) =>
+      !(
+        stream.creatorId === creatorId &&
+        stream.platform === platform
+      )
   );
 
   writeStore(store);
 }
 
-function normalisePlatformName(value) {
-  const text = String(value || "").toLowerCase();
+function getAllowedVcCategoryIds() {
+  return String(
+    process.env.STREAM_VC_CATEGORY_IDS || ""
+  )
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
 
-  if (text.includes("twitch")) return "twitch";
-  if (text.includes("youtube")) return "youtube";
-  if (text.includes("kick")) return "kick";
-  if (text.includes("tiktok")) return "tiktok";
+function isApprovedVanguardVc(vc) {
+  if (!vc) return false;
 
-  return text.trim();
+  const allowed = getAllowedVcCategoryIds();
+
+  return allowed.includes(vc.parentId);
 }
 
 function extractTwitchUsername(value) {
@@ -95,30 +126,14 @@ function extractTwitchUsername(value) {
 
   const text = String(value).trim();
 
-  const urlMatch = text.match(/(?:https?:\/\/)?(?:www\.)?twitch\.tv\/([^/?\s]+)/i);
+  const urlMatch = text.match(
+    /(?:https?:\/\/)?(?:www\.)?twitch\.tv\/([^/?\s]+)/i
+  );
+
   if (urlMatch?.[1]) {
-    return urlMatch[1].replace("@", "").trim();
-  }
-
-  const simpleMatch = text.match(/^[a-zA-Z0-9_]{3,25}$/);
-  if (simpleMatch) {
-    return text.trim();
-  }
-
-  return null;
-}
-
-function parseRawLinesForTwitch(rawText) {
-  const lines = String(rawText || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  for (const line of lines) {
-    if (line.toLowerCase().includes("twitch") || line.toLowerCase().includes("twitch.tv")) {
-      const username = extractTwitchUsername(line);
-      if (username) return username;
-    }
+    return urlMatch[1]
+      .replace("@", "")
+      .trim();
   }
 
   return null;
@@ -127,172 +142,197 @@ function parseRawLinesForTwitch(rawText) {
 function getTwitchUsernameFromCreator(creator) {
   if (!creator) return null;
 
-  if (Array.isArray(creator.platforms)) {
-    for (const item of creator.platforms) {
-      const platform = normalisePlatformName(item.platform || item.label || item.name);
-      const url = item.url || item.value || item.link;
+  const platforms = Array.isArray(creator.platforms)
+    ? creator.platforms
+    : [];
 
-      if (platform === "twitch") {
-        const username = extractTwitchUsername(url);
-        if (username) return username;
-      }
+  for (const item of platforms) {
+    const username = extractTwitchUsername(
+      item.url
+    );
 
-      const fallbackUsername = extractTwitchUsername(url);
-      if (fallbackUsername) return fallbackUsername;
-    }
-  }
-
-  const topLevelRaw = parseRawLinesForTwitch(creator.platformsRaw);
-  if (topLevelRaw) return topLevelRaw;
-
-  if (creator.application) {
-    if (Array.isArray(creator.application.platforms)) {
-      for (const item of creator.application.platforms) {
-        const platform = normalisePlatformName(item.platform || item.label || item.name);
-        const url = item.url || item.value || item.link;
-
-        if (platform === "twitch") {
-          const username = extractTwitchUsername(url);
-          if (username) return username;
-        }
-
-        const fallbackUsername = extractTwitchUsername(url);
-        if (fallbackUsername) return fallbackUsername;
-      }
-    }
-
-    const nestedRaw = parseRawLinesForTwitch(creator.application.platformsRaw);
-    if (nestedRaw) return nestedRaw;
-
-    if (typeof creator.application.platforms === "string") {
-      const nestedString = parseRawLinesForTwitch(creator.application.platforms);
-      if (nestedString) return nestedString;
+    if (username) {
+      return username;
     }
   }
 
   return null;
 }
 
-function buildLiveMessage(creator, streamData) {
-  const liveCreatorRoleId = process.env.LIVE_CREATOR_ROLE_ID;
-  const title = streamData.title || "LIVE NOW";
-  const game = streamData.game_name || "Streaming";
+async function getCreatorVc(client, creator) {
+  for (const guild of client.guilds.cache.values()) {
+    const member = await guild.members
+      .fetch(creator.discordUserId)
+      .catch(() => null);
+
+    if (!member?.voice?.channel) {
+      continue;
+    }
+
+    const vc = member.voice.channel;
+
+    if (!isApprovedVanguardVc(vc)) {
+      continue;
+    }
+
+    return {
+      guild,
+      vc,
+    };
+  }
+
+  return null;
+}
+
+function buildLiveMessage(
+  creator,
+  streamData,
+  vcData
+) {
   const streamUrl = `https://twitch.tv/${streamData.user_login}`;
 
+  const vcText =
+    vcData?.vc?.name ||
+    "Not currently in a Vanguard VC";
+
   return {
-    content: "@everyone", 
+    content: "@everyone",
 
     embeds: [
       {
         color: 0xf1c40f,
-        title: `🔴 ${creator.displayName || creator.discordTag || "A Vanguard Creator"} is LIVE`,
+
+        title: `🔴 ${creator.displayName} is LIVE`,
+
         url: streamUrl,
+
         description: [
-          `🎮 ${game}`,
+          "## 🎙️ Vanguard Creator Live",
           "",
-          `**${title}**`,
+          `${creator.displayName} has deployed live.`,
+          "",
+          "🎮 **Game**",
+          streamData.game_name || "Streaming",
+          "",
+          "🎤 **Voice Channel**",
+          vcText,
           "",
           "━━━━━━━━━━━━━━━━━━",
           "",
-          "🪖 Deploy into the stream and support the Vanguard Creator Network.",
+          `**${streamData.title || "LIVE NOW"}**`,
+          "",
+          "🔥 Drop into the stream, support the creator, and join the operation.",
         ].join("\n"),
+
         image: {
           url:
             streamData.thumbnail_url
               ?.replace("{width}", "1280")
               ?.replace("{height}", "720") || null,
         },
+
         footer: {
           text: "The Golden Vanguard Creator Network",
         },
+
         timestamp: new Date().toISOString(),
       },
     ],
 
-    allowedMentions: {
-  parse: ["everyone"],
-},
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel("Watch Stream")
+          .setStyle(ButtonStyle.Link)
+          .setURL(streamUrl)
+      ),
+    ],
 
+    allowedMentions: {
+      parse: ["everyone"],
+    },
   };
 }
 
-async function checkTwitchCreator(client, creator, store) {
+async function checkTwitchCreator(
+  client,
+  creator,
+  store
+) {
   try {
     if (creator.alertsEnabled === false) {
-      logger.info("Skipping creator because alerts are disabled", {
-        creatorId: creator.discordUserId,
-        creatorName: creator.displayName,
-      });
       return;
     }
 
-    const twitchUsername = getTwitchUsernameFromCreator(creator);
+    const twitchUsername =
+      getTwitchUsernameFromCreator(creator);
 
     if (!twitchUsername) {
-      logger.info("Skipping creator because no Twitch username/link was found", {
-        creatorId: creator.discordUserId,
-        creatorName: creator.displayName,
-      });
       return;
     }
 
-    logger.info("Checking Twitch live status", {
-      creatorId: creator.discordUserId,
-      creatorName: creator.displayName,
-      twitchUsername,
-    });
+    const stream =
+      await twitchService.getLiveStream(
+        twitchUsername
+      );
 
-    const stream = await twitchService.getLiveStream(twitchUsername);
-
-    const alreadyLive = isAlreadyLive(store, creator.discordUserId, "twitch");
+    const alreadyLive = isAlreadyLive(
+      store,
+      creator.discordUserId,
+      "twitch"
+    );
 
     if (!stream && alreadyLive) {
-      clearLive(store, creator.discordUserId, "twitch");
+      clearLive(
+        store,
+        creator.discordUserId,
+        "twitch"
+      );
 
       logger.info("Creator is no longer live", {
         creatorId: creator.discordUserId,
         creatorName: creator.displayName,
-        platform: "twitch",
       });
 
       return;
     }
 
     if (!stream) {
-      logger.info("Creator is not live", {
-        creatorId: creator.discordUserId,
-        creatorName: creator.displayName,
-        twitchUsername,
-      });
       return;
     }
 
     if (alreadyLive) {
-      logger.info("Creator is live but alert already sent", {
-        creatorId: creator.discordUserId,
-        creatorName: creator.displayName,
-        platform: "twitch",
-      });
       return;
     }
 
-    const channelId = process.env.STREAM_ALERT_CHANNEL_ID;
+    const channelId =
+      process.env.STREAM_ALERT_CHANNEL_ID;
 
     if (!channelId) {
-      logger.warn("STREAM_ALERT_CHANNEL_ID is missing from .env");
       return;
     }
 
-    const channel = await client.channels.fetch(channelId).catch(() => null);
+    const channel =
+      await client.channels
+        .fetch(channelId)
+        .catch(() => null);
 
     if (!channel || !channel.isTextBased()) {
-      logger.warn("Stream alert channel missing or invalid", {
-        channelId,
-      });
       return;
     }
 
-    await channel.send(buildLiveMessage(creator, stream));
+    const vcData = await getCreatorVc(
+      client,
+      creator
+    );
+
+    await channel.send(
+      buildLiveMessage(
+        creator,
+        stream,
+        vcData
+      )
+    );
 
     markLive(store, {
       creatorId: creator.discordUserId,
@@ -308,21 +348,25 @@ async function checkTwitchCreator(client, creator, store) {
       twitchUsername,
     });
   } catch (err) {
-    logger.error("Failed checking Twitch creator", err, {
-      creatorId: creator?.discordUserId,
-      creatorName: creator?.displayName,
-      location: "streamAlertService.js -> checkTwitchCreator",
-    });
+    logger.error(
+      "Failed checking Twitch creator",
+      err,
+      {
+        creatorId:
+          creator?.discordUserId,
+        creatorName:
+          creator?.displayName,
+        location:
+          "streamAlertService.js -> checkTwitchCreator",
+      }
+    );
   }
 }
 
 async function scanCreators(client) {
   try {
-    const creators = creatorStore.listCreators();
-
-    logger.info("Stream alert scan started", {
-      creatorCount: creators.length,
-    });
+    const creators =
+      creatorStore.listCreators();
 
     if (!creators.length) {
       return;
@@ -331,14 +375,21 @@ async function scanCreators(client) {
     const store = readStore();
 
     for (const creator of creators) {
-      await checkTwitchCreator(client, creator, store);
+      await checkTwitchCreator(
+        client,
+        creator,
+        store
+      );
     }
-
-    logger.info("Stream alert scan complete");
   } catch (err) {
-    logger.error("Creator live scan failed", err, {
-      location: "streamAlertService.js -> scanCreators",
-    });
+    logger.error(
+      "Creator live scan failed",
+      err,
+      {
+        location:
+          "streamAlertService.js -> scanCreators",
+      }
+    );
   }
 }
 
