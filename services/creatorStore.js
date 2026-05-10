@@ -1,7 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 
-const DATA_PATH = path.join(__dirname, "..", "data", "creators.json");
+const DATA_PATH = path.join(
+  __dirname,
+  "..",
+  "data",
+  "creators.json"
+);
 
 function defaultStore() {
   return {
@@ -18,7 +23,11 @@ function ensureStoreFile() {
   }
 
   if (!fs.existsSync(DATA_PATH)) {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(defaultStore(), null, 2), "utf8");
+    fs.writeFileSync(
+      DATA_PATH,
+      JSON.stringify(defaultStore(), null, 2),
+      "utf8"
+    );
   }
 }
 
@@ -30,8 +39,12 @@ function readStore() {
     const parsed = JSON.parse(raw);
 
     return {
-      creators: Array.isArray(parsed.creators) ? parsed.creators : [],
-      pendingApplications: Array.isArray(parsed.pendingApplications)
+      creators: Array.isArray(parsed.creators)
+        ? parsed.creators
+        : [],
+      pendingApplications: Array.isArray(
+        parsed.pendingApplications
+      )
         ? parsed.pendingApplications
         : [],
     };
@@ -42,20 +55,35 @@ function readStore() {
 
 function writeStore(store) {
   ensureStoreFile();
-  fs.writeFileSync(DATA_PATH, JSON.stringify(store, null, 2), "utf8");
+
+  fs.writeFileSync(
+    DATA_PATH,
+    JSON.stringify(store, null, 2),
+    "utf8"
+  );
 }
 
 function getCreatorByUserId(discordUserId) {
   const store = readStore();
-  return store.creators.find((creator) => creator.discordUserId === discordUserId) || null;
+
+  return (
+    store.creators.find(
+      (creator) =>
+        creator.discordUserId === discordUserId
+    ) || null
+  );
 }
 
-function getPendingApplicationByUserId(discordUserId) {
+function getPendingApplicationByUserId(
+  discordUserId
+) {
   const store = readStore();
 
   return (
     store.pendingApplications.find(
-      (application) => application.discordUserId === discordUserId
+      (application) =>
+        application.discordUserId ===
+        discordUserId
     ) || null
   );
 }
@@ -70,53 +98,91 @@ function listPendingApplications() {
   return [...store.pendingApplications];
 }
 
-function upsertPendingApplication(application) {
+function upsertPendingApplication(
+  application
+) {
   const store = readStore();
 
-  const existingIndex = store.pendingApplications.findIndex(
-    (entry) => entry.discordUserId === application.discordUserId
-  );
+  const existingIndex =
+    store.pendingApplications.findIndex(
+      (entry) =>
+        entry.discordUserId ===
+        application.discordUserId
+    );
 
   const now = new Date().toISOString();
 
   const payload = {
-    discordUserId: application.discordUserId,
+    discordUserId:
+      application.discordUserId,
     discordTag: application.discordTag,
     displayName: application.displayName,
 
-    platformsRaw: application.platformsRaw || "",
-    socialsRaw: application.socialsRaw || "",
-    contentType: application.contentType || "",
-    schedule: application.schedule || "",
+    platformsRaw:
+      application.platformsRaw || "",
+
+    socialsRaw:
+      application.socialsRaw || "",
+
+    contentType:
+      application.contentType || "",
+
+    schedule:
+      application.schedule || "",
+
     bio: application.bio || "",
 
-    platforms: Array.isArray(application.platforms) ? application.platforms : [],
-    socials: Array.isArray(application.socials) ? application.socials : [],
+    platforms: Array.isArray(
+      application.platforms
+    )
+      ? application.platforms
+      : [],
+
+    socials: Array.isArray(
+      application.socials
+    )
+      ? application.socials
+      : [],
 
     status: "pending",
+
     createdAt:
       existingIndex >= 0
-        ? store.pendingApplications[existingIndex].createdAt || now
+        ? store.pendingApplications[
+            existingIndex
+          ].createdAt || now
         : now,
+
     updatedAt: now,
   };
 
   if (existingIndex >= 0) {
-    store.pendingApplications[existingIndex] = payload;
+    store.pendingApplications[
+      existingIndex
+    ] = payload;
   } else {
-    store.pendingApplications.push(payload);
+    store.pendingApplications.push(
+      payload
+    );
   }
 
   writeStore(store);
+
   return payload;
 }
 
-function approveApplication(discordUserId, approvedByUserId) {
+function approveApplication(
+  discordUserId,
+  approvedByUserId
+) {
   const store = readStore();
 
-  const application = store.pendingApplications.find(
-    (entry) => entry.discordUserId === discordUserId
-  );
+  const application =
+    store.pendingApplications.find(
+      (entry) =>
+        entry.discordUserId ===
+        discordUserId
+    );
 
   if (!application) {
     return {
@@ -128,51 +194,85 @@ function approveApplication(discordUserId, approvedByUserId) {
   const now = new Date().toISOString();
 
   const creator = {
-    discordUserId: application.discordUserId,
-    discordTag: application.discordTag,
-    displayName: application.displayName,
+    discordUserId:
+      application.discordUserId,
+
+    discordTag:
+      application.discordTag,
+
+    displayName:
+      application.displayName,
 
     approved: true,
+
     alertsEnabled: true,
+
     liveNow: false,
 
-    platformsRaw: application.platformsRaw || "",
-    socialsRaw: application.socialsRaw || "",
-    platforms: Array.isArray(application.platforms) ? application.platforms : [],
-    socials: Array.isArray(application.socials) ? application.socials : [],
+    lastLiveAt: null,
 
-    contentType: application.contentType || "",
-    schedule: application.schedule || "",
+    platformsRaw:
+      application.platformsRaw || "",
+
+    socialsRaw:
+      application.socialsRaw || "",
+
+    platforms: Array.isArray(
+      application.platforms
+    )
+      ? application.platforms
+      : [],
+
+    socials: Array.isArray(
+      application.socials
+    )
+      ? application.socials
+      : [],
+
+    contentType:
+      application.contentType || "",
+
+    schedule:
+      application.schedule || "",
+
     bio: application.bio || "",
 
-    stream: {
-      lastLiveKey: "",
-      lastAlertAt: null,
-      lastPlatform: null,
-    },
-
     approvedAt: now,
+
     approvedByUserId,
-    createdAt: application.createdAt || now,
+
+    createdAt:
+      application.createdAt || now,
+
     updatedAt: now,
   };
 
-  const existingCreatorIndex = store.creators.findIndex(
-    (entry) => entry.discordUserId === discordUserId
-  );
+  const existingCreatorIndex =
+    store.creators.findIndex(
+      (entry) =>
+        entry.discordUserId ===
+        discordUserId
+    );
 
   if (existingCreatorIndex >= 0) {
-    store.creators[existingCreatorIndex] = {
-      ...store.creators[existingCreatorIndex],
+    store.creators[
+      existingCreatorIndex
+    ] = {
+      ...store.creators[
+        existingCreatorIndex
+      ],
       ...creator,
     };
   } else {
     store.creators.push(creator);
   }
 
-  store.pendingApplications = store.pendingApplications.filter(
-    (entry) => entry.discordUserId !== discordUserId
-  );
+  store.pendingApplications =
+    store.pendingApplications.filter(
+      (entry) =>
+        entry.discordUserId !==
+        discordUserId
+    );
 
   writeStore(store);
 
@@ -182,12 +282,122 @@ function approveApplication(discordUserId, approvedByUserId) {
   };
 }
 
-function denyApplication(discordUserId) {
+function updateCreatorProfile(
+  discordUserId,
+  updates
+) {
   const store = readStore();
 
-  const application = store.pendingApplications.find(
-    (entry) => entry.discordUserId === discordUserId
-  );
+  const creatorIndex =
+    store.creators.findIndex(
+      (creator) =>
+        creator.discordUserId ===
+        discordUserId
+    );
+
+  if (creatorIndex < 0) {
+    return {
+      ok: false,
+      reason: "Creator not found.",
+    };
+  }
+
+  const existing =
+    store.creators[creatorIndex];
+
+  store.creators[creatorIndex] = {
+    ...existing,
+
+    platformsRaw:
+      updates.platformsRaw ??
+      existing.platformsRaw,
+
+    socialsRaw:
+      updates.socialsRaw ??
+      existing.socialsRaw,
+
+    contentType:
+      updates.contentType ??
+      existing.contentType,
+
+    schedule:
+      updates.schedule ??
+      existing.schedule,
+
+    bio:
+      updates.bio ??
+      existing.bio,
+
+    platforms:
+      updates.platforms ??
+      existing.platforms,
+
+    socials:
+      updates.socials ??
+      existing.socials,
+
+    updatedAt:
+      new Date().toISOString(),
+  };
+
+  writeStore(store);
+
+  return {
+    ok: true,
+    creator:
+      store.creators[creatorIndex],
+  };
+}
+
+function setCreatorAlerts(
+  discordUserId,
+  enabled
+) {
+  const store = readStore();
+
+  const creatorIndex =
+    store.creators.findIndex(
+      (creator) =>
+        creator.discordUserId ===
+        discordUserId
+    );
+
+  if (creatorIndex < 0) {
+    return {
+      ok: false,
+      reason: "Creator not found.",
+    };
+  }
+
+  store.creators[
+    creatorIndex
+  ].alertsEnabled = enabled;
+
+  store.creators[
+    creatorIndex
+  ].updatedAt =
+    new Date().toISOString();
+
+  writeStore(store);
+
+  return {
+    ok: true,
+    creator:
+      store.creators[creatorIndex],
+  };
+}
+
+function denyApplication(
+  discordUserId
+) {
+  const store = readStore();
+
+  const application =
+    store.pendingApplications.find(
+      (entry) =>
+        entry.discordUserId ===
+        discordUserId
+    );
 
   if (!application) {
     return {
@@ -196,9 +406,12 @@ function denyApplication(discordUserId) {
     };
   }
 
-  store.pendingApplications = store.pendingApplications.filter(
-    (entry) => entry.discordUserId !== discordUserId
-  );
+  store.pendingApplications =
+    store.pendingApplications.filter(
+      (entry) =>
+        entry.discordUserId !==
+        discordUserId
+    );
 
   writeStore(store);
 
@@ -208,12 +421,17 @@ function denyApplication(discordUserId) {
   };
 }
 
-function removeCreator(discordUserId) {
+function removeCreator(
+  discordUserId
+) {
   const store = readStore();
 
-  const existing = store.creators.find(
-    (creator) => creator.discordUserId === discordUserId
-  );
+  const existing =
+    store.creators.find(
+      (creator) =>
+        creator.discordUserId ===
+        discordUserId
+    );
 
   if (!existing) {
     return {
@@ -222,9 +440,12 @@ function removeCreator(discordUserId) {
     };
   }
 
-  store.creators = store.creators.filter(
-    (creator) => creator.discordUserId !== discordUserId
-  );
+  store.creators =
+    store.creators.filter(
+      (creator) =>
+        creator.discordUserId !==
+        discordUserId
+    );
 
   writeStore(store);
 
@@ -243,6 +464,8 @@ module.exports = {
   listPendingApplications,
   upsertPendingApplication,
   approveApplication,
+  updateCreatorProfile,
+  setCreatorAlerts,
   denyApplication,
   removeCreator,
 };
