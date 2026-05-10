@@ -180,7 +180,7 @@ function buildLiveMessage(creator, streamData) {
   const streamUrl = `https://twitch.tv/${streamData.user_login}`;
 
   return {
-    content: liveCreatorRoleId ? `<@&${liveCreatorRoleId}>` : null,
+    content: "@everyone", 
 
     embeds: [
       {
@@ -209,11 +209,10 @@ function buildLiveMessage(creator, streamData) {
       },
     ],
 
-    allowedMentions: liveCreatorRoleId
-      ? {
-          roles: [liveCreatorRoleId],
-        }
-      : undefined,
+    allowedMentions: {
+  parse: ["everyone"],
+},
+
   };
 }
 
