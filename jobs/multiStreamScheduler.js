@@ -1,34 +1,32 @@
-// =========================
-// handlers/readyHandler.js
-// Handles bot ready/startup logic
-// =========================
-
-const { Events } = require("discord.js");
+const cron = require("node-cron");
 
 const logger = require("../services/logger");
-const { sendStartupAlert } = require("../services/alertService");
-const { startScheduler } = require("../jobs/scheduler");
-const { startStreamAlertScheduler } = require("../jobs/streamAlertScheduler");
-const { startMultiStreamScheduler } = require("../jobs/multiStreamScheduler");
+const streamAlertService = require("../services/streamAlertService");
 
-function registerReadyHandler(client) {
-  client.once(Events.ClientReady, async () => {
-    logger.info(`Logged in as ${client.user.tag}`, {
-      botId: client.user.id,
-    });
+const TRACKER_TZ = process.env.TRACKER_TIMEZONE || "Europe/London";
 
-    await sendStartupAlert(
-      client,
-      `Golden Vanguard bot is now online as **${client.user.tag}**`
-    );
+function startStreamAlertScheduler(client) {
+  logger.info("Starting stream alert scheduler...");
 
-    await startScheduler(client);
+  cron.schedule(
+    "*/30 * * * * *",
+    async () => {
+      try {
+        await streamAlertService.scanCreators(client);
+      } catch (err) {
+        logger.error("Stream alert scheduler failed", err, {
+          location: "jobs/streamAlertScheduler.js -> cron",
+        });
+      }
+    },
+    {
+      timezone: TRACKER_TZ,
+    }
+  );
 
-    startStreamAlertScheduler(client);
-    startMultiStreamScheduler(client);
-  });
+  logger.info(`Stream alerts: every 30 seconds (${TRACKER_TZ})`);
 }
 
 module.exports = {
-  registerReadyHandler,
+  startStreamAlertScheduler,
 };
