@@ -5,14 +5,14 @@ const logger = require("./logger");
 
 const twitchService = require("./platformServices/twitchService");
 
+const creatorStore = require("./creatorStore");
+
 const ALERT_STORE_PATH = path.join(
   __dirname,
   "..",
   "data",
   "streamAlerts.json"
 );
-
-const creatorStore = require("./creatorStore");
 
 const STREAM_ALERT_CHANNEL_ID =
   process.env.STREAM_ALERT_CHANNEL_ID;
@@ -36,13 +36,21 @@ function readStore() {
       return defaultStore();
     }
 
-    const raw = fs.readFileSync(ALERT_STORE_PATH, "utf8");
+    const raw = fs.readFileSync(
+      ALERT_STORE_PATH,
+      "utf8"
+    );
 
     return JSON.parse(raw);
   } catch (err) {
-    logger.error("Failed to read stream alert store", err, {
-      location: "streamAlertService.js -> readStore",
-    });
+    logger.error(
+      "Failed to read stream alert store",
+      err,
+      {
+        location:
+          "streamAlertService.js -> readStore",
+      }
+    );
 
     return defaultStore();
   }
@@ -56,9 +64,14 @@ function writeStore(store) {
       "utf8"
     );
   } catch (err) {
-    logger.error("Failed to write stream alert store", err, {
-      location: "streamAlertService.js -> writeStore",
-    });
+    logger.error(
+      "Failed to write stream alert store",
+      err,
+      {
+        location:
+          "streamAlertService.js -> writeStore",
+      }
+    );
   }
 }
 
@@ -66,7 +79,11 @@ function writeStore(store) {
    HELPERS
 ========================= */
 
-function isAlreadyLive(store, creatorId, platform) {
+function isAlreadyLive(
+  store,
+  creatorId,
+  platform
+) {
   return store.liveStreams.some(
     (stream) =>
       stream.creatorId === creatorId &&
@@ -79,36 +96,90 @@ function markLive(store, data) {
   writeStore(store);
 }
 
-function clearLive(store, creatorId, platform) {
-  store.liveStreams = store.liveStreams.filter(
-    (stream) =>
-      !(
-        stream.creatorId === creatorId &&
-        stream.platform === platform
-      )
-  );
+function clearLive(
+  store,
+  creatorId,
+  platform
+) {
+  store.liveStreams =
+    store.liveStreams.filter(
+      (stream) =>
+        !(
+          stream.creatorId === creatorId &&
+          stream.platform === platform
+        )
+    );
 
   writeStore(store);
+}
+
+function findPlatformLink(
+  creator,
+  platformName
+) {
+  if (
+    !Array.isArray(creator.platforms)
+  ) {
+    return null;
+  }
+
+  return (
+    creator.platforms.find(
+      (platform) =>
+        String(
+          platform.platform || ""
+        ).toLowerCase() ===
+        platformName.toLowerCase()
+    ) || null
+  );
+}
+
+function extractTwitchUsername(url) {
+  if (!url) return null;
+
+  try {
+    const cleaned = String(url)
+      .trim()
+      .replace(/\/+$/, "");
+
+    const match = cleaned.match(
+      /twitch\.tv\/([^/?]+)/i
+    );
+
+    if (!match) {
+      return null;
+    }
+
+    return match[1];
+  } catch {
+    return null;
+  }
 }
 
 /* =========================
    ALERT EMBED
 ========================= */
 
-function buildLiveMessage(creator, streamData) {
+function buildLiveMessage(
+  creator,
+  streamData
+) {
   const title =
-    streamData.title || "LIVE NOW";
+    streamData.title ||
+    "LIVE NOW";
 
   const game =
-    streamData.game_name || "Streaming";
+    streamData.game_name ||
+    "Streaming";
 
   const streamUrl =
     `https://twitch.tv/${streamData.user_login}`;
 
   return {
-    content: LIVE_CREATOR_ROLE_ID
-      ? `<@&${LIVE_CREATOR_ROLE_ID}>`
-      : null,
+    content:
+      LIVE_CREATOR_ROLE_ID
+        ? `<@&${LIVE_CREATOR_ROLE_ID}>`
+        : null,
 
     embeds: [
       {
@@ -131,23 +202,34 @@ function buildLiveMessage(creator, streamData) {
         image: {
           url:
             streamData.thumbnail_url
-              ?.replace("{width}", "1280")
-              ?.replace("{height}", "720") || null,
+              ?.replace(
+                "{width}",
+                "1280"
+              )
+              ?.replace(
+                "{height}",
+                "720"
+              ) || null,
         },
 
         footer: {
-          text: "The Golden Vanguard Creator Network",
+          text:
+            "The Golden Vanguard Creator Network",
         },
 
-        timestamp: new Date().toISOString(),
+        timestamp:
+          new Date().toISOString(),
       },
     ],
 
-    allowedMentions: LIVE_CREATOR_ROLE_ID
-      ? {
-          roles: [LIVE_CREATOR_ROLE_ID],
-        }
-      : undefined,
+    allowedMentions:
+      LIVE_CREATOR_ROLE_ID
+        ? {
+            roles: [
+              LIVE_CREATOR_ROLE_ID,
+            ],
+          }
+        : undefined,
   };
 }
 
@@ -155,10 +237,32 @@ function buildLiveMessage(creator, streamData) {
    TWITCH CHECK
 ========================= */
 
-async function checkTwitchCreator(client, creator, store) {
+async function checkTwitchCreator(
+  client,
+  creator,
+  store
+) {
   try {
+    if (
+      creator.alertsEnabled === false
+    ) {
+      return;
+    }
+
+    const twitchPlatform =
+      findPlatformLink(
+        creator,
+        "twitch"
+      );
+
+    if (!twitchPlatform?.url) {
+      return;
+    }
+
     const twitchUsername =
-      creator.application?.twitchUsername;
+      extractTwitchUsername(
+        twitchPlatform.url
+      );
 
     if (!twitchUsername) {
       return;
@@ -200,21 +304,37 @@ async function checkTwitchCreator(client, creator, store) {
 
     const channel =
       await client.channels
-        .fetch(STREAM_ALERT_CHANNEL_ID)
+        .fetch(
+          STREAM_ALERT_CHANNEL_ID
+        )
         .catch(() => null);
 
-    if (!channel || !channel.isTextBased()) {
+    if (
+      !channel ||
+      !channel.isTextBased()
+    ) {
+      logger.warn(
+        "Stream alert channel missing or invalid"
+      );
+
       return;
     }
 
     await channel.send(
-      buildLiveMessage(creator, stream)
+      buildLiveMessage(
+        creator,
+        stream
+      )
     );
 
     markLive(store, {
-      creatorId: creator.discordUserId,
+      creatorId:
+        creator.discordUserId,
+
       platform: "twitch",
-      startedAt: new Date().toISOString(),
+
+      startedAt:
+        new Date().toISOString(),
     });
 
     logger.info(
@@ -225,7 +345,9 @@ async function checkTwitchCreator(client, creator, store) {
       "Failed checking Twitch creator",
       err,
       {
-        creatorId: creator.discordUserId,
+        creatorId:
+          creator.discordUserId,
+
         location:
           "streamAlertService.js -> checkTwitchCreator",
       }
