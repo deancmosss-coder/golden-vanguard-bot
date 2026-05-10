@@ -1,289 +1,248 @@
-const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const fs = require("fs");
+const path = require("path");
 
-const creatorStore = require("../services/creatorStore");
-const {
-  buildApplicationModal,
-  hasApproverAccess,
-} = require("../services/creatorApplication");
+const DATA_PATH = path.join(__dirname, "..", "data", "creators.json");
 
-function formatLinkList(items, fallbackText) {
-  if (!Array.isArray(items) || !items.length) {
-    return fallbackText;
-  }
-
-  return items
-    .map((item) => {
-      const label = item.label || item.platform || "Link";
-      const url = item.url || "Not provided";
-      return `**${label}:** ${url}`;
-    })
-    .join("\n");
+function defaultStore() {
+  return {
+    creators: [],
+    pendingApplications: [],
+  };
 }
 
-function buildCreatorProfileEmbed(user, creator) {
-  return new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle(`🎥 ${creator.displayName || user.username} • Creator Profile`)
-    .setDescription(
-      [
-        `**Creator:** <@${creator.discordUserId}>`,
-        "",
-        "━━━━━━━━━━━━━━━━━━",
-        "",
-        "**Streaming Platforms**",
-        formatLinkList(creator.platforms, creator.platformsRaw || "Not provided"),
-        "",
-        "**Socials**",
-        formatLinkList(creator.socials, creator.socialsRaw || "Not provided"),
-        "",
-        "**Content Type**",
-        creator.contentType || "Not provided",
-        "",
-        "**Schedule**",
-        creator.schedule || "Not provided",
-        "",
-        "**Bio**",
-        creator.bio || "Not provided",
-      ].join("\n")
-    )
-    .setFooter({ text: "Golden Vanguard • Creator Network" })
-    .setTimestamp(new Date());
+function ensureStoreFile() {
+  const dir = path.dirname(DATA_PATH);
+
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  if (!fs.existsSync(DATA_PATH)) {
+    fs.writeFileSync(DATA_PATH, JSON.stringify(defaultStore(), null, 2), "utf8");
+  }
+}
+
+function readStore() {
+  ensureStoreFile();
+
+  try {
+    const raw = fs.readFileSync(DATA_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+
+    return {
+      creators: Array.isArray(parsed.creators) ? parsed.creators : [],
+      pendingApplications: Array.isArray(parsed.pendingApplications)
+        ? parsed.pendingApplications
+        : [],
+    };
+  } catch {
+    return defaultStore();
+  }
+}
+
+function writeStore(store) {
+  ensureStoreFile();
+  fs.writeFileSync(DATA_PATH, JSON.stringify(store, null, 2), "utf8");
+}
+
+function getCreatorByUserId(discordUserId) {
+  const store = readStore();
+  return store.creators.find((creator) => creator.discordUserId === discordUserId) || null;
+}
+
+function getPendingApplicationByUserId(discordUserId) {
+  const store = readStore();
+
+  return (
+    store.pendingApplications.find(
+      (application) => application.discordUserId === discordUserId
+    ) || null
+  );
+}
+
+function listCreators() {
+  const store = readStore();
+  return [...store.creators];
+}
+
+function listPendingApplications() {
+  const store = readStore();
+  return [...store.pendingApplications];
+}
+
+function upsertPendingApplication(application) {
+  const store = readStore();
+
+  const existingIndex = store.pendingApplications.findIndex(
+    (entry) => entry.discordUserId === application.discordUserId
+  );
+
+  const now = new Date().toISOString();
+
+  const payload = {
+    discordUserId: application.discordUserId,
+    discordTag: application.discordTag,
+    displayName: application.displayName,
+
+    platformsRaw: application.platformsRaw || "",
+    socialsRaw: application.socialsRaw || "",
+    contentType: application.contentType || "",
+    schedule: application.schedule || "",
+    bio: application.bio || "",
+
+    platforms: Array.isArray(application.platforms) ? application.platforms : [],
+    socials: Array.isArray(application.socials) ? application.socials : [],
+
+    status: "pending",
+    createdAt:
+      existingIndex >= 0
+        ? store.pendingApplications[existingIndex].createdAt || now
+        : now,
+    updatedAt: now,
+  };
+
+  if (existingIndex >= 0) {
+    store.pendingApplications[existingIndex] = payload;
+  } else {
+    store.pendingApplications.push(payload);
+  }
+
+  writeStore(store);
+  return payload;
+}
+
+function approveApplication(discordUserId, approvedByUserId) {
+  const store = readStore();
+
+  const application = store.pendingApplications.find(
+    (entry) => entry.discordUserId === discordUserId
+  );
+
+  if (!application) {
+    return {
+      ok: false,
+      reason: "Application not found.",
+    };
+  }
+
+  const now = new Date().toISOString();
+
+  const creator = {
+    discordUserId: application.discordUserId,
+    discordTag: application.discordTag,
+    displayName: application.displayName,
+
+    approved: true,
+    alertsEnabled: true,
+    liveNow: false,
+
+    platformsRaw: application.platformsRaw || "",
+    socialsRaw: application.socialsRaw || "",
+    platforms: Array.isArray(application.platforms) ? application.platforms : [],
+    socials: Array.isArray(application.socials) ? application.socials : [],
+
+    contentType: application.contentType || "",
+    schedule: application.schedule || "",
+    bio: application.bio || "",
+
+    stream: {
+      lastLiveKey: "",
+      lastAlertAt: null,
+      lastPlatform: null,
+    },
+
+    approvedAt: now,
+    approvedByUserId,
+    createdAt: application.createdAt || now,
+    updatedAt: now,
+  };
+
+  const existingCreatorIndex = store.creators.findIndex(
+    (entry) => entry.discordUserId === discordUserId
+  );
+
+  if (existingCreatorIndex >= 0) {
+    store.creators[existingCreatorIndex] = {
+      ...store.creators[existingCreatorIndex],
+      ...creator,
+    };
+  } else {
+    store.creators.push(creator);
+  }
+
+  store.pendingApplications = store.pendingApplications.filter(
+    (entry) => entry.discordUserId !== discordUserId
+  );
+
+  writeStore(store);
+
+  return {
+    ok: true,
+    creator,
+  };
+}
+
+function denyApplication(discordUserId) {
+  const store = readStore();
+
+  const application = store.pendingApplications.find(
+    (entry) => entry.discordUserId === discordUserId
+  );
+
+  if (!application) {
+    return {
+      ok: false,
+      reason: "Application not found.",
+    };
+  }
+
+  store.pendingApplications = store.pendingApplications.filter(
+    (entry) => entry.discordUserId !== discordUserId
+  );
+
+  writeStore(store);
+
+  return {
+    ok: true,
+    application,
+  };
+}
+
+function removeCreator(discordUserId) {
+  const store = readStore();
+
+  const existing = store.creators.find(
+    (creator) => creator.discordUserId === discordUserId
+  );
+
+  if (!existing) {
+    return {
+      ok: false,
+      reason: "Creator not found.",
+    };
+  }
+
+  store.creators = store.creators.filter(
+    (creator) => creator.discordUserId !== discordUserId
+  );
+
+  writeStore(store);
+
+  return {
+    ok: true,
+    creator: existing,
+  };
 }
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName("creator")
-    .setDescription("Creator Network commands")
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("apply")
-        .setDescription("Apply to become an approved creator")
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("profile")
-        .setDescription("View a creator profile")
-        .addUserOption((option) =>
-          option
-            .setName("user")
-            .setDescription("Creator to view")
-            .setRequired(false)
-        )
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("list")
-        .setDescription("List approved creators")
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("pending")
-        .setDescription("List pending creator applications")
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("approve")
-        .setDescription("Approve a pending creator application")
-        .addUserOption((option) =>
-          option
-            .setName("user")
-            .setDescription("User to approve")
-            .setRequired(true)
-        )
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("deny")
-        .setDescription("Deny a pending creator application")
-        .addUserOption((option) =>
-          option
-            .setName("user")
-            .setDescription("User to deny")
-            .setRequired(true)
-        )
-    ),
-
-  async execute(interaction) {
-    const subcommand = interaction.options.getSubcommand();
-
-    if (subcommand === "apply") {
-      const existingCreator = creatorStore.getCreatorByUserId(interaction.user.id);
-
-      if (existingCreator) {
-        return interaction.reply({
-          content: "You are already an approved creator.",
-          flags: 64,
-        });
-      }
-
-      const existingPending = creatorStore.getPendingApplicationByUserId(interaction.user.id);
-      const modal = buildApplicationModal(existingPending || null);
-
-      return interaction.showModal(modal);
-    }
-
-    if (subcommand === "profile") {
-      const targetUser = interaction.options.getUser("user") || interaction.user;
-      const creator = creatorStore.getCreatorByUserId(targetUser.id);
-
-      if (!creator) {
-        return interaction.reply({
-          content: "That user is not an approved creator.",
-          flags: 64,
-        });
-      }
-
-      const embed = buildCreatorProfileEmbed(targetUser, creator);
-
-      return interaction.reply({
-        embeds: [embed],
-      });
-    }
-
-    if (subcommand === "list") {
-      const creators = creatorStore.listCreators();
-
-      if (!creators.length) {
-        return interaction.reply({
-          content: "There are no approved creators yet.",
-          flags: 64,
-        });
-      }
-
-      const lines = creators.slice(0, 25).map((creator, index) => {
-        const content = creator.contentType || "No content listed";
-        return `${index + 1}. <@${creator.discordUserId}> — ${content}`;
-      });
-
-      const embed = new EmbedBuilder()
-        .setColor(0xf1c40f)
-        .setTitle("🎥 Approved Creators")
-        .setDescription(lines.join("\n"))
-        .setFooter({
-          text:
-            creators.length > 25
-              ? `Showing 25 of ${creators.length} creators`
-              : `Total creators: ${creators.length}`,
-        })
-        .setTimestamp(new Date());
-
-      return interaction.reply({
-        embeds: [embed],
-      });
-    }
-
-    if (subcommand === "pending") {
-      if (!hasApproverAccess(interaction.member)) {
-        return interaction.reply({
-          content: "You do not have permission to view pending applications.",
-          flags: 64,
-        });
-      }
-
-      const pending = creatorStore.listPendingApplications();
-
-      if (!pending.length) {
-        return interaction.reply({
-          content: "There are no pending creator applications.",
-          flags: 64,
-        });
-      }
-
-      const lines = pending.slice(0, 25).map((application, index) => {
-        return `${index + 1}. <@${application.discordUserId}> — ${
-          application.contentType || "No content listed"
-        }`;
-      });
-
-      const embed = new EmbedBuilder()
-        .setColor(0xf1c40f)
-        .setTitle("📝 Pending Creator Applications")
-        .setDescription(lines.join("\n"))
-        .setFooter({
-          text:
-            pending.length > 25
-              ? `Showing 25 of ${pending.length} applications`
-              : `Total pending: ${pending.length}`,
-        })
-        .setTimestamp(new Date());
-
-      return interaction.reply({
-        embeds: [embed],
-        flags: 64,
-      });
-    }
-
-    if (subcommand === "approve") {
-      if (!hasApproverAccess(interaction.member)) {
-        return interaction.reply({
-          content: "You do not have permission to approve creators.",
-          flags: 64,
-        });
-      }
-
-      const user = interaction.options.getUser("user", true);
-      const result = creatorStore.approveApplication(user.id, interaction.user.id);
-
-      if (!result.ok) {
-        return interaction.reply({
-          content: result.reason || "Could not approve that creator application.",
-          flags: 64,
-        });
-      }
-
-      const creatorRoleId = process.env.CREATOR_ROLE_ID;
-
-      if (creatorRoleId && interaction.guild) {
-        const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-
-        if (member) {
-          await member.roles.add(creatorRoleId).catch(() => null);
-        }
-      }
-
-      await user
-        .send(
-          "Your Golden Vanguard creator application has been approved. Welcome to the Creator Network."
-        )
-        .catch(() => null);
-
-      return interaction.reply({
-        content: `Approved creator application for ${user}.`,
-      });
-    }
-
-    if (subcommand === "deny") {
-      if (!hasApproverAccess(interaction.member)) {
-        return interaction.reply({
-          content: "You do not have permission to deny creators.",
-          flags: 64,
-        });
-      }
-
-      const user = interaction.options.getUser("user", true);
-      const result = creatorStore.denyApplication(user.id);
-
-      if (!result.ok) {
-        return interaction.reply({
-          content: result.reason || "Could not deny that creator application.",
-          flags: 64,
-        });
-      }
-
-      await user
-        .send(
-          "Your Golden Vanguard creator application was not approved this time. You can reapply later."
-        )
-        .catch(() => null);
-
-      return interaction.reply({
-        content: `Denied creator application for ${user}.`,
-      });
-    }
-
-    return interaction.reply({
-      content: "Unknown creator command.",
-      flags: 64,
-    });
-  },
+  readStore,
+  writeStore,
+  getCreatorByUserId,
+  getPendingApplicationByUserId,
+  listCreators,
+  listPendingApplications,
+  upsertPendingApplication,
+  approveApplication,
+  denyApplication,
+  removeCreator,
 };
