@@ -1,6 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
+
 const logger = require("./logger");
 const creatorStore = require("./creatorStore");
 
@@ -83,7 +89,9 @@ function readStreamAlertStore() {
     const parsed = JSON.parse(raw);
 
     return {
-      liveStreams: Array.isArray(parsed.liveStreams) ? parsed.liveStreams : [],
+      liveStreams: Array.isArray(parsed.liveStreams)
+        ? parsed.liveStreams
+        : [],
     };
   } catch (err) {
     logger.error("Failed to read stream alert store for multistreams", err, {
@@ -103,24 +111,24 @@ function getAllowedVcCategoryIds() {
     .filter(Boolean);
 }
 
-function getCreatorById(creators, discordUserId) {
-  return creators.find((creator) => creator.discordUserId === discordUserId) || null;
+function isApprovedVanguardVc(vc) {
+  if (!vc) return false;
+
+  const allowed = getAllowedVcCategoryIds();
+
+  return allowed.includes(vc.parentId);
 }
 
-function isApprovedVanguardVc(voiceChannel) {
-  if (!voiceChannel) return false;
-
-  const allowedCategoryIds = getAllowedVcCategoryIds();
-
-  if (!allowedCategoryIds.length) {
-    return false;
-  }
-
-  return allowedCategoryIds.includes(voiceChannel.parentId);
+function getCreatorById(creators, creatorId) {
+  return (
+    creators.find((creator) => creator.discordUserId === creatorId) ||
+    null
+  );
 }
 
 function buildMultiStreamKey(vcId, creatorIds) {
   const sortedIds = [...creatorIds].sort();
+
   return `${vcId}:${sortedIds.join(",")}`;
 }
 
@@ -146,15 +154,13 @@ function clearInactiveAlerts(store, activeKeys) {
 }
 
 function buildMultiTwitchUrl(twitchUsernames) {
-  const safeNames = twitchUsernames
+  const names = twitchUsernames
     .map((name) => String(name || "").trim())
     .filter(Boolean);
 
-  if (safeNames.length < 2) {
-    return null;
-  }
+  if (names.length < 2) return null;
 
-  return `https://multitwitch.tv/${safeNames.join("/")}`;
+  return `https://multitwitch.tv/${names.join("/")}`;
 }
 
 function formatCreatorNames(creators) {
@@ -167,22 +173,37 @@ function formatCreatorNames(creators) {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+function findSharedGame(creators) {
+  const firstGame = creators[0]?.contentType;
+
+  if (!firstGame) return "Streaming";
+
+  const allSame = creators.every(
+    (creator) => creator.contentType === firstGame
+  );
+
+  return allSame ? firstGame : "Multiple games";
+}
+
 function buildMultiStreamMessage({ creators, vcName, multitwitchUrl }) {
   const creatorText = formatCreatorNames(creators);
 
   return {
     content: "@everyone",
+
     embeds: [
       {
         color: 0xf1c40f,
+
         title: "🚨 VANGUARD MULTI-STREAM LIVE 🚨",
+
         description: [
           "## 🎙️ Joint Operation Detected",
           "",
-          `${creatorText} are now live together inside **Operations Command**.`,
+          `${creatorText} are now live together in **Golden Vanguard Operations**.`,
           "",
           "🎮 **Game**",
-          creators[0]?.contentType || "Streaming",
+          findSharedGame(creators),
           "",
           "🎤 **Voice Channel**",
           vcName || "Vanguard Voice Channel",
@@ -198,12 +219,24 @@ function buildMultiStreamMessage({ creators, vcName, multitwitchUrl }) {
           "",
           "Support the Vanguard Creator Network and help push the community forward.",
         ].join("\n"),
+
         footer: {
           text: "The Golden Vanguard • Multi-Stream Operation",
         },
+
         timestamp: new Date().toISOString(),
       },
     ],
+
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel("Watch Multi-Stream")
+          .setStyle(ButtonStyle.Link)
+          .setURL(multitwitchUrl)
+      ),
+    ],
+
     allowedMentions: {
       parse: ["everyone"],
     },
@@ -233,7 +266,9 @@ async function getLiveCreatorsWithVc(client) {
     }
 
     for (const guild of client.guilds.cache.values()) {
-      const member = await guild.members.fetch(creator.discordUserId).catch(() => null);
+      const member = await guild.members
+        .fetch(creator.discordUserId)
+        .catch(() => null);
 
       if (!member?.voice?.channel) {
         continue;
@@ -289,7 +324,9 @@ async function scanMultiStreams(client) {
       return;
     }
 
-    const alertChannel = await client.channels.fetch(channelId).catch(() => null);
+    const alertChannel = await client.channels
+      .fetch(channelId)
+      .catch(() => null);
 
     if (!alertChannel || !alertChannel.isTextBased()) {
       logger.warn("Multistream alert channel missing or invalid", {
@@ -308,7 +345,10 @@ async function scanMultiStreams(client) {
         continue;
       }
 
-      const creatorIds = group.items.map((item) => item.creator.discordUserId);
+      const creatorIds = group.items.map(
+        (item) => item.creator.discordUserId
+      );
+
       const key = buildMultiStreamKey(group.vc.id, creatorIds);
       activeKeys.add(key);
 
