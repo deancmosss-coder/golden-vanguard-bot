@@ -177,11 +177,62 @@ async function getCreatorVc(client, creator) {
 
     return {
       guild,
+      member,
       vc,
     };
   }
 
   return null;
+}
+
+async function addLiveRole(member) {
+  const roleId = process.env.LIVE_CREATOR_ROLE_ID;
+
+  if (!roleId || !member) {
+    return;
+  }
+
+  if (member.roles.cache.has(roleId)) {
+    return;
+  }
+
+  await member.roles.add(roleId).catch((err) => {
+    logger.error("Failed to add live creator role", err, {
+      memberId: member.id,
+      roleId,
+      location: "streamAlertService.js -> addLiveRole",
+    });
+  });
+}
+
+async function removeLiveRole(client, creatorId) {
+  const roleId = process.env.LIVE_CREATOR_ROLE_ID;
+
+  if (!roleId) {
+    return;
+  }
+
+  for (const guild of client.guilds.cache.values()) {
+    const member = await guild.members
+      .fetch(creatorId)
+      .catch(() => null);
+
+    if (!member) {
+      continue;
+    }
+
+    if (!member.roles.cache.has(roleId)) {
+      continue;
+    }
+
+    await member.roles.remove(roleId).catch((err) => {
+      logger.error("Failed to remove live creator role", err, {
+        memberId: creatorId,
+        roleId,
+        location: "streamAlertService.js -> removeLiveRole",
+      });
+    });
+  }
 }
 
 function buildLiveMessage(
@@ -289,6 +340,11 @@ async function checkTwitchCreator(
         "twitch"
       );
 
+      await removeLiveRole(
+        client,
+        creator.discordUserId
+      );
+
       logger.info("Creator is no longer live", {
         creatorId: creator.discordUserId,
         creatorName: creator.displayName,
@@ -299,6 +355,15 @@ async function checkTwitchCreator(
 
     if (!stream) {
       return;
+    }
+
+    const vcData = await getCreatorVc(
+      client,
+      creator
+    );
+
+    if (vcData?.member) {
+      await addLiveRole(vcData.member);
     }
 
     if (alreadyLive) {
@@ -320,11 +385,6 @@ async function checkTwitchCreator(
     if (!channel || !channel.isTextBased()) {
       return;
     }
-
-    const vcData = await getCreatorVc(
-      client,
-      creator
-    );
 
     await channel.send(
       buildLiveMessage(
