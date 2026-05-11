@@ -18,6 +18,10 @@ const { loadCommands } = require("./loaders/commandLoader");
 const askToPlayService = require("./services/askToPlayService");
 
 const {
+  setupMemberTracker,
+} = require("./services/memberTracker");
+
+const {
   registerInteractionHandler,
 } = require("./handlers/interactionHandler");
 
@@ -88,6 +92,7 @@ const client = new Client({
 // =========================
 
 setupVoiceHubs(client);
+setupMemberTracker(client);
 
 // =========================
 // LOADERS
