@@ -22,12 +22,17 @@ function ensureStore() {
   }
 
   if (!fs.existsSync(TRACKING_FILE)) {
-    const starter = {
-      members: {},
-      events: [],
-    };
-
-    fs.writeFileSync(TRACKING_FILE, JSON.stringify(starter, null, 2));
+    fs.writeFileSync(
+      TRACKING_FILE,
+      JSON.stringify(
+        {
+          members: {},
+          events: [],
+        },
+        null,
+        2
+      )
+    );
   }
 }
 
@@ -48,7 +53,6 @@ function loadStore() {
 
 function saveStore(store) {
   ensureStore();
-
   fs.writeFileSync(TRACKING_FILE, JSON.stringify(store, null, 2));
 }
 
@@ -63,60 +67,49 @@ function formatDuration(ms) {
   const remainingHours = hours % 24;
   const remainingMinutes = minutes % 60;
 
-  if (days > 0) {
-    return `${days} day(s), ${remainingHours} hour(s)`;
-  }
-
-  if (hours > 0) {
-    return `${hours} hour(s), ${remainingMinutes} minute(s)`;
-  }
-
-  if (minutes > 0) {
-    return `${minutes} minute(s)`;
-  }
+  if (days > 0) return `${days} day(s), ${remainingHours} hour(s)`;
+  if (hours > 0) return `${hours} hour(s), ${remainingMinutes} minute(s)`;
+  if (minutes > 0) return `${minutes} minute(s)`;
 
   return `${seconds} second(s)`;
 }
 
-function getAccountAge(user) {
-  const createdAt = user.createdAt;
-  const now = new Date();
+function formatUserName(member) {
+  return (
+    member?.displayName ||
+    member?.user?.globalName ||
+    member?.user?.username ||
+    member?.user?.tag ||
+    "Unknown User"
+  );
+}
 
-  return formatDuration(now.getTime() - createdAt.getTime());
+function getAccountAge(user) {
+  return formatDuration(Date.now() - user.createdAt.getTime());
 }
 
 function getMemberRoles(member) {
+  if (!member.roles || !member.roles.cache) return ["Unable to read roles"];
+
   const roles = member.roles.cache
     .filter((role) => role.id !== member.guild.id)
     .sort((a, b) => b.position - a.position)
     .map((role) => role.name);
 
-  if (!roles.length) return ["No roles"];
-
-  return roles;
+  return roles.length ? roles : ["No roles"];
 }
 
-function getStatusFromStay(joinedAt, leftAt, roles = []) {
+function getStatusFromStay(joinedAt, leftAt, roles = [], wasBackfilled = false) {
   const stayedMs = new Date(leftAt).getTime() - new Date(joinedAt).getTime();
   const stayedHours = stayedMs / 1000 / 60 / 60;
 
   const lowerRoles = roles.map((role) => role.toLowerCase());
 
-  if (lowerRoles.includes("recruit")) {
-    return "Left during recruit stage";
-  }
-
-  if (stayedHours < 1) {
-    return "Very early leave";
-  }
-
-  if (stayedHours < 24) {
-    return "Left within 24 hours";
-  }
-
-  if (stayedHours < 168) {
-    return "Left within first week";
-  }
+  if (wasBackfilled) return "Existing member left";
+  if (lowerRoles.includes("recruit")) return "Left during recruit stage";
+  if (stayedHours < 1) return "Very early leave";
+  if (stayedHours < 24) return "Left within 24 hours";
+  if (stayedHours < 168) return "Left within first week";
 
   return "Established member left";
 }
@@ -138,6 +131,59 @@ async function sendLog(client, embed) {
   }
 }
 
+async function backfillCurrentMembers(client) {
+  const store = loadStore();
+  let added = 0;
+
+  for (const guild of client.guilds.cache.values()) {
+    try {
+      const members = await guild.members.fetch();
+
+      members.forEach((member) => {
+        if (member.user.bot) return;
+
+        const existingRecord = store.members[member.id];
+
+        if (existingRecord) {
+          store.members[member.id] = {
+            ...existingRecord,
+            isInServer: true,
+            lastSeenAt: new Date().toISOString(),
+          };
+
+          return;
+        }
+
+        store.members[member.id] = {
+          userId: member.id,
+          username: member.user.username,
+          tag: member.user.tag,
+          displayName: formatUserName(member),
+          joinedAt: member.joinedAt
+            ? member.joinedAt.toISOString()
+            : new Date().toISOString(),
+          accountCreatedAt: member.user.createdAt.toISOString(),
+          lastSeenAt: new Date().toISOString(),
+          lastLeftAt: null,
+          leaveCount: 0,
+          joinCount: 1,
+          isInServer: true,
+          rolesAtLeave: [],
+          backfilled: true,
+        };
+
+        added++;
+      });
+    } catch (err) {
+      console.error(`❌ Failed to backfill members for ${guild.name}:`, err);
+    }
+  }
+
+  saveStore(store);
+
+  console.log(`✅ Member tracker backfill complete. Added ${added} existing member(s).`);
+}
+
 function setupMemberTracker(client) {
   if (!MEMBER_TRACKING_ENABLED) {
     console.log("ℹ️ Member tracker disabled.");
@@ -145,24 +191,33 @@ function setupMemberTracker(client) {
   }
 
   if (!MEMBER_LOG_CHANNEL_ID) {
-    console.warn("⚠️ MEMBER_TRACKING_ENABLED is true but MEMBER_LOG_CHANNEL_ID is missing.");
+    console.warn(
+      "⚠️ MEMBER_TRACKING_ENABLED is true but MEMBER_LOG_CHANNEL_ID is missing."
+    );
   }
 
   ensureStore();
 
-  client.on(Events.GuildMemberAdd, async (member) => {
-    const store = loadStore();
+  client.once(Events.ClientReady, async () => {
+    await backfillCurrentMembers(client);
+  });
 
+  client.on(Events.GuildMemberAdd, async (member) => {
+    if (member.user.bot) return;
+
+    const store = loadStore();
     const now = new Date();
 
     const existingRecord = store.members[member.id];
-    const isReturning = Boolean(existingRecord);
+    const isReturning = Boolean(existingRecord && existingRecord.leaveCount > 0);
+
+    const displayName = formatUserName(member);
 
     store.members[member.id] = {
       userId: member.id,
       username: member.user.username,
       tag: member.user.tag,
-      displayName: member.displayName,
+      displayName,
       joinedAt: now.toISOString(),
       accountCreatedAt: member.user.createdAt.toISOString(),
       lastSeenAt: now.toISOString(),
@@ -171,13 +226,15 @@ function setupMemberTracker(client) {
       isInServer: true,
       rolesAtLeave: existingRecord?.rolesAtLeave || [],
       lastLeftAt: existingRecord?.lastLeftAt || null,
+      backfilled: false,
     };
 
     store.events.push({
       type: "join",
       userId: member.id,
+      username: member.user.username,
       tag: member.user.tag,
-      displayName: member.displayName,
+      displayName,
       joinedAt: now.toISOString(),
       returning: isReturning,
     });
@@ -187,23 +244,12 @@ function setupMemberTracker(client) {
     const embed = new EmbedBuilder()
       .setColor(isReturning ? 0xf1c40f : 0x2ecc71)
       .setTitle(isReturning ? "🔁 Returning Member Joined" : "✅ New Member Joined")
-      .setDescription(`${member.user} has joined the server.`)
+      .setDescription(`**${displayName}** has joined the server.`)
       .addFields(
-        {
-          name: "User",
-          value: `${member.user.tag}`,
-          inline: true,
-        },
-        {
-          name: "User ID",
-          value: member.id,
-          inline: true,
-        },
-        {
-          name: "Account Age",
-          value: getAccountAge(member.user),
-          inline: true,
-        },
+        { name: "User", value: displayName, inline: true },
+        { name: "Username", value: member.user.username, inline: true },
+        { name: "User ID", value: member.id, inline: false },
+        { name: "Account Age", value: getAccountAge(member.user), inline: true },
         {
           name: "Join Count",
           value: String(store.members[member.id].joinCount),
@@ -227,31 +273,37 @@ function setupMemberTracker(client) {
   });
 
   client.on(Events.GuildMemberRemove, async (member) => {
-    const store = loadStore();
+    if (member.user.bot) return;
 
+    const store = loadStore();
     const now = new Date();
+
     const existingRecord = store.members[member.id];
+    const displayName = formatUserName(member);
 
     const joinedAt =
       existingRecord?.joinedAt ||
       member.joinedAt?.toISOString() ||
       now.toISOString();
 
-    const rolesAtLeave = member.roles?.cache
-      ? getMemberRoles(member)
-      : ["Unable to read roles"];
+    const rolesAtLeave = getMemberRoles(member);
 
     const stayedFor = formatDuration(
       now.getTime() - new Date(joinedAt).getTime()
     );
 
-    const status = getStatusFromStay(joinedAt, now.toISOString(), rolesAtLeave);
+    const status = getStatusFromStay(
+      joinedAt,
+      now.toISOString(),
+      rolesAtLeave,
+      existingRecord?.backfilled || false
+    );
 
     store.members[member.id] = {
       userId: member.id,
       username: member.user.username,
       tag: member.user.tag,
-      displayName: member.displayName,
+      displayName,
       joinedAt,
       accountCreatedAt: member.user.createdAt.toISOString(),
       lastSeenAt: now.toISOString(),
@@ -262,18 +314,21 @@ function setupMemberTracker(client) {
       rolesAtLeave,
       stayedFor,
       status,
+      backfilled: existingRecord?.backfilled || false,
     };
 
     store.events.push({
       type: "leave",
       userId: member.id,
+      username: member.user.username,
       tag: member.user.tag,
-      displayName: member.displayName,
+      displayName,
       joinedAt,
       leftAt: now.toISOString(),
       stayedFor,
       rolesAtLeave,
       status,
+      wasPreviouslyTracked: Boolean(existingRecord),
     });
 
     saveStore(store);
@@ -281,28 +336,13 @@ function setupMemberTracker(client) {
     const embed = new EmbedBuilder()
       .setColor(0xe74c3c)
       .setTitle("🚪 Member Left Server")
-      .setDescription(`${member.user.tag} has left the server.`)
+      .setDescription(`**${displayName}** has left the server.`)
       .addFields(
-        {
-          name: "User",
-          value: `${member.user.tag}`,
-          inline: true,
-        },
-        {
-          name: "User ID",
-          value: member.id,
-          inline: true,
-        },
-        {
-          name: "Stayed For",
-          value: stayedFor,
-          inline: true,
-        },
-        {
-          name: "Status",
-          value: status,
-          inline: false,
-        },
+        { name: "User", value: displayName, inline: true },
+        { name: "Username", value: member.user.username, inline: true },
+        { name: "User ID", value: member.id, inline: false },
+        { name: "Stayed For", value: stayedFor, inline: true },
+        { name: "Status", value: status, inline: true },
         {
           name: "Joined At",
           value: `<t:${Math.floor(new Date(joinedAt).getTime() / 1000)}:F>`,
