@@ -1,11 +1,16 @@
 // =========================
 // services/memberTracker.js
 // MEMBER JOIN / LEAVE TRACKER
+// WITH INVITE TRACKING
 // =========================
 
 const fs = require("fs");
 const path = require("path");
 const { Events, EmbedBuilder } = require("discord.js");
+
+const {
+  resolveUsedInvite,
+} = require("./inviteTracker");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const TRACKING_FILE = path.join(DATA_DIR, "memberTracking.json");
@@ -170,6 +175,13 @@ async function backfillCurrentMembers(client) {
           isInServer: true,
           rolesAtLeave: [],
           backfilled: true,
+          invite: {
+            code: "Unknown",
+            uses: 0,
+            inviterId: null,
+            inviterName: "Unknown",
+            channelName: "Unknown",
+          },
         };
 
         added++;
@@ -181,7 +193,9 @@ async function backfillCurrentMembers(client) {
 
   saveStore(store);
 
-  console.log(`✅ Member tracker backfill complete. Added ${added} existing member(s).`);
+  console.log(
+    `✅ Member tracker backfill complete. Added ${added} existing member(s).`
+  );
 }
 
 function setupMemberTracker(client) {
@@ -205,6 +219,8 @@ function setupMemberTracker(client) {
   client.on(Events.GuildMemberAdd, async (member) => {
     if (member.user.bot) return;
 
+    const invite = await resolveUsedInvite(member);
+
     const store = loadStore();
     const now = new Date();
 
@@ -227,6 +243,7 @@ function setupMemberTracker(client) {
       rolesAtLeave: existingRecord?.rolesAtLeave || [],
       lastLeftAt: existingRecord?.lastLeftAt || null,
       backfilled: false,
+      invite,
     };
 
     store.events.push({
@@ -237,9 +254,15 @@ function setupMemberTracker(client) {
       displayName,
       joinedAt: now.toISOString(),
       returning: isReturning,
+      invite,
     });
 
     saveStore(store);
+
+    const inviteCode =
+      invite.code && invite.code !== "Unknown"
+        ? `discord.gg/${invite.code}`
+        : "Unknown";
 
     const embed = new EmbedBuilder()
       .setColor(isReturning ? 0xf1c40f : 0x2ecc71)
@@ -258,6 +281,26 @@ function setupMemberTracker(client) {
         {
           name: "Previous Leaves",
           value: String(store.members[member.id].leaveCount),
+          inline: true,
+        },
+        {
+          name: "Invite Used",
+          value: inviteCode,
+          inline: false,
+        },
+        {
+          name: "Invited By",
+          value: invite.inviterName || "Unknown",
+          inline: true,
+        },
+        {
+          name: "Invite Channel",
+          value: invite.channelName || "Unknown",
+          inline: true,
+        },
+        {
+          name: "Invite Uses",
+          value: String(invite.uses || 0),
           inline: true,
         },
         {
@@ -299,6 +342,14 @@ function setupMemberTracker(client) {
       existingRecord?.backfilled || false
     );
 
+    const invite = existingRecord?.invite || {
+      code: "Unknown",
+      uses: 0,
+      inviterId: null,
+      inviterName: "Unknown",
+      channelName: "Unknown",
+    };
+
     store.members[member.id] = {
       userId: member.id,
       username: member.user.username,
@@ -315,6 +366,7 @@ function setupMemberTracker(client) {
       stayedFor,
       status,
       backfilled: existingRecord?.backfilled || false,
+      invite,
     };
 
     store.events.push({
@@ -328,10 +380,16 @@ function setupMemberTracker(client) {
       stayedFor,
       rolesAtLeave,
       status,
+      invite,
       wasPreviouslyTracked: Boolean(existingRecord),
     });
 
     saveStore(store);
+
+    const inviteCode =
+      invite.code && invite.code !== "Unknown"
+        ? `discord.gg/${invite.code}`
+        : "Unknown";
 
     const embed = new EmbedBuilder()
       .setColor(0xe74c3c)
@@ -343,6 +401,16 @@ function setupMemberTracker(client) {
         { name: "User ID", value: member.id, inline: false },
         { name: "Stayed For", value: stayedFor, inline: true },
         { name: "Status", value: status, inline: true },
+        {
+          name: "Invite Used",
+          value: inviteCode,
+          inline: false,
+        },
+        {
+          name: "Invited By",
+          value: invite.inviterName || "Unknown",
+          inline: true,
+        },
         {
           name: "Joined At",
           value: `<t:${Math.floor(new Date(joinedAt).getTime() / 1000)}:F>`,
