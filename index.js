@@ -22,6 +22,10 @@ const {
 } = require("./services/memberTracker");
 
 const {
+  setupInviteTracker,
+} = require("./services/inviteTracker");
+
+const {
   registerInteractionHandler,
 } = require("./handlers/interactionHandler");
 
@@ -93,6 +97,7 @@ const client = new Client({
 
 setupVoiceHubs(client);
 setupMemberTracker(client);
+setupInviteTracker(client);
 
 // =========================
 // LOADERS
