@@ -133,14 +133,17 @@ function buildAnswerButtons(userId) {
       .setCustomId(`enlist:ans:${userId}:A`)
       .setLabel("A")
       .setStyle(ButtonStyle.Primary),
+
     new ButtonBuilder()
       .setCustomId(`enlist:ans:${userId}:B`)
       .setLabel("B")
       .setStyle(ButtonStyle.Primary),
+
     new ButtonBuilder()
       .setCustomId(`enlist:ans:${userId}:C`)
       .setLabel("C")
       .setStyle(ButtonStyle.Primary),
+
     new ButtonBuilder()
       .setCustomId(`enlist:ans:${userId}:D`)
       .setLabel("D")
@@ -161,13 +164,17 @@ function computeRecommendation(answers) {
 
   for (const f of FACTION_ROLES) {
     const score = tally.get(f) || 0;
+
     if (score > bestScore) {
       best = f;
       bestScore = score;
     }
   }
 
-  return { recommended: best, scores: tally };
+  return {
+    recommended: best,
+    scores: tally,
+  };
 }
 
 function buildCompleteEmbed(user, recommendedFaction) {
@@ -176,7 +183,7 @@ function buildCompleteEmbed(user, recommendedFaction) {
     .setTitle("✅ Evaluation complete — awaiting classification…")
     .setDescription(
       [
-        `Recruit: ${user}`,
+        `Recruit: **${user.username}**`,
         "",
         `**Recommended faction:** **${recommendedFaction}**`,
         "",
@@ -193,6 +200,7 @@ function buildConfirmButtons(userId) {
       .setCustomId(`enlist:confirm:${userId}`)
       .setLabel("Confirm Recommended")
       .setStyle(ButtonStyle.Success),
+
     new ButtonBuilder()
       .setCustomId(`enlist:override:${userId}`)
       .setLabel("Choose Another")
@@ -206,6 +214,7 @@ function buildOverrideButtons(userId) {
       .setCustomId(`enlist:pick:${userId}:Eclipse Vanguard`)
       .setLabel("Eclipse Vanguard")
       .setStyle(ButtonStyle.Primary),
+
     new ButtonBuilder()
       .setCustomId(`enlist:pick:${userId}:Orbital Directive`)
       .setLabel("Orbital Directive")
@@ -219,6 +228,7 @@ function buildOverrideButtonsRow2(userId) {
       .setCustomId(`enlist:pick:${userId}:Aegis Guard`)
       .setLabel("Aegis Guard")
       .setStyle(ButtonStyle.Primary),
+
     new ButtonBuilder()
       .setCustomId(`enlist:pick:${userId}:Purifier Corps`)
       .setLabel("Purifier Corps")
@@ -227,7 +237,10 @@ function buildOverrideButtonsRow2(userId) {
 }
 
 async function ensureAskToPlayRole(member) {
-  const role = member.guild.roles.cache.find((r) => r.name === ASK_TO_PLAY_ROLE);
+  const role = member.guild.roles.cache.find(
+    (r) => r.name === ASK_TO_PLAY_ROLE
+  );
+
   if (!role) return;
 
   if (!member.roles.cache.has(role.id)) {
@@ -246,8 +259,13 @@ async function assignFactionRoles(member, chosenFaction) {
     }
   }
 
-  const chosenRole = member.guild.roles.cache.find((r) => r.name === chosenFaction);
-  if (!chosenRole) throw new Error(`Role not found: "${chosenFaction}"`);
+  const chosenRole = member.guild.roles.cache.find(
+    (r) => r.name === chosenFaction
+  );
+
+  if (!chosenRole) {
+    throw new Error(`Role not found: "${chosenFaction}"`);
+  }
 
   if (!member.roles.cache.has(chosenRole.id)) {
     await member.roles.add(chosenRole).catch(() => {});
@@ -256,18 +274,31 @@ async function assignFactionRoles(member, chosenFaction) {
 
 async function applyFactionNicknameTag(member, chosenFaction) {
   const tag = TAG_MAP[chosenFaction];
+
   if (!tag) return;
 
   const current = member.nickname || member.user.username;
+
   const base = current.replace(/\s\[[^\]]+\]$/i, "");
+
   const nextNick = `${base} [${tag}]`;
 
   await member.setNickname(nextNick).catch(() => {});
 }
 
-function buildPublicAnnouncement(member, recommendedFaction, chosenFaction) {
+function buildPublicAnnouncement(
+  member,
+  recommendedFaction,
+  chosenFaction
+) {
+  const displayName =
+    member.displayName || member.user.globalName || member.user.username;
+
+  const username = member.user.username;
+
   const lines = [
-    `${member} has completed enlistment.`,
+    `🪖 **${displayName}** has completed enlistment.`,
+    `👤 Username: \`${username}\``,
     "",
     `🏷 Assigned faction: **${chosenFaction}**`,
   ];
@@ -301,7 +332,7 @@ async function startEnlistment(interaction) {
   await interaction.reply({
     embeds: [buildQuestionEmbed(interaction.user, session)],
     components: [buildAnswerButtons(userId)],
-    flags: 64,
+    ephemeral: true,
   });
 }
 
@@ -322,6 +353,7 @@ module.exports = {
 
   async executeAdmin(interaction) {
     const panel = buildPanelEmbed();
+
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("enlist:start")
@@ -329,8 +361,15 @@ module.exports = {
         .setStyle(ButtonStyle.Success)
     );
 
-    await interaction.reply({ content: "✅ Panel posted.", flags: 64 });
-    await interaction.channel.send({ embeds: [panel], components: [row] });
+    await interaction.reply({
+      content: "✅ Panel posted.",
+      ephemeral: true,
+    });
+
+    await interaction.channel.send({
+      embeds: [panel],
+      components: [row],
+    });
   },
 
   async handleButton(interaction) {
@@ -348,36 +387,38 @@ module.exports = {
 
     if (ownerId && ownerId !== interaction.user.id) {
       return interaction.reply({
-        content: "⚠️ Only the recruit who started this enlistment can use these buttons.",
-        flags: 64,
+        content:
+          "⚠️ Only the recruit who started this enlistment can use these buttons.",
+        ephemeral: true,
       });
     }
 
     const session = sessions.get(interaction.user.id);
+
     if (!session) {
       return interaction.reply({
-        content: "⚠️ Your enlistment session expired. Use **/enlistment** to restart.",
-        flags: 64,
+        content:
+          "⚠️ Your enlistment session expired. Use **/enlistment** to restart.",
+        ephemeral: true,
       });
     }
 
+    // ANSWERS
     if (action === "ans") {
-      if (session.step < QUESTIONS.length - 1) {
-        const answer = parts[3];
-        session.answers.push(answer);
-        session.step += 1;
+      const answer = parts[3];
 
+      session.answers.push(answer);
+      session.step += 1;
+
+      if (session.step < QUESTIONS.length) {
         return interaction.update({
           embeds: [buildQuestionEmbed(interaction.user, session)],
           components: [buildAnswerButtons(interaction.user.id)],
         });
       }
 
-      const answer = parts[3];
-      session.answers.push(answer);
-      session.step += 1;
-
       const { recommended } = computeRecommendation(session.answers);
+
       session.completed = true;
       session.recommendedFaction = recommended;
 
@@ -387,6 +428,7 @@ module.exports = {
       });
     }
 
+    // OVERRIDE SCREEN
     if (action === "override") {
       const embed = new EmbedBuilder()
         .setColor(0xf1c40f)
@@ -408,23 +450,37 @@ module.exports = {
       });
     }
 
+    // CONFIRM RECOMMENDED
     if (action === "confirm") {
       const recommendedFaction = session.recommendedFaction;
+
       let member;
 
       await interaction.deferUpdate().catch(() => {});
 
       try {
-        member = await interaction.guild.members.fetch(interaction.user.id);
+        member = await interaction.guild.members.fetch(
+          interaction.user.id
+        );
+
         await ensureAskToPlayRole(member);
-        await assignFactionRoles(member, recommendedFaction);
-        await applyFactionNicknameTag(member, recommendedFaction);
+
+        await assignFactionRoles(
+          member,
+          recommendedFaction
+        );
+
+        await applyFactionNicknameTag(
+          member,
+          recommendedFaction
+        );
       } catch (err) {
         console.error("Enlistment assign/tag error:", err);
+
         return interaction.editReply({
           content:
-            `⚠️ Could not assign role or set nickname.\n**Reason:** ${err.message}\n\n` +
-            `Check bot has **Manage Roles** + **Manage Nicknames**, and is above faction roles.`,
+            `⚠️ Could not assign role or set nickname.\n\n` +
+            `Reason: ${err.message}`,
           embeds: [],
           components: [],
         });
@@ -436,24 +492,32 @@ module.exports = {
         recommendedFaction
       );
 
-      await interaction.channel.send({ embeds: [publicEmbed] }).catch(() => {});
+      await interaction.channel
+        .send({
+          embeds: [publicEmbed],
+        })
+        .catch(() => {});
+
       sessions.delete(interaction.user.id);
 
       return interaction.editReply({
-        content: "✅ Enlistment complete. Your faction role + tag have been assigned.",
+        content:
+          "✅ Enlistment complete. Your faction role + tag have been assigned.",
         embeds: [],
         components: [],
       });
     }
 
+    // MANUAL PICK
     if (action === "pick") {
       const chosenFaction = parts.slice(3).join(":");
+
       let member;
 
       if (!FACTION_ROLES.includes(chosenFaction)) {
         return interaction.reply({
           content: "⚠️ Invalid faction choice.",
-          flags: 64,
+          ephemeral: true,
         });
       }
 
@@ -462,27 +526,50 @@ module.exports = {
       await interaction.deferUpdate().catch(() => {});
 
       try {
-        member = await interaction.guild.members.fetch(interaction.user.id);
+        member = await interaction.guild.members.fetch(
+          interaction.user.id
+        );
+
         await ensureAskToPlayRole(member);
-        await assignFactionRoles(member, chosenFaction);
-        await applyFactionNicknameTag(member, chosenFaction);
+
+        await assignFactionRoles(
+          member,
+          chosenFaction
+        );
+
+        await applyFactionNicknameTag(
+          member,
+          chosenFaction
+        );
       } catch (err) {
         console.error("Enlistment assign/tag error:", err);
+
         return interaction.editReply({
           content:
-            `⚠️ Could not assign role or set nickname.\n**Reason:** ${err.message}\n\n` +
-            `Check bot has **Manage Roles** + **Manage Nicknames**, and is above faction roles.`,
+            `⚠️ Could not assign role or set nickname.\n\n` +
+            `Reason: ${err.message}`,
           embeds: [],
           components: [],
         });
       }
 
-      const publicEmbed = buildPublicAnnouncement(member, recommended, chosenFaction);
-      await interaction.channel.send({ embeds: [publicEmbed] }).catch(() => {});
+      const publicEmbed = buildPublicAnnouncement(
+        member,
+        recommended,
+        chosenFaction
+      );
+
+      await interaction.channel
+        .send({
+          embeds: [publicEmbed],
+        })
+        .catch(() => {});
+
       sessions.delete(interaction.user.id);
 
       return interaction.editReply({
-        content: "✅ Enlistment complete. Your faction role + tag have been assigned.",
+        content:
+          "✅ Enlistment complete. Your faction role + tag have been assigned.",
         embeds: [],
         components: [],
       });
