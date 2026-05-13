@@ -62,6 +62,7 @@ function readJson(file, fallback = {}) {
       fs.writeFileSync(file, JSON.stringify(fallback, null, 2), "utf8");
       return fallback;
     }
+
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (err) {
     console.error("[orientationSystem] readJson error:", err);
@@ -88,6 +89,7 @@ function saveDb(db) {
 
 function removeRecruitRecord(userId) {
   const db = loadDb();
+
   if (db[userId]) {
     delete db[userId];
     saveDb(db);
@@ -121,6 +123,7 @@ function defaultRecruitRecord(userId) {
 
   return {
     userId,
+
     guideRead: false,
     lawsRead: false,
     divisionsRead: false,
@@ -150,10 +153,12 @@ function defaultRecruitRecord(userId) {
 
 function ensureRecruit(userId) {
   const db = loadDb();
+
   if (!db[userId]) {
     db[userId] = defaultRecruitRecord(userId);
     saveDb(db);
   }
+
   return db[userId];
 }
 
@@ -164,8 +169,16 @@ function getRecruit(userId) {
 
 function updateRecruit(userId, updates = {}) {
   const db = loadDb();
-  if (!db[userId]) db[userId] = defaultRecruitRecord(userId);
-  db[userId] = { ...db[userId], ...updates };
+
+  if (!db[userId]) {
+    db[userId] = defaultRecruitRecord(userId);
+  }
+
+  db[userId] = {
+    ...db[userId],
+    ...updates,
+  };
+
   saveDb(db);
   return db[userId];
 }
@@ -188,6 +201,7 @@ function markDivisionsRead(userId) {
 
 function markAAR(userId) {
   const recruit = ensureRecruit(userId);
+
   if (recruit.aarSubmitted) return recruit;
 
   return updateRecruit(userId, {
@@ -198,6 +212,7 @@ function markAAR(userId) {
 
 function markDeployment(userId, supervisorId, channelId) {
   const recruit = ensureRecruit(userId);
+
   if (recruit.deploymentComplete) return recruit;
 
   return updateRecruit(userId, {
@@ -210,6 +225,7 @@ function markDeployment(userId, supervisorId, channelId) {
 
 function isComplete(userId) {
   const r = ensureRecruit(userId);
+
   return Boolean(
     r.guideRead &&
       r.lawsRead &&
@@ -226,11 +242,13 @@ function getMissingSteps(userId) {
   if (!r.guideRead) missing.push("Read the Server Guide");
   if (!r.lawsRead) missing.push("Review the Community Laws");
   if (!r.divisionsRead) missing.push("Review the Divisions");
+
   if (!r.deploymentComplete) {
     missing.push(
       "Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team"
     );
   }
+
   if (!r.aarSubmitted) missing.push("Submit an AAR with /run");
 
   return missing;
@@ -238,6 +256,7 @@ function getMissingSteps(userId) {
 
 function progressCount(userId) {
   const r = ensureRecruit(userId);
+
   const total = 5;
   const done = [
     r.guideRead,
@@ -259,7 +278,10 @@ function hasAnyRole(member, roleIds = []) {
 }
 
 function isRecruitMember(member) {
-  return Boolean(CONFIG.recruitRoleId && member?.roles?.cache?.has(CONFIG.recruitRoleId));
+  return Boolean(
+    CONFIG.recruitRoleId &&
+      member?.roles?.cache?.has(CONFIG.recruitRoleId)
+  );
 }
 
 function isSupervisor(member) {
@@ -345,7 +367,9 @@ function buildPromotionRequestEmbed(member) {
         `Divisions: ${r.divisionsRead ? "✅" : "⬜"}`,
         `Deployment: ${r.deploymentComplete ? "✅" : "⬜"}`,
         `AAR: ${r.aarSubmitted ? "✅" : "⬜"}`,
-        r.lastSupervisorId ? `Supervisor: <@${r.lastSupervisorId}>` : "Supervisor: Not recorded",
+        r.lastSupervisorId
+          ? `Supervisor: <@${r.lastSupervisorId}>`
+          : "Supervisor: Not recorded",
       ].join("\n")
     );
 }
@@ -386,16 +410,25 @@ function buildMonitorButtons(userId) {
 
 function buildRecruitMonitorEmbed(member) {
   const r = ensureRecruit(member.id);
+  const promoted = Boolean(r.promoted);
 
   return new EmbedBuilder()
-    .setColor(0xf1c40f)
+    .setColor(promoted ? 0x2ecc71 : 0xf1c40f)
     .setTitle("🪖 Recruit Orientation Status")
     .setDescription(
       [
         `Recruit: ${displayNameOf(member)}`,
-        `Joined: ${r.joinedAt ? `<t:${Math.floor(new Date(r.joinedAt).getTime() / 1000)}:D>` : "Unknown"}`,
-        `Deadline: ${r.deadlineAt ? `<t:${Math.floor(new Date(r.deadlineAt).getTime() / 1000)}:D>` : "Unknown"}`,
-        `Status: ${r.promoted ? "✅ Promoted" : "🟡 Active Recruit"}`,
+        `Joined: ${
+          r.joinedAt
+            ? `<t:${Math.floor(new Date(r.joinedAt).getTime() / 1000)}:D>`
+            : "Unknown"
+        }`,
+        `Deadline: ${
+          r.deadlineAt
+            ? `<t:${Math.floor(new Date(r.deadlineAt).getTime() / 1000)}:D>`
+            : "Unknown"
+        }`,
+        `Status: ${promoted ? "✅ Promoted" : "🟡 Active Recruit"}`,
         "",
         `${r.guideRead ? "✅" : "⬜"} Guide`,
         `${r.lawsRead ? "✅" : "⬜"} Laws`,
@@ -416,6 +449,7 @@ function buildRecruitMonitorEmbed(member) {
    ========================= */
 async function sendToChannel(client, channelId, payload) {
   if (!channelId) return null;
+
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel?.isTextBased?.()) return null;
 
@@ -426,32 +460,46 @@ async function sendToChannel(client, channelId, payload) {
 }
 
 async function logOrientation(client, message) {
-  return sendToChannel(client, CONFIG.orientationLogChannelId, { content: message });
+  return sendToChannel(client, CONFIG.orientationLogChannelId, {
+    content: message,
+  });
 }
 
 async function createOrUpdateMonitorCard(member) {
   if (!CONFIG.recruitMonitorChannelId) return null;
 
-  const channel = await member.client.channels.fetch(CONFIG.recruitMonitorChannelId).catch(() => null);
+  const channel = await member.client.channels
+    .fetch(CONFIG.recruitMonitorChannelId)
+    .catch(() => null);
+
   if (!channel?.isTextBased?.()) return null;
 
   const recruit = ensureRecruit(member.id);
+  const components = recruit.promoted ? [] : buildMonitorButtons(member.id);
 
   if (recruit.monitorMessageId) {
-    const msg = await channel.messages.fetch(recruit.monitorMessageId).catch(() => null);
+    const msg = await channel.messages
+      .fetch(recruit.monitorMessageId)
+      .catch(() => null);
+
     if (msg) {
-      await msg.edit({
-        embeds: [buildRecruitMonitorEmbed(member)],
-        components: buildMonitorButtons(member.id),
-      }).catch(console.error);
+      await msg
+        .edit({
+          embeds: [buildRecruitMonitorEmbed(member)],
+          components,
+        })
+        .catch(console.error);
+
       return msg;
     }
   }
 
-  const sent = await channel.send({
-    embeds: [buildRecruitMonitorEmbed(member)],
-    components: buildMonitorButtons(member.id),
-  }).catch(() => null);
+  const sent = await channel
+    .send({
+      embeds: [buildRecruitMonitorEmbed(member)],
+      components,
+    })
+    .catch(() => null);
 
   if (sent) {
     updateRecruit(member.id, {
@@ -461,6 +509,31 @@ async function createOrUpdateMonitorCard(member) {
   }
 
   return sent;
+}
+
+async function updateMonitorCardAsPromoted(guild, member, recruit) {
+  if (!recruit?.monitorChannelId || !recruit?.monitorMessageId) return null;
+
+  const monitorChannel = await guild.client.channels
+    .fetch(recruit.monitorChannelId)
+    .catch(() => null);
+
+  if (!monitorChannel?.isTextBased?.()) return null;
+
+  const monitorMessage = await monitorChannel.messages
+    .fetch(recruit.monitorMessageId)
+    .catch(() => null);
+
+  if (!monitorMessage) return null;
+
+  await monitorMessage
+    .edit({
+      embeds: [buildRecruitMonitorEmbed(member)],
+      components: [],
+    })
+    .catch(console.error);
+
+  return monitorMessage;
 }
 
 async function announcePromotion(client, member, approverMember) {
@@ -486,7 +559,10 @@ async function announcePromotion(client, member, approverMember) {
 async function sendChecklistPanel(client) {
   if (!CONFIG.checklistChannelId) return null;
 
-  const channel = await client.channels.fetch(CONFIG.checklistChannelId).catch(() => null);
+  const channel = await client.channels
+    .fetch(CONFIG.checklistChannelId)
+    .catch(() => null);
+
   if (!channel?.isTextBased?.()) return null;
 
   return channel.send({
@@ -516,30 +592,32 @@ async function sendChatOrientationMessage(member) {
 }
 
 async function sendOrientationDM(member) {
-  return member.send(
-    [
-      "🪖 Welcome to The Golden Vanguard.",
-      "",
-      "You are now a Recruit.",
-      "",
-      `To become a true member of the Vanguard, you must complete your orientation within ${CONFIG.deadlineDays} days.`,
-      "",
-      "Recruits observe. Troopers deploy.",
-      "",
-      `Report to <#${CONFIG.checklistChannelId}> to begin.`,
-      "",
-      "You must complete:",
-      "• Read the Vanguard Field Manual",
-      "• Review the Community Laws",
-      "• Review the Divisions",
-      "• Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team",
-      "• Submit an After Action Report using /run",
-      "",
-      "Once complete, your promotion request will be reviewed.",
-      "",
-      "Now earn your place in the Vanguard.",
-    ].join("\n")
-  ).catch(() => null);
+  return member
+    .send(
+      [
+        "🪖 Welcome to The Golden Vanguard.",
+        "",
+        "You are now a Recruit.",
+        "",
+        `To become a true member of the Vanguard, you must complete your orientation within ${CONFIG.deadlineDays} days.`,
+        "",
+        "Recruits observe. Troopers deploy.",
+        "",
+        `Report to <#${CONFIG.checklistChannelId}> to begin.`,
+        "",
+        "You must complete:",
+        "• Read the Vanguard Field Manual",
+        "• Review the Community Laws",
+        "• Review the Divisions",
+        "• Complete a deployment with a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team",
+        "• Submit an After Action Report using /run",
+        "",
+        "Once complete, your promotion request will be reviewed.",
+        "",
+        "Now earn your place in the Vanguard.",
+      ].join("\n")
+    )
+    .catch(() => null);
 }
 
 async function logNewRecruit(member) {
@@ -562,6 +640,7 @@ async function logProgress(member, label) {
   const progress = progressCount(member.id);
 
   await createOrUpdateMonitorCard(member);
+
   await logOrientation(
     member.client,
     [
@@ -579,7 +658,9 @@ async function sendPromotionRequest(member) {
 
   if (recruit.promoted) return { ok: false, reason: "already_promoted" };
   if (!isComplete(userId)) return { ok: false, reason: "incomplete" };
-  if (recruit.promotionRequested) return { ok: false, reason: "already_requested" };
+  if (recruit.promotionRequested) {
+    return { ok: false, reason: "already_requested" };
+  }
 
   updateRecruit(userId, {
     promotionRequested: true,
@@ -597,6 +678,7 @@ async function sendPromotionRequest(member) {
   );
 
   await createOrUpdateMonitorCard(member);
+
   return { ok: Boolean(sent) };
 }
 
@@ -604,6 +686,7 @@ async function autoRequestPromotionIfComplete(member) {
   if (!member) return false;
 
   const recruit = ensureRecruit(member.id);
+
   if (recruit.promoted) return false;
   if (recruit.promotionRequested) return false;
   if (!isComplete(member.id)) return false;
@@ -619,8 +702,11 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
   const member = await guild.members.fetch(targetUserId).catch(() => null);
   if (!member) return { ok: false, reason: "member_not_found" };
 
-  const recruit = ensureRecruit(targetUserId);
-  if (recruit.promoted) return { ok: false, reason: "already_promoted" };
+  const recruitBeforeUpdate = ensureRecruit(targetUserId);
+
+  if (recruitBeforeUpdate.promoted) {
+    return { ok: false, reason: "already_promoted" };
+  }
 
   if (CONFIG.recruitRoleId && member.roles.cache.has(CONFIG.recruitRoleId)) {
     await member.roles.remove(CONFIG.recruitRoleId).catch(console.error);
@@ -630,7 +716,7 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     await member.roles.add(CONFIG.trooperRoleId).catch(console.error);
   }
 
-  updateRecruit(targetUserId, {
+  const updatedRecruit = updateRecruit(targetUserId, {
     promoted: true,
     promotedAt: new Date().toISOString(),
     promotedBy: approverMember.id,
@@ -648,28 +734,40 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
 
   await announcePromotion(guild.client, member, approverMember).catch(console.error);
 
+  await updateMonitorCardAsPromoted(guild, member, updatedRecruit).catch(console.error);
+
   if (interaction) {
     if (interaction.message?.embeds?.length) {
-      const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-        .setFooter({ text: `Approved by ${displayNameOf(approverMember)}` });
+      const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]).setFooter({
+        text: `Approved by ${displayNameOf(approverMember)}`,
+      });
 
-      await interaction.update({
-        embeds: [updatedEmbed],
-        components: [],
-      }).catch(console.error);
-    } else {
-      await interaction.reply({
-        content: `✅ ${displayNameOf(member)} has been promoted to **Trooper**.`,
-        ephemeral: true,
-      }).catch(() => null);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction
+          .update({
+            embeds: [updatedEmbed],
+            components: [],
+          })
+          .catch(console.error);
+      }
+    } else if (!interaction.replied && !interaction.deferred) {
+      await interaction
+        .reply({
+          content: `✅ ${displayNameOf(member)} has been promoted to **Trooper**.`,
+          ephemeral: true,
+        })
+        .catch(() => null);
     }
   }
 
-  await member.send(
-    "Welcome to the Vanguard, Diver.\n\nYou have been promoted to **Trooper** and are now cleared for deployment."
-  ).catch(() => null);
+  await member
+    .send(
+      "Welcome to the Vanguard, Diver.\n\nYou have been promoted to **Trooper** and are now cleared for deployment."
+    )
+    .catch(() => null);
 
   removeRecruitRecord(targetUserId);
+
   return { ok: true };
 }
 
@@ -687,18 +785,25 @@ async function moreTraining(guild, targetUserId, approverMember, interaction = n
   );
 
   if (interaction) {
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Returned for more training by ${displayNameOf(approverMember)}` });
+    const updatedEmbed = EmbedBuilder.from(
+      interaction.message.embeds[0] || new EmbedBuilder()
+    ).setFooter({
+      text: `Returned for more training by ${displayNameOf(approverMember)}`,
+    });
 
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: [],
-    }).catch(console.error);
+    await interaction
+      .update({
+        embeds: [updatedEmbed],
+        components: [],
+      })
+      .catch(console.error);
   }
 
-  await member.send(
-    "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team."
-  ).catch(() => null);
+  await member
+    .send(
+      "Your orientation review has been returned for additional training. Deploy again with the Vanguard and speak to a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team."
+    )
+    .catch(() => null);
 
   return { ok: true };
 }
@@ -717,18 +822,25 @@ async function denyPromotion(guild, targetUserId, approverMember, interaction = 
   );
 
   if (interaction) {
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
-      .setFooter({ text: `Denied by ${displayNameOf(approverMember)}` });
+    const updatedEmbed = EmbedBuilder.from(
+      interaction.message.embeds[0] || new EmbedBuilder()
+    ).setFooter({
+      text: `Denied by ${displayNameOf(approverMember)}`,
+    });
 
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: [],
-    }).catch(console.error);
+    await interaction
+      .update({
+        embeds: [updatedEmbed],
+        components: [],
+      })
+      .catch(console.error);
   }
 
-  await member.send(
-    "Your Trooper promotion request was denied. Speak to a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team if you need help completing orientation."
-  ).catch(() => null);
+  await member
+    .send(
+      "Your Trooper promotion request was denied. Speak to a Sergeant, Senior Officer, Strike Captain, High Command, Vanguard Prime, or Recruitment Team if you need help completing orientation."
+    )
+    .catch(() => null);
 
   return { ok: true };
 }
@@ -747,9 +859,11 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
   );
 
   try {
-    await member.send(
-      "You have been removed from The Golden Vanguard due to incomplete recruit orientation."
-    ).catch(() => null);
+    await member
+      .send(
+        "You have been removed from The Golden Vanguard due to incomplete recruit orientation."
+      )
+      .catch(() => null);
 
     await guild.members.kick(
       member.id,
@@ -758,11 +872,13 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
   } catch (err) {
     console.error("[orientationSystem] kickRecruit error:", err);
 
-    if (interaction) {
-      await interaction.reply({
-        content: "I could not remove that recruit. Check permissions.",
-        ephemeral: true,
-      }).catch(() => null);
+    if (interaction && !interaction.replied && !interaction.deferred) {
+      await interaction
+        .reply({
+          content: "I could not remove that recruit. Check permissions.",
+          ephemeral: true,
+        })
+        .catch(() => null);
     }
 
     return { ok: false, reason: "kick_failed" };
@@ -770,11 +886,13 @@ async function kickRecruit(guild, targetUserId, approverMember, interaction = nu
 
   removeRecruitRecord(targetUserId);
 
-  if (interaction) {
-    await interaction.reply({
-      content: `❌ ${tagOf(member)} has been removed.`,
-      ephemeral: true,
-    }).catch(() => null);
+  if (interaction && !interaction.replied && !interaction.deferred) {
+    await interaction
+      .reply({
+        content: `❌ ${tagOf(member)} has been removed.`,
+        ephemeral: true,
+      })
+      .catch(() => null);
   }
 
   return { ok: true };
@@ -787,6 +905,7 @@ async function handleOrientationButton(interaction) {
   if (!interaction.isButton()) return false;
 
   const { customId, member, guild } = interaction;
+
   if (!guild || !member) return false;
 
   if (
@@ -845,8 +964,12 @@ async function handleOrientationButton(interaction) {
     }
 
     const targetUserId = customId.split("_").pop();
+
     if (!targetUserId) {
-      await interaction.reply({ content: "Invalid promotion target.", ephemeral: true });
+      await interaction.reply({
+        content: "Invalid promotion target.",
+        ephemeral: true,
+      });
       return true;
     }
 
@@ -885,6 +1008,7 @@ async function handleOrientationButton(interaction) {
       content: `✅ Marked as complete.\n\n${buildProgressText(member.id)}`,
       ephemeral: true,
     });
+
     return true;
   }
 
@@ -897,6 +1021,7 @@ async function handleOrientationButton(interaction) {
       content: `✅ Marked as complete.\n\n${buildProgressText(member.id)}`,
       ephemeral: true,
     });
+
     return true;
   }
 
@@ -909,6 +1034,7 @@ async function handleOrientationButton(interaction) {
       content: `✅ Marked as complete.\n\n${buildProgressText(member.id)}`,
       ephemeral: true,
     });
+
     return true;
   }
 
@@ -933,9 +1059,11 @@ async function maybeCompleteSession(guild, session) {
 
   const durationMs = Date.now() - session.startedAt;
   const enoughTime = durationMs >= CONFIG.minVcMinutes * 60 * 1000;
+
   if (!enoughTime) return false;
 
   const recruitRecord = ensureRecruit(session.recruitId);
+
   if (recruitRecord.deploymentComplete) {
     session.completed = true;
     return false;
@@ -964,7 +1092,9 @@ async function scanVoiceSessions(guild) {
   if (!guild) return;
 
   const currentKeys = new Set();
-  const voiceChannels = guild.channels.cache.filter((c) => shouldTrackVoiceChannel(c));
+  const voiceChannels = guild.channels.cache.filter((c) =>
+    shouldTrackVoiceChannel(c)
+  );
 
   for (const [, channel] of voiceChannels) {
     const members = [...channel.members.values()];
@@ -977,7 +1107,13 @@ async function scanVoiceSessions(guild) {
       for (const supervisor of supervisors) {
         if (recruit.id === supervisor.id) continue;
 
-        const key = getVoiceKey(guild.id, recruit.id, supervisor.id, channel.id);
+        const key = getVoiceKey(
+          guild.id,
+          recruit.id,
+          supervisor.id,
+          channel.id
+        );
+
         currentKeys.add(key);
 
         if (!activeVcSessions.has(key)) {
@@ -1001,13 +1137,16 @@ async function scanVoiceSessions(guild) {
   for (const [key, session] of activeVcSessions.entries()) {
     if (session.guildId !== guild.id) continue;
     if (currentKeys.has(key)) continue;
+
     activeVcSessions.delete(key);
   }
 }
 
 function handleVoiceStateUpdate(oldState, newState) {
   const guild = newState?.guild || oldState?.guild;
+
   if (!guild) return;
+
   scanVoiceSessions(guild).catch(console.error);
 }
 
@@ -1026,7 +1165,9 @@ async function maybeAutoLogAAR(member) {
   if (!member || !isRecruitMember(member)) return false;
 
   const before = getRecruit(member.id);
+
   markAAR(member.id);
+
   const after = getRecruit(member.id);
 
   if (!before?.aarSubmitted && after?.aarSubmitted) {
