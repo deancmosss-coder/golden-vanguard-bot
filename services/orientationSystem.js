@@ -112,6 +112,12 @@ function tagOf(member) {
   return member?.user?.tag || displayNameOf(member);
 }
 
+function unixDate(iso) {
+  const time = new Date(iso).getTime();
+  if (Number.isNaN(time)) return "Unknown";
+  return `<t:${Math.floor(time / 1000)}:D>`;
+}
+
 /* =========================
    RECRUIT MODEL
    ========================= */
@@ -418,16 +424,8 @@ function buildRecruitMonitorEmbed(member) {
     .setDescription(
       [
         `Recruit: ${displayNameOf(member)}`,
-        `Joined: ${
-          r.joinedAt
-            ? `<t:${Math.floor(new Date(r.joinedAt).getTime() / 1000)}:D>`
-            : "Unknown"
-        }`,
-        `Deadline: ${
-          r.deadlineAt
-            ? `<t:${Math.floor(new Date(r.deadlineAt).getTime() / 1000)}:D>`
-            : "Unknown"
-        }`,
+        `Joined: ${r.joinedAt ? unixDate(r.joinedAt) : "Unknown"}`,
+        `Deadline: ${r.deadlineAt ? unixDate(r.deadlineAt) : "Unknown"}`,
         `Status: ${promoted ? "✅ Promoted" : "🟡 Active Recruit"}`,
         "",
         `${r.guideRead ? "✅" : "⬜"} Guide`,
@@ -439,7 +437,15 @@ function buildRecruitMonitorEmbed(member) {
         r.lastSupervisorId
           ? `Supervisor: <@${r.lastSupervisorId}>`
           : "Supervisor: Not recorded",
-      ].join("\n")
+        promoted && r.promotedBy
+          ? `Promoted by: <@${r.promotedBy}>`
+          : null,
+        promoted && r.promotedAt
+          ? `Promoted at: ${unixDate(r.promotedAt)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
     )
     .setFooter({ text: "The Golden Vanguard — Recruit Monitor" });
 }
@@ -511,7 +517,7 @@ async function createOrUpdateMonitorCard(member) {
   return sent;
 }
 
-async function updateMonitorCardAsPromoted(guild, member, recruit) {
+async function updateStoredMonitorCard(guild, member, recruit) {
   if (!recruit?.monitorChannelId || !recruit?.monitorMessageId) return null;
 
   const monitorChannel = await guild.client.channels
@@ -529,7 +535,7 @@ async function updateMonitorCardAsPromoted(guild, member, recruit) {
   await monitorMessage
     .edit({
       embeds: [buildRecruitMonitorEmbed(member)],
-      components: [],
+      components: recruit.promoted ? [] : buildMonitorButtons(member.id),
     })
     .catch(console.error);
 
@@ -702,11 +708,7 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
   const member = await guild.members.fetch(targetUserId).catch(() => null);
   if (!member) return { ok: false, reason: "member_not_found" };
 
-  const recruitBeforeUpdate = ensureRecruit(targetUserId);
-
-  if (recruitBeforeUpdate.promoted) {
-    return { ok: false, reason: "already_promoted" };
-  }
+  const existingRecruit = getRecruit(targetUserId) || ensureRecruit(targetUserId);
 
   if (CONFIG.recruitRoleId && member.roles.cache.has(CONFIG.recruitRoleId)) {
     await member.roles.remove(CONFIG.recruitRoleId).catch(console.error);
@@ -716,10 +718,27 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
     await member.roles.add(CONFIG.trooperRoleId).catch(console.error);
   }
 
+  const clickedMonitorCard =
+    interaction?.message?.id &&
+    interaction?.channel?.id &&
+    interaction?.customId?.startsWith("orientation_promote_now_");
+
+  const monitorMessageId = clickedMonitorCard
+    ? interaction.message.id
+    : existingRecruit.monitorMessageId || null;
+
+  const monitorChannelId = clickedMonitorCard
+    ? interaction.channel.id
+    : existingRecruit.monitorChannelId || null;
+
   const updatedRecruit = updateRecruit(targetUserId, {
     promoted: true,
-    promotedAt: new Date().toISOString(),
-    promotedBy: approverMember.id,
+    promotedAt: existingRecruit.promotedAt || new Date().toISOString(),
+    promotedBy: existingRecruit.promotedBy || approverMember.id,
+    promotionRequested: true,
+    promotionRequestedAt: existingRecruit.promotionRequestedAt || new Date().toISOString(),
+    monitorMessageId,
+    monitorChannelId,
   });
 
   await logOrientation(
@@ -734,29 +753,27 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
 
   await announcePromotion(guild.client, member, approverMember).catch(console.error);
 
-  await updateMonitorCardAsPromoted(guild, member, updatedRecruit).catch(console.error);
+  if (interaction?.message && clickedMonitorCard) {
+    await interaction
+      .update({
+        embeds: [buildRecruitMonitorEmbed(member)],
+        components: [],
+      })
+      .catch(console.error);
+  } else {
+    await updateStoredMonitorCard(guild, member, updatedRecruit).catch(console.error);
 
-  if (interaction) {
-    if (interaction.message?.embeds?.length) {
+    if (interaction?.message?.embeds?.length && !interaction.replied && !interaction.deferred) {
       const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]).setFooter({
         text: `Approved by ${displayNameOf(approverMember)}`,
       });
 
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction
-          .update({
-            embeds: [updatedEmbed],
-            components: [],
-          })
-          .catch(console.error);
-      }
-    } else if (!interaction.replied && !interaction.deferred) {
       await interaction
-        .reply({
-          content: `✅ ${displayNameOf(member)} has been promoted to **Trooper**.`,
-          ephemeral: true,
+        .update({
+          embeds: [updatedEmbed],
+          components: [],
         })
-        .catch(() => null);
+        .catch(console.error);
     }
   }
 
@@ -765,8 +782,6 @@ async function approvePromotion(guild, targetUserId, approverMember, interaction
       "Welcome to the Vanguard, Diver.\n\nYou have been promoted to **Trooper** and are now cleared for deployment."
     )
     .catch(() => null);
-
-  removeRecruitRecord(targetUserId);
 
   return { ok: true };
 }
