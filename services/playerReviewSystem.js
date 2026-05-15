@@ -1,15 +1,13 @@
 const fs = require("fs");
 const path = require("path");
 
-const {
-  EmbedBuilder,
-} = require("discord.js");
+const { EmbedBuilder } = require("discord.js");
 
-const config = require("../config/reviewConfig");
+const config = require("../config/commendConfig");
 
 const DATA_PATH = path.join(
   __dirname,
-  "../data/reviews.json"
+  "../data/commendations.json"
 );
 
 function loadData() {
@@ -27,9 +25,7 @@ function loadData() {
       );
     }
 
-    return JSON.parse(
-      fs.readFileSync(DATA_PATH)
-    );
+    return JSON.parse(fs.readFileSync(DATA_PATH));
   } catch {
     return {
       reviews: [],
@@ -45,10 +41,10 @@ function saveData(data) {
 }
 
 function containsFoulLanguage(text) {
-  const lower = text.toLowerCase();
+  const lower = String(text || "").toLowerCase();
 
   return config.foulWords.some((word) =>
-    lower.includes(word)
+    lower.includes(word.toLowerCase())
   );
 }
 
@@ -57,27 +53,26 @@ function buildStars(rating) {
 }
 
 function getGameSelectOptions() {
-  return Object.values(config.games).map(
-    (game) => ({
-      label: game.name,
-      value: game.id,
-    })
-  );
+  return Object.values(config.games).map((game) => ({
+    label: game.name,
+    value: game.id,
+  }));
 }
 
-function checkCooldown(
-  reviewerId,
-  reviewedUserId
-) {
+function checkCooldown(reviewerId, reviewedUserId) {
   const data = loadData();
 
-  const existing =
-    data.reviews.find(
+  const existing = data.reviews
+    .filter(
       (r) =>
         r.reviewerId === reviewerId &&
-        r.reviewedUserId ===
-          reviewedUserId
-    );
+        r.reviewedUserId === reviewedUserId
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() -
+        new Date(a.createdAt).getTime()
+    )[0];
 
   if (!existing) {
     return {
@@ -86,94 +81,71 @@ function checkCooldown(
   }
 
   const now = Date.now();
-
-  const diff =
-    now -
-    new Date(existing.createdAt).getTime();
-
-  const hours =
-    diff / (1000 * 60 * 60);
+  const diff = now - new Date(existing.createdAt).getTime();
+  const hours = diff / (1000 * 60 * 60);
 
   return {
-    allowed:
-      hours >=
-      config.reviewCooldownHours,
+    allowed: hours >= config.reviewCooldownHours,
   };
 }
 
-async function handleReviewModal(
-  interaction
-) {
-  const parts =
-    interaction.customId.split(":");
+async function handleReviewModal(interaction) {
+  const parts = interaction.customId.split(":");
 
   const reviewedUserId = parts[1];
   const gameId = parts[2];
 
-  const reviewedUser =
-    await interaction.client.users.fetch(
-      reviewedUserId
-    );
+  const reviewedUser = await interaction.client.users.fetch(reviewedUserId);
 
   const rating = parseInt(
-    interaction.fields.getTextInputValue(
-      "rating"
-    )
+    interaction.fields.getTextInputValue("rating"),
+    10
   );
 
-  const anonymousRaw =
-    interaction.fields.getTextInputValue(
-      "anonymous"
-    );
+  const anonymousRaw = interaction.fields.getTextInputValue("anonymous");
+  const promotion = interaction.fields.getTextInputValue("promotion");
+  const review = interaction.fields.getTextInputValue("review");
 
-  const promotion =
-    interaction.fields.getTextInputValue(
-      "promotion"
-    );
-
-  const review =
-    interaction.fields.getTextInputValue(
-      "review"
-    );
-
-  if (
-    Number.isNaN(rating) ||
-    rating < 1 ||
-    rating > 5
-  ) {
+  if (Number.isNaN(rating) || rating < 1 || rating > 5) {
     return interaction.reply({
-      content:
-        "Combat rating must be between 1 and 5.",
+      content: "Combat rating must be between 1 and 5.",
       ephemeral: true,
     });
   }
 
-  const anonymous =
-    anonymousRaw.toLowerCase() ===
-    "yes";
+  const anonymousValue = anonymousRaw.trim().toLowerCase();
 
-  const game =
-    config.games[gameId];
+  if (!["yes", "no"].includes(anonymousValue)) {
+    return interaction.reply({
+      content: "Anonymous must be answered with yes or no.",
+      ephemeral: true,
+    });
+  }
 
-  const foul =
-    containsFoulLanguage(review);
+  const anonymous = anonymousValue === "yes";
 
-  const publicChannel =
-    interaction.client.channels.cache.get(
-      process.env
-        .PLAYER_REVIEW_CHANNEL_ID
-    );
+  const game = config.games[gameId];
 
-  const staffChannel =
-    interaction.client.channels.cache.get(
-      process.env
-        .PLAYER_REVIEW_STAFF_CHANNEL_ID
-    );
+  if (!game) {
+    return interaction.reply({
+      content: "That game option is not configured.",
+      ephemeral: true,
+    });
+  }
 
-  const publicEmbed =
-    new EmbedBuilder()
-      .setColor(0xf1c40f)
-      .setDescription(
+  const foul = containsFoulLanguage(review);
+
+  const publicChannel = interaction.client.channels.cache.get(
+    process.env.PLAYER_REVIEW_CHANNEL_ID
+  );
+
+  const staffChannel = interaction.client.channels.cache.get(
+    process.env.PLAYER_REVIEW_STAFF_CHANNEL_ID
+  );
+
+  const publicEmbed = new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setDescription(
 `# ⭐ PLAYER COMMENDATION
 
 🎖 **Reviewed Vanguard**
@@ -194,59 +166,57 @@ ${anonymous ? "Anonymous Vanguard" : interaction.user}
 ━━━━━━━━━━━━━━━━━━
 ⚔ *The Golden Vanguard Commendation Network*
 ━━━━━━━━━━━━━━━━━━`
-      )
-      .setTimestamp();
+    )
+    .setTimestamp();
 
-  const staffEmbed =
-    new EmbedBuilder()
-      .setColor(
-        foul
-          ? 0xe74c3c
-          : 0x3498db
-      )
-      .setTitle(
-        "Commendation Staff Log"
-      )
-      .addFields(
-        {
-          name: "Reviewed User",
-          value: `${reviewedUser.tag}`,
-        },
-        {
-          name: "Reviewer",
-          value: `${interaction.user.tag}`,
-        },
-        {
-          name: "Anonymous",
-          value: anonymous
-            ? "Yes"
-            : "No",
-          inline: true,
-        },
-        {
-          name: "Promotion Support",
-          value: promotion,
-          inline: true,
-        },
-        {
-          name: "Foul Language",
-          value: foul
-            ? "Detected"
-            : "Clean",
-          inline: true,
-        },
-        {
-          name: "Review",
-          value: review,
-        }
-      )
-      .setTimestamp();
+  const staffEmbed = new EmbedBuilder()
+    .setColor(foul ? 0xe74c3c : 0x3498db)
+    .setTitle("Commendation Staff Log")
+    .addFields(
+      {
+        name: "Reviewed User",
+        value: `${reviewedUser.tag} (${reviewedUser.id})`,
+      },
+      {
+        name: "Reviewer",
+        value: `${interaction.user.tag} (${interaction.user.id})`,
+      },
+      {
+        name: "Anonymous",
+        value: anonymous ? "Yes" : "No",
+        inline: true,
+      },
+      {
+        name: "Promotion Support",
+        value: promotion,
+        inline: true,
+      },
+      {
+        name: "Foul Language",
+        value: foul ? "Detected" : "Clean",
+        inline: true,
+      },
+      {
+        name: "Game",
+        value: game.name,
+        inline: true,
+      },
+      {
+        name: "Rating",
+        value: `${rating}/5`,
+        inline: true,
+      },
+      {
+        name: "Review",
+        value: review,
+      }
+    )
+    .setTimestamp();
 
   const data = loadData();
 
   data.reviews.push({
-    reviewerId:
-      interaction.user.id,
+    reviewerId: interaction.user.id,
     reviewedUserId,
     rating,
     anonymous,
@@ -254,15 +224,10 @@ ${anonymous ? "Anonymous Vanguard" : interaction.user}
     review,
     foul,
     gameId,
-    createdAt:
-      new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   });
 
   saveData(data);
-
-  // =========================
-  // STAFF LOG
-  // =========================
 
   if (staffChannel) {
     await staffChannel.send({
@@ -270,31 +235,21 @@ ${anonymous ? "Anonymous Vanguard" : interaction.user}
     });
   }
 
-  // =========================
-  // PUBLIC POST
-  // =========================
-
   if (!foul && publicChannel) {
     await publicChannel.send({
       embeds: [publicEmbed],
     });
   }
 
-  // =========================
-  // RESPONSE
-  // =========================
-
   if (foul) {
     return interaction.reply({
-      content:
-        "Your commendation was submitted for staff review.",
+      content: "Your commendation was submitted for staff review.",
       ephemeral: true,
     });
   }
 
   return interaction.reply({
-    content:
-      "Commendation submitted successfully.",
+    content: "Commendation submitted successfully.",
     ephemeral: true,
   });
 }
