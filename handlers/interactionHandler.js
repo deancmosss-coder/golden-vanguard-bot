@@ -27,6 +27,13 @@ try {
   reviewCommand = null;
 }
 
+let commendCommand = null;
+try {
+  commendCommand = require("../commands/commend.js");
+} catch {
+  commendCommand = null;
+}
+
 const DIVISION_ROLE_IDS = {
   eclipse: "1474609575415255092",
   bastion: "1474610126693466202",
@@ -43,6 +50,7 @@ const SYSTEM_BYPASS_COMMANDS = new Set([
 function getFeatureForCommand(commandName) {
   if (commandName === "run") return "tracker";
   if (commandName === "review") return "review";
+  if (commandName === "commend") return "commendations";
   if (commandName === "system") return "system";
   if (commandName === "creator") return "creator";
   if (commandName === "deploy") return "deployment";
@@ -179,6 +187,7 @@ async function handleDivisionButton(interaction) {
   await interaction.deferReply({ flags: 64 });
 
   const member = interaction.member;
+
   if (!member) {
     await interaction.editReply("Could not find your server member profile.");
     return true;
@@ -194,7 +203,9 @@ async function handleDivisionButton(interaction) {
 
   if (interaction.customId === "division_leave") {
     registry.registerSuccess("division");
+
     await interaction.editReply("You have left your current division.");
+
     return true;
   }
 
@@ -227,9 +238,11 @@ async function handleDivisionButton(interaction) {
   }
 
   await member.roles.add(roleId);
+
   registry.registerSuccess("division");
 
   await interaction.editReply(`You are now enlisted in **${divisionName}**.`);
+
   return true;
 }
 
@@ -250,7 +263,10 @@ async function handleTrackerInteractions(client, interaction) {
     });
   }
 
-  if (interaction.isModalSubmit() && interaction.customId?.startsWith("gv_run_edit:")) {
+  if (
+    interaction.isModalSubmit() &&
+    interaction.customId?.startsWith("gv_run_edit:")
+  ) {
     const runCmd = require("../commands/run.js");
 
     return runProtected(client, {
@@ -299,6 +315,7 @@ async function handleAskToPlaySelect(client, interaction, sessions, askToPlayToo
       session.faction = interaction.values[0];
 
       await askToPlayTools.updateAskMessage(session);
+
       registry.registerSuccess("askToPlay");
 
       await interaction.editReply({
@@ -314,7 +331,10 @@ async function handleAskToPlaySelect(client, interaction, sessions, askToPlayToo
       await askToPlayTools.updateAskMessage(session);
 
       if (interaction.guild) {
-        await askToPlayTools.renameHostVcFromSession(session, interaction.guild);
+        await askToPlayTools.renameHostVcFromSession(
+          session,
+          interaction.guild
+        );
       }
 
       registry.registerSuccess("askToPlay");
@@ -361,71 +381,136 @@ function registerInteractionHandler(client, commands, sessions, askToPlayTools) 
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
       const creatorHandled = await handleCreatorInteractions(interaction);
+
       if (creatorHandled) return;
 
       if (interaction.isAutocomplete()) {
         const cmd = commands.get(interaction.commandName);
-        if (cmd?.autocomplete) return cmd.autocomplete(interaction);
+
+        if (cmd?.autocomplete) {
+          return cmd.autocomplete(interaction);
+        }
+
         return;
       }
 
       if (interaction.isButton()) {
-        const handled = await orientationSystem.handleOrientationButton(interaction);
+        const handled =
+          await orientationSystem.handleOrientationButton(interaction);
+
         if (handled) {
           registry.registerSuccess("orientation");
           return;
         }
       }
 
-      if (interaction.isButton() && interaction.customId.startsWith("review:") && reviewCommand) {
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith("review:") &&
+        reviewCommand
+      ) {
         return reviewCommand.handleButton(interaction);
       }
 
-      const divisionHandled = await handleDivisionButton(interaction);
+      const divisionHandled =
+        await handleDivisionButton(interaction);
+
       if (divisionHandled) return;
 
-      const trackerHandled = await handleTrackerInteractions(client, interaction);
+      const trackerHandled =
+        await handleTrackerInteractions(client, interaction);
+
       if (trackerHandled) return;
 
-      if (interaction.isButton() && interaction.customId.startsWith("enlist:") && enlistment) {
-        const result = await enlistment.handleButton(interaction);
+      // =========================
+      // COMMEND SYSTEM
+      // =========================
+
+      if (
+        commendCommand &&
+        (
+          interaction.isStringSelectMenu() ||
+          interaction.isModalSubmit()
+        )
+      ) {
+        const handled =
+          await commendCommand.handleInteraction(
+            interaction
+          );
+
+        if (handled) {
+          registry.registerSuccess(
+            "commendations"
+          );
+
+          return;
+        }
+      }
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith("enlist:") &&
+        enlistment
+      ) {
+        const result =
+          await enlistment.handleButton(interaction);
+
         registry.registerSuccess("orientation");
+
         return result;
       }
 
-      const askHandled = await handleAskToPlaySelect(
-        client,
-        interaction,
-        sessions,
-        askToPlayTools
-      );
+      const askHandled =
+        await handleAskToPlaySelect(
+          client,
+          interaction,
+          sessions,
+          askToPlayTools
+        );
 
       if (askHandled) return;
 
       if (interaction.isChatInputCommand()) {
-        return handleChatInputCommand(client, interaction, commands);
+        return handleChatInputCommand(
+          client,
+          interaction,
+          commands
+        );
       }
     } catch (err) {
       logger.error("InteractionCreate error", err, {
         location: "handlers/interactionHandler.js",
         userId: interaction?.user?.id || null,
         guildId: interaction?.guildId || null,
-        commandName: interaction?.isChatInputCommand?.() ? interaction.commandName : null,
+        commandName:
+          interaction?.isChatInputCommand?.()
+            ? interaction.commandName
+            : null,
         customId:
-          interaction?.isButton?.() || interaction?.isStringSelectMenu?.()
+          interaction?.isButton?.() ||
+          interaction?.isStringSelectMenu?.()
             ? interaction.customId
             : null,
       });
 
-      await sendErrorAlert(client, "Interaction Handler Failed", err, {
-        feature: "interaction-handler",
-        location: "InteractionCreate",
-        action: "Processing interaction",
-        likelyCause: "Command, button, modal, or select menu error.",
-        severity: "error",
-      });
+      await sendErrorAlert(
+        client,
+        "Interaction Handler Failed",
+        err,
+        {
+          feature: "interaction-handler",
+          location: "InteractionCreate",
+          action: "Processing interaction",
+          likelyCause:
+            "Command, button, modal, or select menu error.",
+          severity: "error",
+        }
+      );
 
-      await safeReply(interaction, "Something went wrong.");
+      await safeReply(
+        interaction,
+        "Something went wrong."
+      );
     }
   });
 }
