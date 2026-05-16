@@ -17,5 +17,5 @@ module.exports = {
 
   maxReviewLength: 500,
 
-  reviewCooldownHours: 24,
+  reviewCooldownHours: 0.5,
 };
