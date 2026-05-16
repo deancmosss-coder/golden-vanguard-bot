@@ -43,9 +43,7 @@ const DIVISION_ROLE_IDS = {
 
 const ALL_DIVISION_ROLE_IDS = Object.values(DIVISION_ROLE_IDS);
 
-const SYSTEM_BYPASS_COMMANDS = new Set([
-  "system",
-]);
+const SYSTEM_BYPASS_COMMANDS = new Set(["system"]);
 
 function getFeatureForCommand(commandName) {
   if (commandName === "run") return "tracker";
@@ -122,7 +120,10 @@ async function handleChatInputCommand(client, interaction, commands) {
         severity: "error",
       });
 
-      return safeReply(interaction, "Something went wrong while running that system command.");
+      return safeReply(
+        interaction,
+        "Something went wrong while running that system command."
+      );
     }
   }
 
@@ -150,7 +151,9 @@ async function handleCreatorInteractions(interaction) {
     interaction.isModalSubmit() &&
     creatorApplication?.handleModalSubmit
   ) {
-    const handled = await creatorApplication.handleModalSubmit(interaction);
+    const handled =
+      await creatorApplication.handleModalSubmit(interaction);
+
     if (handled) {
       registry.registerSuccess("creatorApplication");
       return true;
@@ -161,7 +164,9 @@ async function handleCreatorInteractions(interaction) {
     interaction.isButton() &&
     creatorApplication?.handleButtonInteraction
   ) {
-    const handled = await creatorApplication.handleButtonInteraction(interaction);
+    const handled =
+      await creatorApplication.handleButtonInteraction(interaction);
+
     if (handled) {
       registry.registerSuccess("creatorApplication");
       return true;
@@ -285,8 +290,23 @@ async function handleTrackerInteractions(client, interaction) {
   return false;
 }
 
-async function handleAskToPlaySelect(client, interaction, sessions, askToPlayTools) {
+async function handleAskToPlaySelect(
+  client,
+  interaction,
+  sessions,
+  askToPlayTools
+) {
   if (!interaction.isStringSelectMenu()) return false;
+
+  const validAskSelects = [
+    askToPlayTools.FACTION_SELECT_ID,
+    askToPlayTools.DIFFICULTY_SELECT_ID,
+    askToPlayTools.ACTIVITY_SELECT_ID,
+  ];
+
+  if (!validAskSelects.includes(interaction.customId)) {
+    return false;
+  }
 
   const session = sessions.get(interaction.message.id);
 
@@ -301,7 +321,7 @@ async function handleAskToPlaySelect(client, interaction, sessions, askToPlayToo
 
   if (interaction.user.id !== session.ownerId) {
     await interaction.reply({
-      content: "Only the host can set faction/difficulty.",
+      content: "Only the host can update this Ask-to-Play post.",
       flags: 64,
     }).catch(() => {});
 
@@ -314,7 +334,7 @@ async function handleAskToPlaySelect(client, interaction, sessions, askToPlayToo
     if (interaction.customId === askToPlayTools.FACTION_SELECT_ID) {
       session.faction = interaction.values[0];
 
-      await askToPlayTools.updateAskMessage(session);
+      await askToPlayTools.updateAskMessage(client, session);
 
       registry.registerSuccess("askToPlay");
 
@@ -328,10 +348,11 @@ async function handleAskToPlaySelect(client, interaction, sessions, askToPlayToo
     if (interaction.customId === askToPlayTools.DIFFICULTY_SELECT_ID) {
       session.difficulty = interaction.values[0];
 
-      await askToPlayTools.updateAskMessage(session);
+      await askToPlayTools.updateAskMessage(client, session);
 
       if (interaction.guild) {
         await askToPlayTools.renameHostVcFromSession(
+          client,
           session,
           interaction.guild
         );
@@ -341,6 +362,20 @@ async function handleAskToPlaySelect(client, interaction, sessions, askToPlayToo
 
       await interaction.editReply({
         content: `✅ Difficulty set to **${session.difficulty}**`,
+      });
+
+      return true;
+    }
+
+    if (interaction.customId === askToPlayTools.ACTIVITY_SELECT_ID) {
+      session.activity = interaction.values[0];
+
+      await askToPlayTools.updateAskMessage(client, session);
+
+      registry.registerSuccess("askToPlay");
+
+      await interaction.editReply({
+        content: `✅ Activity set to **${session.activity}**`,
       });
 
       return true;
@@ -357,7 +392,7 @@ async function handleAskToPlaySelect(client, interaction, sessions, askToPlayToo
     await sendErrorAlert(client, "Ask-to-Play Menu Failed", error, {
       feature: "askToPlay",
       location: "StringSelectMenu",
-      action: "Updating faction/difficulty selection",
+      action: "Updating Ask-to-Play selection",
       likelyCause: "Expired interaction, invalid session, or message edit issue.",
       severity: "warning",
     });
@@ -412,19 +447,16 @@ function registerInteractionHandler(client, commands, sessions, askToPlayTools) 
         return reviewCommand.handleButton(interaction);
       }
 
-      const divisionHandled =
-        await handleDivisionButton(interaction);
+      const divisionHandled = await handleDivisionButton(interaction);
 
       if (divisionHandled) return;
 
-      const trackerHandled =
-        await handleTrackerInteractions(client, interaction);
+      const trackerHandled = await handleTrackerInteractions(
+        client,
+        interaction
+      );
 
       if (trackerHandled) return;
-
-      // =========================
-      // COMMEND SYSTEM
-      // =========================
 
       if (
         commendCommand &&
@@ -434,15 +466,10 @@ function registerInteractionHandler(client, commands, sessions, askToPlayTools) 
         )
       ) {
         const handled =
-          await commendCommand.handleInteraction(
-            interaction
-          );
+          await commendCommand.handleInteraction(interaction);
 
         if (handled) {
-          registry.registerSuccess(
-            "commendations"
-          );
-
+          registry.registerSuccess("commendations");
           return;
         }
       }
