@@ -1,0 +1,46 @@
+{
+  "helldivers": {
+    "displayName": "Helldivers",
+    "pingRoleId": "1505318023148339241",
+    "textCategoryId": "1305228391330480269",
+    "lfgChannelIds": [
+      "1473450272188534970"
+    ],
+    "voiceCategoryIds": [
+      "1478464677783666778"
+    ],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": true,
+      "difficulty": true,
+      "activity": false
+    }
+  },
+  "gta": {
+    "displayName": "GTA",
+    "pingRoleId": "1505318153931198465",
+    "textCategoryId": "1505309836345344210",
+    "lfgChannelIds": [
+      "1505314846030303423"
+    ],
+    "voiceCategoryIds": [
+      "1505315216601251890"
+    ],
+    "maxSquadSize": 30,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Heists",
+      "Missions",
+      "Money grind",
+      "Races",
+      "Free roam",
+      "Business work",
+      "Car meet",
+      "Chill session"
+    ]
+  }
+}
