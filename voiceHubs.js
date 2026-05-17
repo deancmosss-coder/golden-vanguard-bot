@@ -32,44 +32,66 @@ const HUBS = {
   "1505315362512572650": {
     tag: "OPS",
     label: "Criminal Operations",
-    categoryId: "1505315216601251890",
+    categoryId: "1505309836345344210",
   },
   "1505315445635547279": {
     tag: "HEIST",
     label: "Heist Team Alpha",
-    categoryId: "1505315216601251890",
+    categoryId: "1505309836345344210",
   },
   "1505315508566622218": {
     tag: "FREEROAM",
     label: "Free Roam Ops",
-    categoryId: "1505315216601251890",
+    categoryId: "1505309836345344210",
   },
   "1505315571560878142": {
     tag: "CREW",
     label: "Crew Command",
-    categoryId: "1505315216601251890",
+    categoryId: "1505309836345344210",
   },
 
   // INDIE / PARTY — replace IDs
   "1505317203514228876": {
     tag: "LETHAL",
     label: "Lethal Company",
-    categoryId: "1505317136241918123",
+    categoryId: "1505316630052344029",
   },
   "1505317260233801929": {
     tag: "REPO",
     label: "R.E.P.O",
-    categoryId: "1505317136241918123",
+    categoryId: "1505316630052344029",
   },
   "1505317338361237514": {
     tag: "RV",
     label: "RV There Yet?",
-    categoryId: "1505317136241918123",
+    categoryId: "1505316630052344029",
   },
   "1505317389447991409": {
     tag: "PARTY",
     label: "Let's Party",
-    categoryId: "1505317136241918123",
+    categoryId: "1505316630052344029",
+  },
+
+  // BATTLEFIELD
+  "1505642842255523900": {
+    tag: "ASSAULT",
+    label: "Assault",
+    categoryId: "1505639128845258976",
+  },
+  "1505643123584532631": {
+    tag: "MEDIC",
+    label: "Medic",
+    categoryId: "1505639128845258976",
+  },
+  "1505647933532410077": {
+    tag: "ENGINEER",
+    label: "Engineer",
+    categoryId: "1505639128845258976",
+  },
+  "1505648284050657310": {
+    tag: "RECON",
+    label: "Recon",
+    categoryId: "1505639128845258976",
   },
 };
 
