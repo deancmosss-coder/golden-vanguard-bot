@@ -26,7 +26,7 @@ function buildWelcomeEmbed(member, memberCount) {
       [
         `Welcome ${username},`,
         "",
-        You’ve joined a multi-game tactical community built around teamwork, coordination, community, and unforgettable moments.",
+        "You’ve joined a multi-game tactical community built around teamwork, coordination, community, and unforgettable moments.",
         "",
         "Whether you’re here to squad up, compete, chill in voice chat, discover new games, or grow as a creator. There’s a place for you inside the Vanguard.",
         "",
