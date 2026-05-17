@@ -43,7 +43,7 @@
       "Chill session"
     }
   },
-  "Party": {
+  "party": {
     "displayName": "Party Games",
     "pingRoleId": "1505318205030404208",
     "textCategoryId": "1505316630052344029",
