@@ -41,6 +41,28 @@
       "Business work",
       "Car meet",
       "Chill session"
+    }
+  },
+  "gta": {
+    "displayName": "Party Games",
+    "pingRoleId": "1505318205030404208",
+    "textCategoryId": "1505316630052344029",
+    "lfgChannelIds": [
+      "1505317042537107529"
+    ],
+    "voiceCategoryIds": [
+      "1505317136241918123"
+    ],
+    "maxSquadSize": 10,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Lethal Company",
+      "R.E.P.O",
+      "RV There Yet?"
     ]
   }
 }
