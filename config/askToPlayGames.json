@@ -64,5 +64,28 @@
       "R.E.P.O",
       "RV There Yet?"
     ]
+  },
+  "battlefield": {
+    "displayName": "Battlefield",
+    "pingRoleId": "1505657201082236979",
+    "textCategoryId": "1505639128845258976",
+    "lfgChannelIds": [
+      "1505648769600061530"
+    ],
+    "voiceCategoryIds": [
+      "1505639128845258976"
+    ],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Mutliplayer",
+      "Redsec",
+      "Custom",
+      "Campaign"
+    ]
   }
 }
