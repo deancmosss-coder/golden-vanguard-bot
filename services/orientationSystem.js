@@ -1,22 +1,95 @@
-const fs = require("fs");
-const path = require("path");
-const {
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} = require("discord.js");
+// =========================
+// services/orientationSystem.js
+// Orientation pause wrapper
+// Keeps old system safe while multi-game onboarding is being rebuilt
+// =========================
 
-const DATA_PATH = path.join(__dirname, "..", "data", "recruits.json");
+const core = require("./orientationSystemCore");
 
-const CONFIG = {
-  recruitRoleId: (process.env.ORIENTATION_RECRUIT_ROLE_ID || "").trim(),
-  trooperRoleId: (process.env.ORIENTATION_TROOPER_ROLE_ID || "").trim(),
+const ORIENTATION_ENABLED =
+  process.env.ORIENTATION_SYSTEM_ENABLED === "true";
 
-  sergeantRoleId: (process.env.ORIENTATION_SERGEANT_ROLE_ID || "").trim(),
-  seniorOfficerRoleId: (process.env.ORIENTATION_SENIOR_OFFICER_ROLE_ID || "").trim(),
-  strikeCaptainRoleId: (process.env.ORIENTATION_STRIKE_CAPTAIN_ROLE_ID || "").trim(),
-  highCommandRoleId: (process.env.ORIENTATION_HIGH_COMMAND_ROLE_ID || "").trim(),
+function disabledFalse() {
+  return false;
+}
+
+function disabledNull() {
+  return null;
+}
+
+function disabledOk() {
+  return {
+    ok: false,
+    reason: "orientation_disabled",
+  };
+}
+
+module.exports = {
+  CONFIG: core.CONFIG,
+
+  ensureRecruit: ORIENTATION_ENABLED ? core.ensureRecruit : disabledNull,
+  getRecruit: ORIENTATION_ENABLED ? core.getRecruit : disabledNull,
+  updateRecruit: ORIENTATION_ENABLED ? core.updateRecruit : disabledNull,
+  removeRecruitRecord: ORIENTATION_ENABLED ? core.removeRecruitRecord : disabledFalse,
+
+  markGuideRead: ORIENTATION_ENABLED ? core.markGuideRead : disabledNull,
+  markLawsRead: ORIENTATION_ENABLED ? core.markLawsRead : disabledNull,
+  markDivisionsRead: ORIENTATION_ENABLED ? core.markDivisionsRead : disabledNull,
+  markAAR: ORIENTATION_ENABLED ? core.markAAR : disabledNull,
+  markDeployment: ORIENTATION_ENABLED ? core.markDeployment : disabledNull,
+
+  isComplete: ORIENTATION_ENABLED ? core.isComplete : disabledFalse,
+  getMissingSteps: ORIENTATION_ENABLED ? core.getMissingSteps : () => [],
+  progressCount: ORIENTATION_ENABLED
+    ? core.progressCount
+    : () => ({ done: 0, total: 0 }),
+
+  buildChecklistEmbed: core.buildChecklistEmbed,
+  buildChecklistButtons: core.buildChecklistButtons,
+  buildProgressText: ORIENTATION_ENABLED
+    ? core.buildProgressText
+    : () => "Orientation is currently paused.",
+
+  sendChecklistPanel: ORIENTATION_ENABLED ? core.sendChecklistPanel : disabledNull,
+  sendPromotionRequest: ORIENTATION_ENABLED ? core.sendPromotionRequest : disabledOk,
+  autoRequestPromotionIfComplete: ORIENTATION_ENABLED
+    ? core.autoRequestPromotionIfComplete
+    : disabledFalse,
+
+  handleOrientationButton: ORIENTATION_ENABLED
+    ? core.handleOrientationButton
+    : disabledFalse,
+
+  handleVoiceStateUpdate: ORIENTATION_ENABLED
+    ? core.handleVoiceStateUpdate
+    : disabledFalse,
+
+  scanAllTrackedGuilds: ORIENTATION_ENABLED
+    ? core.scanAllTrackedGuilds
+    : async () => {},
+
+  maybeAutoLogAAR: ORIENTATION_ENABLED ? core.maybeAutoLogAAR : disabledFalse,
+  logNewRecruit: ORIENTATION_ENABLED ? core.logNewRecruit : async () => null,
+  createOrUpdateMonitorCard: ORIENTATION_ENABLED
+    ? core.createOrUpdateMonitorCard
+    : disabledNull,
+
+  checkOverdueRecruits: ORIENTATION_ENABLED
+    ? core.checkOverdueRecruits
+    : async () => {},
+
+  refreshAllMonitorCards: ORIENTATION_ENABLED
+    ? core.refreshAllMonitorCards
+    : async () => {},
+
+  cleanupNonRecruitRecords: ORIENTATION_ENABLED
+    ? core.cleanupNonRecruitRecords
+    : async () => {},
+
+  isRecruitMember: ORIENTATION_ENABLED ? core.isRecruitMember : disabledFalse,
+  isSupervisor: ORIENTATION_ENABLED ? core.isSupervisor : disabledFalse,
+  isApprover: ORIENTATION_ENABLED ? core.isApprover : disabledFalse,
+}; || "").trim(),
   vanguardPrimeRoleId: (process.env.ORIENTATION_VANGUARD_PRIME_ROLE_ID || "").trim(),
   recruitmentTeamRoleId: (process.env.ORIENTATION_RECRUITMENT_TEAM_ROLE_ID || "").trim(),
 
