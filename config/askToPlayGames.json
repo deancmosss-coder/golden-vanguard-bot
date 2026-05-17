@@ -41,6 +41,7 @@
       "Business work",
       "Car meet",
       "Chill session"
+    ]
   },
   "party": {
     "displayName": "Party Games",
@@ -64,3 +65,4 @@
       "RV There Yet?"
     ]
   }
+}
