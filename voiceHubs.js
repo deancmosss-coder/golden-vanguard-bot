@@ -1,13 +1,76 @@
 const { ChannelType, Events } = require("discord.js");
 
-const HUB_CATEGORY_ID = "1478464677783666778";
-
 const HUBS = {
-  "1497970074756321362": { tag: "MO", label: "Major Order" }, 
-  "1483928217701060638": { tag: "BOTS", label: "Automaton" }, 
-  "1483928278116077800": { tag: "BUGS", label: "Terminid" }, 
-  "1483928332373332019": { tag: "SQUIDS", label: "Illuminate" }, 
-  "1483928397275988139": { tag: "DANGER", label: "Danger Room" }, 
+  // HELLDIVERS
+  "1497970074756321362": {
+    tag: "MO",
+    label: "Major Order",
+    categoryId: "1478464677783666778",
+  },
+  "1483928217701060638": {
+    tag: "BOTS",
+    label: "Automaton",
+    categoryId: "1478464677783666778",
+  },
+  "1483928278116077800": {
+    tag: "BUGS",
+    label: "Terminid",
+    categoryId: "1478464677783666778",
+  },
+  "1483928332373332019": {
+    tag: "SQUIDS",
+    label: "Illuminate",
+    categoryId: "1478464677783666778",
+  },
+  "1483928397275988139": {
+    tag: "DANGER",
+    label: "Danger Room",
+    categoryId: "1478464677783666778",
+  },
+
+  // GTA — replace IDs
+  "1505315362512572650": {
+    tag: "OPS",
+    label: "Criminal Operations",
+    categoryId: "1505315216601251890",
+  },
+  "1505315445635547279": {
+    tag: "HEIST",
+    label: "Heist Team Alpha",
+    categoryId: "1505315216601251890",
+  },
+  "1505315508566622218": {
+    tag: "FREEROAM",
+    label: "Free Roam Ops",
+    categoryId: "1505315216601251890",
+  },
+  "1505315571560878142": {
+    tag: "CREW",
+    label: "Crew Command",
+    categoryId: "1505315216601251890",
+  },
+
+  // INDIE / PARTY — replace IDs
+  "1505317203514228876": {
+    tag: "LETHAL",
+    label: "Lethal Company",
+    categoryId: "1505317136241918123",
+  },
+  "1505317260233801929": {
+    tag: "REPO",
+    label: "R.E.P.O",
+    categoryId: "1505317136241918123",
+  },
+  "1505317338361237514": {
+    tag: "RV",
+    label: "RV There Yet?",
+    categoryId: "1505317136241918123",
+  },
+  "1505317389447991409": {
+    tag: "PARTY",
+    label: "Let's Party",
+    categoryId: "1505317136241918123",
+  },
 };
 
 const ignoredMoves = new Map();
@@ -21,12 +84,21 @@ function isHub(channelId) {
   return !!channelId && HUBS[channelId] !== undefined;
 }
 
+function getManagedTagsRegex() {
+  const tags = [...new Set(Object.values(HUBS).map((h) => h.tag))]
+    .map((tag) => tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
+  return new RegExp(`^(${tags})\\s\\|`, "i");
+}
+
 function isManagedVC(channel) {
   if (!channel) return false;
   if (channel.type !== ChannelType.GuildVoice) return false;
-  if (channel.parentId !== HUB_CATEGORY_ID) return false;
   if (HUBS[channel.id]) return false;
-  return /^(MO|BOTS|BUGS|SQUIDS|DANGER)\s\|/i.test(channel.name);
+
+  const tagRegex = getManagedTagsRegex();
+  return tagRegex.test(channel.name);
 }
 
 function markIgnored(userId, ms = 3000) {
@@ -101,7 +173,8 @@ function setupVoiceHubs(client) {
     for (const guild of client.guilds.cache.values()) {
       await cleanupOrphans(guild);
     }
-    console.log("✅ Voice hubs online (clean upgraded mode)");
+
+    console.log("✅ Multi-game voice hubs online");
   });
 
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -114,7 +187,6 @@ function setupVoiceHubs(client) {
     if (oldId === newId) return;
     if (isIgnored(member.id)) return;
 
-    // User joined a hub
     if (isHub(newId)) {
       if (onCreateCooldown(member.id)) return;
       markCreateCooldown(member.id);
@@ -129,7 +201,7 @@ function setupVoiceHubs(client) {
         const created = await newState.guild.channels.create({
           name: vcName,
           type: ChannelType.GuildVoice,
-          parent: HUB_CATEGORY_ID,
+          parent: hub.categoryId,
           userLimit: 0,
           reason: `Join to create from ${hub.label}`,
         });
@@ -143,9 +215,9 @@ function setupVoiceHubs(client) {
       return;
     }
 
-    // User left a managed VC
     if (oldId) {
       const oldChannel = oldState.channel;
+
       if (isManagedVC(oldChannel)) {
         deleteIfEmpty(oldChannel).catch((err) => {
           console.error("[VoiceHub] Delete check error:", err);
