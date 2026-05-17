@@ -21,22 +21,22 @@ function buildWelcomeEmbed(member, memberCount) {
 
   return new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("🛡 Welcome to The Golden Vanguard")
+    .setTitle("🛡 Welcome to The Golden Vanguard 🛡")
     .setDescription(
       [
         `Welcome ${username},`,
         "",
-        "You’ve joined a tactical squad-based community built for coordination, growth, and winning together.",
+        You’ve joined a multi-game tactical community built around teamwork, coordination, community, and unforgettable moments.",
         "",
-        "Here, we don’t just play — we deploy with purpose.",
+        "Whether you’re here to squad up, compete, chill in voice chat, discover new games, or grow as a creator. There’s a place for you inside the Vanguard.",
         "",
         "━━━━━━━━━━━━━━━━━━",
         "",
-        "🪖 **Become a True Vanguard Member**",
-        "To unlock full access and fight alongside the Vanguard, you must complete your Recruit Orientation.",
+        "🪖 🎮 Choose the games you play to unlock your community sections, squad channels, and LFG systems.",
+        "", 
+        "📡 Join the Vanguard Creator Network to receive stream alerts, creator promotion, and community support for your content.", 
         "",
-        "📍 Head to **#orientation-checklist** to begin",
-        "⏳ You have **7 days** to complete it",
+        "🛡 Respect the community, support your squad, and represent the Vanguard well.", 
         "",
         "━━━━━━━━━━━━━━━━━━",
         "",
