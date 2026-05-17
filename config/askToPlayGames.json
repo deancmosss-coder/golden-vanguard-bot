@@ -21,7 +21,7 @@
     "pingRoleId": "1505318153931198465",
     "textCategoryId": "1505309836345344210",
     "lfgChannelIds": [
-      "1505314846030303423" 
+      "1505314846030303423"
     ],
     "voiceCategoryIds": [
       "1505315216601251890"
@@ -41,7 +41,7 @@
       "Business work",
       "Car meet",
       "Chill session"
-    }
+    ]
   },
   "party": {
     "displayName": "Party Games",
