@@ -92,6 +92,14 @@ const HUBS = {
     tag: "RECON",
     label: "Recon",
     categoryId: "1505639128845258976",
+  }, 
+
+  // OTHER
+  "1488947979611013381": {
+    tag: "GAMING", 
+    label: "Gaming VC", 
+    categoryId: "1305329362115235952", 
+
   },
 };
 
