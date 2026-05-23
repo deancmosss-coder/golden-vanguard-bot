@@ -87,5 +87,28 @@
       "Custom",
       "Campaign"
     ]
+  },
+  "callofduty": {
+    "displayName": "Call of Duty",
+    "pingRoleId": "1507763615971934451",
+    "textCategoryId": "1505668205727846602",
+    "lfgChannelIds": [
+      "1507760939280240860"
+    ],
+    "voiceCategoryIds": [
+      "1505668205727846602"
+    ],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Mutliplayer",
+      "Warzone",
+      "Ranked",
+      "Zombies"
+    ]
   }
 }
