@@ -99,7 +99,28 @@ const HUBS = {
     tag: "GAMING", 
     label: "Gaming VC", 
     categoryId: "1305329362115235952", 
+  },
 
+  // ARC RAIDERS
+  "1507760365965021404": {
+    tag: "SURFACE",
+    label: "Surface Operation",
+    categoryId: "1507760365965021404",
+  },
+  "1507760410185564322": {
+    tag: "EXTRACTION",
+    label: "Extraction Point",
+    categoryId: "1507760365965021404",
+  },
+  "1507760457165836510": {
+    tag: "HIGH RISK",
+    label: "High Risk Zone",
+    categoryId: "1507760365965021404",
+  }, 
+  "1507760500983730197": {
+    tag: "SALVAGE",
+    label: "Salvage Teams",
+    categoryId: "1507760365965021404",
   },
 };
 
