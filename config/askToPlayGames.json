@@ -110,5 +110,28 @@
       "Ranked",
       "Zombies"
     ]
+  },
+  "minecraft": {
+    "displayName": "Minecraft",
+    "pingRoleId": "1507870567284609064",
+    "textCategoryId": "1507865338312790137",
+    "lfgChannelIds": [
+      "1507865519082967062"
+    ],
+    "voiceCategoryIds": [
+      "1507865338312790137"
+    ],
+    "maxSquadSize": 20,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Survival",
+      "Hardcore",
+      "Creative",
+      "Adventure"
+    ]
   }
 }
