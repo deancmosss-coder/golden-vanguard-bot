@@ -114,7 +114,15 @@ module.exports = {
         .setDescription(
           "View all live Vanguard creators"
         )
-    ),
+    )
+
+    .addSubcommand((sub) =>
+  sub
+    .setName("profile")
+    .setDescription(
+      "View a creator profile"
+    )
+),
 
   async execute(interaction) {
     const subcommand =
@@ -131,6 +139,7 @@ module.exports = {
           content:
             "You are already an approved creator. Use `/creator edit` instead.",
           flags: 64,
+        if (subcommand === "profile") {
         });
       }
 
