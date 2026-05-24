@@ -133,5 +133,28 @@
       "Creative",
       "Adventure"
     ]
+  },
+  "warframe": {
+    "displayName": "Warframe",
+    "pingRoleId": "1507767909177622588",
+    "textCategoryId": "1505669523867439207",
+    "lfgChannelIds": [
+      "1508025435110375574"
+    ],
+    "voiceCategoryIds": [
+      "1505669523867439207"
+    ],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "PvE",
+      "Player Hunting",
+      "Endgame",
+      "Open World"
+    ]
   }
 }
