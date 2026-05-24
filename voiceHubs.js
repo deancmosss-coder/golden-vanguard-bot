@@ -144,6 +144,28 @@ const HUBS = {
     label: "Resource Gathering",
     categoryId: "1507865338312790137",
   },
+
+  // Warframe
+  "1508027585555333120": {
+    tag: "ORBITER",
+    label: "Orbiter Link",
+    categoryId: "1505669523867439207",
+  },
+  "1508027641456890048": {
+    tag: "TENNO",
+    label: "Tenno Operations",
+    categoryId: "1505669523867439207",
+  },
+  "1508027709933092944": {
+    tag: "VOID",
+    label: "Void Missions",
+    categoryId: "1505669523867439207",
+  }, 
+  "1508027759119827054": {
+    tag: "SORTIE",
+    label: "Sortie Squad",
+    categoryId: "1505669523867439207",
+  },
 };
 
 const ignoredMoves = new Map();
