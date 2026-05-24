@@ -166,6 +166,28 @@ const HUBS = {
     label: "Sortie Squad",
     categoryId: "1505669523867439207",
   },
+
+  // For Honor
+  "1508072192611450971": {
+    tag: "BATTLE",
+    label: "Battle Queue",
+    categoryId: "1505667361229901926",
+  },
+  "1508072256054759564": {
+    tag: "DOMINION",
+    label: "Diminion Front",
+    categoryId: "1505667361229901926",
+  },
+  "1508072311775957064": {
+    tag: "WARRIOR",
+    label: "Warrior Assembly",
+    categoryId: "1505667361229901926",
+  }, 
+  "1508072361075675166": {
+    tag: "DUEL",
+    label: "Duel Arena",
+    categoryId: "1505667361229901926",
+  },
 };
 
 const ignoredMoves = new Map();
