@@ -188,6 +188,28 @@ const HUBS = {
     label: "Duel Arena",
     categoryId: "1505667361229901926",
   },
+
+  // Fortnite
+  "1508097053765533836": {
+    tag: "BUS",
+    label: "Battle Bus",
+    categoryId: "1508071286222491709",
+  },
+  "1508097239200039073": {
+    tag: "VICTORY",
+    label: "Victory Grind",
+    categoryId: "1508071286222491709",
+  },
+  "1508097302244495450": {
+    tag: "ZERO",
+    label: "Zero Build",
+    categoryId: "1508071286222491709",
+  }, 
+  "1508097355608494160": {
+    tag: "Rank",
+    label: "Ranked Queue",
+    categoryId: "1508071286222491709",
+  },
 };
 
 const ignoredMoves = new Map();
