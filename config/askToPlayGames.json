@@ -179,5 +179,28 @@
       "Dominion",
       "Anythng"
     ]
+  },
+  "fortnite": {
+    "displayName": "Fortnite",
+    "pingRoleId": "1508097699575107635",
+    "textCategoryId": "1508071286222491709",
+    "lfgChannelIds": [
+      "1508096366533148752"
+    ],
+    "voiceCategoryIds": [
+      "1508071286222491709"
+    ],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Brawl",
+      "Breach",
+      "Dominion",
+      "Anythng"
+    ]
   }
 }
