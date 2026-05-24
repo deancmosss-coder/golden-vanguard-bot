@@ -122,6 +122,29 @@ const HUBS = {
     label: "Salvage Teams",
     categoryId: "1507760365965021404",
   },
+
+  // Minecraft
+  "1507868614705811578": {
+    tag: "SURVIVAL",
+    label: "Survival Realm",
+    categoryId: "1507865338312790137",
+  },
+  "1507868714979033108": {
+    tag: "BUILDER",
+    label: "Builder's Guild",
+    categoryId: "1507865338312790137",
+  },
+  "1507868791437004881": {
+    tag: "OVERWORLD",
+    label: "Overworld Expedition",
+    categoryId: "1507865338312790137",
+  }, 
+  "1507868864774668368": {
+    tag: "RESOURCE",
+    label: "Resource Gathering",
+    categoryId: "1507865338312790137",
+    
+  },
 };
 
 const ignoredMoves = new Map();
