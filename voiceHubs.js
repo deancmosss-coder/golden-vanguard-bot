@@ -143,7 +143,6 @@ const HUBS = {
     tag: "RESOURCE",
     label: "Resource Gathering",
     categoryId: "1507865338312790137",
-    
   },
 };
 
