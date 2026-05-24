@@ -156,5 +156,28 @@
       "Endgame",
       "Open World"
     ]
+  },
+  "for honor": {
+    "displayName": "For Honor",
+    "pingRoleId": "1508091281673289908",
+    "textCategoryId": "1505667361229901926",
+    "lfgChannelIds": [
+      "1508071920740860055"
+    ],
+    "voiceCategoryIds": [
+      "1505667361229901926"
+    ],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Brawl",
+      "Breach",
+      "Dominion",
+      "Anythng"
+    ]
   }
 }
