@@ -32,6 +32,29 @@ function isCacheFresh(entry) {
   return entry && Date.now() - entry.checkedAt < CACHE_TTL_MS;
 }
 
+function getYouTubeErrorMessage(data) {
+  if (!data) return "Unknown YouTube API error";
+
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data.error?.message) {
+    const reason =
+      data.error?.errors?.[0]?.reason ||
+      data.error?.status ||
+      "unknown_reason";
+
+    return `${data.error.message} | reason: ${reason}`;
+  }
+
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return String(data);
+  }
+}
+
 async function youtubeRequest(endpoint) {
   try {
     if (!YOUTUBE_API_KEY) {
@@ -40,16 +63,18 @@ async function youtubeRequest(endpoint) {
     }
 
     const separator = endpoint.includes("?") ? "&" : "?";
-    const url = `https://www.googleapis.com/youtube/v3/${endpoint}${separator}key=${encodeURIComponent(
-      YOUTUBE_API_KEY
-    )}`;
+
+    const url =
+      `https://www.googleapis.com/youtube/v3/${endpoint}` +
+      `${separator}key=${encodeURIComponent(YOUTUBE_API_KEY)}`;
 
     const response = await fetch(url);
     const data = await response.json();
 
     if (!response.ok) {
-      logger.error("YouTube API request failed", data, {
+      logger.error("YouTube API request failed", new Error(getYouTubeErrorMessage(data)), {
         endpoint,
+        status: response.status,
         location: "youtubeService.js -> youtubeRequest",
       });
 
