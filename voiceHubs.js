@@ -209,6 +209,28 @@ const HUBS = {
     tag: "Rank",
     label: "Ranked Queue",
     categoryId: "1508071286222491709",
+      },
+
+  // Hero Shooters
+  "1508537929134375102": {
+    tag: "MULTIVERSE",
+    label: "Multiverse Mayhem",
+    categoryId: "1505673282324795492",
+  },
+  "1508538098856755460": {
+    tag: "HERO",
+    label: "Hero Assembly",
+    categoryId: "1505673282324795492",
+  },
+  "1508538184903168121": {
+    tag: "BLAME",
+    label: "Blame the Healer",
+    categoryId: "1505673282324795492",
+  }, 
+  "1508538290909745192": {
+    tag: "Rank",
+    label: "Ranked Operation",
+    categoryId: "1505673282324795492",
   },
 };
 
