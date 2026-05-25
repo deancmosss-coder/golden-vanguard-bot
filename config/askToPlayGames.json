@@ -198,9 +198,32 @@
     },
     "activities": [
       "Zero Build",
-      "Build Match ",
+      "Build Match",
       "Ranked",
       "Anythng"
+    ]
+  },
+  "hero shooters": {
+    "displayName": "Hero Shooters",
+    "pingRoleId": "1508547999037390918",
+    "textCategoryId": "1505673282324795492",
+    "lfgChannelIds": [
+      "1508537214416715836"
+    ],
+    "voiceCategoryIds": [
+      "1505673282324795492"
+    ],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "OW Quick Play",
+      "OW Competitive",
+      "MR Quick Play",
+      "MR Competitive"
     ]
   }
 }
