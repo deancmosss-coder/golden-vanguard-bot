@@ -615,9 +615,13 @@ async function checkYouTubeCreator(client, creator, store) {
   }
 }
 
-async function scanCreators(client) {
+async function scanCreators(
+  client,
+  options = {}
+) {
   try {
-    const creators = creatorStore.listCreators();
+    const creators =
+      creatorStore.listCreators();
 
     if (!creators.length) {
       return;
@@ -625,18 +629,48 @@ async function scanCreators(client) {
 
     const store = readStore();
 
+    const platforms =
+      options.platforms || [
+        "twitch",
+        "youtube",
+      ];
+
     for (const creator of creators) {
-      if (creator.alertsEnabled === false) {
+      if (
+        creator.alertsEnabled === false
+      ) {
         continue;
       }
 
-      await checkTwitchCreator(client, creator, store);
-      await checkYouTubeCreator(client, creator, store);
+      if (
+        platforms.includes("twitch")
+      ) {
+        await checkTwitchCreator(
+          client,
+          creator,
+          store
+        );
+      }
+
+      if (
+        platforms.includes("youtube")
+      ) {
+        await checkYouTubeCreator(
+          client,
+          creator,
+          store
+        );
+      }
     }
   } catch (err) {
-    logger.error("Creator live scan failed", err, {
-      location: "streamAlertService.js -> scanCreators",
-    });
+    logger.error(
+      "Creator live scan failed",
+      err,
+      {
+        location:
+          "streamAlertService.js -> scanCreators",
+      }
+    );
   }
 }
 
