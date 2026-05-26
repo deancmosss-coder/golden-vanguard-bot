@@ -43,7 +43,7 @@ module.exports = {
         "Say hello before another squad steals them first.",
         "",
         "🎯 Looking for teammates? Use **#squad-lfg** and **@Ask to Play**.",
-        "📡 Streamers & creators can promote themselves in **#self-promo**.",
+        ""📡 Streamers & creators — show off your content in **#self-promo** and join the Vanguard Creator Network with **/creator apply**.",
         "",
         "Please be nice to them.",
         "At least for the first 24 hours.",
