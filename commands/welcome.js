@@ -30,8 +30,8 @@ module.exports = {
       const isSingle = newest.length === 1;
 
       const header = isSingle
-        ? "@everyone A new gamer has joined the Vanguard:"
-        : "@everyone Fresh gamers have joined the Vanguard:";
+        ? "@here A new gamer has joined the Vanguard:"
+        : "@here Fresh gamers have joined the Vanguard:";
 
       const list = newest.map((m) => `🎮 <@${m.id}>`).join("\n");
 
