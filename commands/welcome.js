@@ -12,24 +12,18 @@ module.exports = {
 
   async execute(interaction) {
     try {
+      await interaction.deferReply();
+
       await interaction.guild.members.fetch();
 
       const newest = interaction.guild.members.cache
-        .filter(
-          (m) =>
-            !m.user.bot &&
-            typeof m.joinedTimestamp === "number"
-        )
-        .sort(
-          (a, b) =>
-            b.joinedTimestamp - a.joinedTimestamp
-        )
+        .filter((m) => !m.user.bot && typeof m.joinedTimestamp === "number")
+        .sort((a, b) => b.joinedTimestamp - a.joinedTimestamp)
         .first(5);
 
-      if (!newest.length) {
-        return interaction.reply({
+      if (!newest || newest.length === 0) {
+        return await interaction.editReply({
           content: "No recent members found.",
-          ephemeral: true,
         });
       }
 
@@ -39,9 +33,7 @@ module.exports = {
         ? "@everyone A new gamer has joined the Vanguard:"
         : "@everyone Fresh gamers have joined the Vanguard:";
 
-      const list = newest
-        .map((m) => `🎮 <@${m.id}>`)
-        .join("\n");
+      const list = newest.map((m) => `🎮 <@${m.id}>`).join("\n");
 
       const message = [
         header,
@@ -57,18 +49,23 @@ module.exports = {
         "At least for the first 24 hours.",
       ].join("\n");
 
-      await interaction.reply({
+      return await interaction.editReply({
         content: message,
         allowedMentions: {
-          parse: ["everyone"],
-          users: newest.map((m) => m.id),
+          parse: ["everyone", "users"],
         },
       });
     } catch (err) {
       console.error("welcome command error:", err);
 
-      await interaction.reply({
-        content: "Something went wrong.",
+      if (interaction.deferred || interaction.replied) {
+        return await interaction.editReply({
+          content: "Something went wrong while sending the welcome message.",
+        });
+      }
+
+      return await interaction.reply({
+        content: "Something went wrong while sending the welcome message.",
         ephemeral: true,
       });
     }
