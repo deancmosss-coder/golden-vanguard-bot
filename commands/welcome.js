@@ -1,6 +1,8 @@
 // ================================
-// commands/welcome.js (FULL)
+// commands/welcome.js
+// COMMUNITY WELCOME MESSAGE
 // ================================
+
 const { SlashCommandBuilder } = require("discord.js");
 
 module.exports = {
@@ -13,41 +15,46 @@ module.exports = {
       await interaction.guild.members.fetch();
 
       const newest = interaction.guild.members.cache
-        .filter((m) => !m.user.bot && typeof m.joinedTimestamp === "number")
-        .sort((a, b) => b.joinedTimestamp - a.joinedTimestamp)
+        .filter(
+          (m) =>
+            !m.user.bot &&
+            typeof m.joinedTimestamp === "number"
+        )
+        .sort(
+          (a, b) =>
+            b.joinedTimestamp - a.joinedTimestamp
+        )
         .first(5);
 
       if (!newest.length) {
-        return interaction.reply({ content: "No recent members found.", ephemeral: true });
+        return interaction.reply({
+          content: "No recent members found.",
+          ephemeral: true,
+        });
       }
 
       const isSingle = newest.length === 1;
 
       const header = isSingle
-        ? "@everyone Please give a warm welcome to our newest Helldiver:"
-        : "@everyone Please give a warm welcome to our newest Helldivers:";
+        ? "@everyone A new gamer has joined the Vanguard:"
+        : "@everyone Fresh gamers have joined the Vanguard:";
 
-      const list = newest.map((m) => `🎖 <@${m.id}>`).join("\n");
-
-      const intro = isSingle
-        ? "We’re excited to have you here in The Golden Vanguard!"
-        : "We’re excited to have you all join The Golden Vanguard!";
+      const list = newest
+        .map((m) => `🎮 <@${m.id}>`)
+        .join("\n");
 
       const message = [
         header,
         "",
         list,
         "",
-        intro,
+        "Say hello before another squad steals them first.",
         "",
-        "🪖 Don’t forget to complete your **Enlistment Quiz** in **#enlistment-terminal** to discover which faction best fits your playstyle.",
-        "📢 If you’re a streamer, feel free to introduce yourself in **#self-promo** — we love supporting our creators.",
-        "⚔ When you’re ready to deploy, jump into **#squad-lfg** and send **@Ask to Play** to gather a squad and dive into battle.",
+        "🎯 Looking for teammates? Use **#squad-lfg** and **@Ask to Play**.",
+        "📡 Streamers & creators can promote themselves in **#self-promo**.",
         "",
-        "This is a place to learn, grow, and fight together.",
-        "",
-        "**Welcome to The Golden Vanguard.**",
-        "**This is where your journey begins.**",
+        "Please be nice to them.",
+        "At least for the first 24 hours.",
       ].join("\n");
 
       await interaction.reply({
@@ -59,7 +66,11 @@ module.exports = {
       });
     } catch (err) {
       console.error("welcome command error:", err);
-      await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+
+      await interaction.reply({
+        content: "Something went wrong.",
+        ephemeral: true,
+      });
     }
   },
 };
