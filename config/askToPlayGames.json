@@ -198,11 +198,11 @@
   },
   "arcraiders": {
    "displayName": "Arc Raiders",
-   "accessRoleId": "ARC_RAIDERS_ROLE_ID",
+   "accessRoleId": "1507763683126804630",
    "pingRoleId": "",
-   "textCategoryId": "ARC_RAIDERS_CATEGORY_ID",
-   "lfgChannelIds": ["ARC_RAIDERS_SQUAD_LFG_CHANNEL_ID"],
-   "voiceCategoryIds": ["ARC_RAIDERS_VOICE_CATEGORY_ID"],
+   "textCategoryId": "1505669070698057779",
+   "lfgChannelIds": ["1507759111599689788"],
+   "voiceCategoryIds": ["1505669070698057779"],
    "maxSquadSize": 4,
    "fields": {
      "faction": false,
