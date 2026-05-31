@@ -1,9 +1,6 @@
 // =========================
 // services/lfgNotificationService.js
-// Handles:
-// - creating missing game LFG ping roles
-// - saving pingRoleId into askToPlayGames.json
-// - notification settings panel buttons
+// Dropdown LFG notification settings
 // =========================
 
 const fs = require("fs");
@@ -12,11 +9,12 @@ const path = require("path");
 const {
   EmbedBuilder,
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
+  StringSelectMenuBuilder,
 } = require("discord.js");
 
 const CONFIG_PATH = path.join(__dirname, "../config/askToPlayGames.json");
+
+const SELECT_ID = "lfg_notify_select";
 
 function readConfig() {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
@@ -73,10 +71,10 @@ function buildNotificationEmbed() {
       [
         "Choose which games you want **Ask-to-Play / LFG pings** for.",
         "",
-        "Your game role gives you access to the game section.",
-        "Your LFG role decides whether you get pinged when players are looking for teammates.",
+        "**Game roles** give you access to game sections.",
+        "**LFG roles** decide whether you get pinged when players are looking for teammates.",
         "",
-        "Press a button to toggle that game's LFG pings on or off.",
+        "Use the dropdown below to toggle notifications on or off.",
       ].join("\n")
     )
     .setFooter({ text: "The Golden Vanguard" })
@@ -85,32 +83,23 @@ function buildNotificationEmbed() {
 
 function buildNotificationRows() {
   const config = readConfig();
-  const buttons = [];
 
-  for (const [gameKey, game] of Object.entries(config)) {
-    buttons.push(
-      new ButtonBuilder()
-        .setCustomId(`lfg_notify:toggle:${gameKey}`)
-        .setLabel(game.displayName)
-        .setStyle(ButtonStyle.Secondary)
-    );
-  }
+  const options = Object.entries(config).slice(0, 25).map(([gameKey, game]) => ({
+    label: game.displayName,
+    value: gameKey,
+    description: `Toggle ${game.displayName} LFG pings`,
+  }));
 
-  const rows = [];
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(SELECT_ID)
+    .setPlaceholder("Choose a game to toggle LFG pings…")
+    .addOptions(options);
 
-  for (let i = 0; i < buttons.length; i += 5) {
-    rows.push(
-      new ActionRowBuilder().addComponents(buttons.slice(i, i + 5))
-    );
-  }
-
-  return rows;
+  return [new ActionRowBuilder().addComponents(menu)];
 }
 
 async function postNotificationPanel(channel) {
-  const guild = channel.guild;
-
-  await ensureAllPingRoles(guild);
+  await ensureAllPingRoles(channel.guild);
 
   return channel.send({
     embeds: [buildNotificationEmbed()],
@@ -118,11 +107,11 @@ async function postNotificationPanel(channel) {
   });
 }
 
-async function handleNotificationButton(interaction) {
-  if (!interaction.isButton()) return false;
-  if (!interaction.customId?.startsWith("lfg_notify:toggle:")) return false;
+async function handleNotificationInteraction(interaction) {
+  if (!interaction.isStringSelectMenu()) return false;
+  if (interaction.customId !== SELECT_ID) return false;
 
-  const gameKey = interaction.customId.split(":")[2];
+  const gameKey = interaction.values[0];
   const config = readConfig();
   const game = config[gameKey];
 
@@ -131,7 +120,6 @@ async function handleNotificationButton(interaction) {
       content: "That game is no longer configured.",
       flags: 64,
     });
-
     return true;
   }
 
@@ -142,7 +130,6 @@ async function handleNotificationButton(interaction) {
       content: "Could not find your server profile.",
       flags: 64,
     });
-
     return true;
   }
 
@@ -151,7 +138,6 @@ async function handleNotificationButton(interaction) {
       content: `You need the **${game.displayName}** game role before enabling ${game.displayName} LFG pings.`,
       flags: 64,
     });
-
     return true;
   }
 
@@ -161,7 +147,7 @@ async function handleNotificationButton(interaction) {
     await member.roles.remove(role);
 
     await interaction.reply({
-      content: `🔕 ${game.displayName} LFG pings disabled.`,
+      content: `🔕 **${game.displayName}** LFG pings disabled.`,
       flags: 64,
     });
 
@@ -171,7 +157,7 @@ async function handleNotificationButton(interaction) {
   await member.roles.add(role);
 
   await interaction.reply({
-    content: `🔔 ${game.displayName} LFG pings enabled.`,
+    content: `🔔 **${game.displayName}** LFG pings enabled.`,
     flags: 64,
   });
 
@@ -182,5 +168,5 @@ module.exports = {
   ensurePingRole,
   ensureAllPingRoles,
   postNotificationPanel,
-  handleNotificationButton,
+  handleNotificationInteraction,
 };
