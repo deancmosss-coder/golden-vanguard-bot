@@ -195,5 +195,28 @@
       "MR Quick Play",
       "MR Competitive"
     ]
+  },
+  "arcraiders": {
+   "displayName": "Arc Raiders",
+   "accessRoleId": "ARC_RAIDERS_ROLE_ID",
+   "pingRoleId": "",
+   "textCategoryId": "ARC_RAIDERS_CATEGORY_ID",
+   "lfgChannelIds": ["ARC_RAIDERS_SQUAD_LFG_CHANNEL_ID"],
+   "voiceCategoryIds": ["ARC_RAIDERS_VOICE_CATEGORY_ID"],
+   "maxSquadSize": 4,
+   "fields": {
+     "faction": false,
+     "difficulty": false,
+     "activity": true
+  },
+  "activities": [
+    "Raiding",
+    "Loot run",
+    "Quests",
+    "New player help",
+    "Chill squad"
+  ]
+}
+    ]
   }
 }
