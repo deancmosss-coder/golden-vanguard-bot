@@ -1,5 +1,6 @@
 const { Events } = require("discord.js");
 
+const lfgNotificationService = require("../services/lfgNotificationService");
 const logger = require("../services/logger");
 const registry = require("../services/featureRegistry");
 const { runProtected } = require("../services/featureGuard");
