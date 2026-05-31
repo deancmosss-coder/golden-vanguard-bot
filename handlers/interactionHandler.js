@@ -421,17 +421,15 @@ function registerInteractionHandler(client, commands, sessions, askToPlayTools) 
       if (creatorHandled) return;
 
       // =========================
-      // LFG NOTIFICATION BUTTONS
+      // LFG NOTIFICATION DROPDOWN
       // =========================
 
-      if (interaction.isButton()) {
-        const lfgHandled =
-          await lfgNotificationService.handleNotificationButton(interaction);
+      const lfgHandled =
+        await lfgNotificationService.handleNotificationInteraction(interaction);
 
-        if (lfgHandled) {
-          registry.registerSuccess("lfgNotifications");
-          return;
-        }
+      if (lfgHandled) {
+        registry.registerSuccess("lfgNotifications");
+        return;
       }
 
       if (interaction.isAutocomplete()) {
