@@ -1,14 +1,11 @@
 {
   "helldivers": {
     "displayName": "Helldivers",
-    "pingRoleId": "1505318023148339241",
+    "accessRoleId": "1505318023148339241",
+    "pingRoleId": "",
     "textCategoryId": "1478464677783666778",
-    "lfgChannelIds": [
-      "1473450272188534970"
-    ],
-    "voiceCategoryIds": [
-      "1478464677783666778"
-    ],
+    "lfgChannelIds": ["1473450272188534970"],
+    "voiceCategoryIds": ["1478464677783666778"],
     "maxSquadSize": 4,
     "fields": {
       "faction": true,
@@ -18,14 +15,11 @@
   },
   "gta": {
     "displayName": "GTA",
-    "pingRoleId": "1505318153931198465",
+    "accessRoleId": "1505318153931198465",
+    "pingRoleId": "",
     "textCategoryId": "1505309836345344210",
-    "lfgChannelIds": [
-      "1505314846030303423"
-    ],
-    "voiceCategoryIds": [
-      "1505315216601251890"
-    ],
+    "lfgChannelIds": ["1505314846030303423"],
+    "voiceCategoryIds": ["1505315216601251890"],
     "maxSquadSize": 30,
     "fields": {
       "faction": false,
@@ -45,14 +39,11 @@
   },
   "party": {
     "displayName": "Party Games",
-    "pingRoleId": "1505318205030404208",
+    "accessRoleId": "1505318205030404208",
+    "pingRoleId": "",
     "textCategoryId": "1505316630052344029",
-    "lfgChannelIds": [
-      "1505317042537107529"
-    ],
-    "voiceCategoryIds": [
-      "1505317136241918123"
-    ],
+    "lfgChannelIds": ["1505317042537107529"],
+    "voiceCategoryIds": ["1505317136241918123"],
     "maxSquadSize": 10,
     "fields": {
       "faction": false,
@@ -67,14 +58,11 @@
   },
   "battlefield": {
     "displayName": "Battlefield",
-    "pingRoleId": "1505657201082236979",
+    "accessRoleId": "1505657201082236979",
+    "pingRoleId": "",
     "textCategoryId": "1505639128845258976",
-    "lfgChannelIds": [
-      "1505648769600061530"
-    ],
-    "voiceCategoryIds": [
-      "1505639128845258976"
-    ],
+    "lfgChannelIds": ["1505648769600061530"],
+    "voiceCategoryIds": ["1505639128845258976"],
     "maxSquadSize": 4,
     "fields": {
       "faction": false,
@@ -82,7 +70,7 @@
       "activity": true
     },
     "activities": [
-      "Mutliplayer",
+      "Multiplayer",
       "Redsec",
       "Custom",
       "Campaign"
@@ -90,14 +78,11 @@
   },
   "callofduty": {
     "displayName": "Call of Duty",
-    "pingRoleId": "1507763615971934451",
+    "accessRoleId": "1507763615971934451",
+    "pingRoleId": "",
     "textCategoryId": "1505668205727846602",
-    "lfgChannelIds": [
-      "1507760939280240860"
-    ],
-    "voiceCategoryIds": [
-      "1505668205727846602"
-    ],
+    "lfgChannelIds": ["1507760939280240860"],
+    "voiceCategoryIds": ["1505668205727846602"],
     "maxSquadSize": 4,
     "fields": {
       "faction": false,
@@ -105,7 +90,7 @@
       "activity": true
     },
     "activities": [
-      "Mutliplayer",
+      "Multiplayer",
       "Warzone",
       "Ranked",
       "Zombies"
@@ -113,14 +98,11 @@
   },
   "minecraft": {
     "displayName": "Minecraft",
-    "pingRoleId": "1507870567284609064",
+    "accessRoleId": "1507870567284609064",
+    "pingRoleId": "",
     "textCategoryId": "1507865338312790137",
-    "lfgChannelIds": [
-      "1507865519082967062"
-    ],
-    "voiceCategoryIds": [
-      "1507865338312790137"
-    ],
+    "lfgChannelIds": ["1507865519082967062"],
+    "voiceCategoryIds": ["1507865338312790137"],
     "maxSquadSize": 20,
     "fields": {
       "faction": false,
@@ -136,14 +118,11 @@
   },
   "warframe": {
     "displayName": "Warframe",
-    "pingRoleId": "1507767909177622588",
+    "accessRoleId": "1507767909177622588",
+    "pingRoleId": "",
     "textCategoryId": "1505669523867439207",
-    "lfgChannelIds": [
-      "1508025435110375574"
-    ],
-    "voiceCategoryIds": [
-      "1505669523867439207"
-    ],
+    "lfgChannelIds": ["1508025435110375574"],
+    "voiceCategoryIds": ["1505669523867439207"],
     "maxSquadSize": 4,
     "fields": {
       "faction": false,
@@ -157,16 +136,13 @@
       "Open World"
     ]
   },
-  "for honor": {
+  "forhonor": {
     "displayName": "For Honor",
-    "pingRoleId": "1508091281673289908",
+    "accessRoleId": "1508091281673289908",
+    "pingRoleId": "",
     "textCategoryId": "1505667361229901926",
-    "lfgChannelIds": [
-      "1508071920740860055"
-    ],
-    "voiceCategoryIds": [
-      "1505667361229901926"
-    ],
+    "lfgChannelIds": ["1508071920740860055"],
+    "voiceCategoryIds": ["1505667361229901926"],
     "maxSquadSize": 4,
     "fields": {
       "faction": false,
@@ -177,19 +153,16 @@
       "Brawl",
       "Breach",
       "Dominion",
-      "Anythng"
+      "Anything"
     ]
   },
   "fortnite": {
     "displayName": "Fortnite",
-    "pingRoleId": "1508097699575107635",
+    "accessRoleId": "1508097699575107635",
+    "pingRoleId": "",
     "textCategoryId": "1508071286222491709",
-    "lfgChannelIds": [
-      "1508096366533148752"
-    ],
-    "voiceCategoryIds": [
-      "1508071286222491709"
-    ],
+    "lfgChannelIds": ["1508096366533148752"],
+    "voiceCategoryIds": ["1508071286222491709"],
     "maxSquadSize": 4,
     "fields": {
       "faction": false,
@@ -200,19 +173,16 @@
       "Zero Build",
       "Build Match",
       "Ranked",
-      "Anythng"
+      "Anything"
     ]
   },
-  "hero shooters": {
+  "heroshooters": {
     "displayName": "Hero Shooters",
-    "pingRoleId": "1508547999037390918",
+    "accessRoleId": "1508547999037390918",
+    "pingRoleId": "",
     "textCategoryId": "1505673282324795492",
-    "lfgChannelIds": [
-      "1508537214416715836"
-    ],
-    "voiceCategoryIds": [
-      "1505673282324795492"
-    ],
+    "lfgChannelIds": ["1508537214416715836"],
+    "voiceCategoryIds": ["1505673282324795492"],
     "maxSquadSize": 4,
     "fields": {
       "faction": false,
