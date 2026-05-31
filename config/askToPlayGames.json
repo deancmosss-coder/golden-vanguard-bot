@@ -13,6 +13,7 @@
       "activity": false
     }
   },
+
   "gta": {
     "displayName": "GTA",
     "accessRoleId": "1505318153931198465",
@@ -29,14 +30,15 @@
     "activities": [
       "Heists",
       "Missions",
-      "Money grind",
+      "Money Grind",
       "Races",
-      "Free roam",
-      "Business work",
-      "Car meet",
-      "Chill session"
+      "Free Roam",
+      "Business Work",
+      "Car Meet",
+      "Chill Session"
     ]
   },
+
   "party": {
     "displayName": "Party Games",
     "accessRoleId": "1505318205030404208",
@@ -56,6 +58,7 @@
       "RV There Yet?"
     ]
   },
+
   "battlefield": {
     "displayName": "Battlefield",
     "accessRoleId": "1505657201082236979",
@@ -76,6 +79,7 @@
       "Campaign"
     ]
   },
+
   "callofduty": {
     "displayName": "Call of Duty",
     "accessRoleId": "1507763615971934451",
@@ -96,6 +100,7 @@
       "Zombies"
     ]
   },
+
   "minecraft": {
     "displayName": "Minecraft",
     "accessRoleId": "1507870567284609064",
@@ -116,6 +121,7 @@
       "Adventure"
     ]
   },
+
   "warframe": {
     "displayName": "Warframe",
     "accessRoleId": "1507767909177622588",
@@ -136,6 +142,7 @@
       "Open World"
     ]
   },
+
   "forhonor": {
     "displayName": "For Honor",
     "accessRoleId": "1508091281673289908",
@@ -156,6 +163,7 @@
       "Anything"
     ]
   },
+
   "fortnite": {
     "displayName": "Fortnite",
     "accessRoleId": "1508097699575107635",
@@ -176,6 +184,7 @@
       "Anything"
     ]
   },
+
   "heroshooters": {
     "displayName": "Hero Shooters",
     "accessRoleId": "1508547999037390918",
@@ -196,25 +205,26 @@
       "MR Competitive"
     ]
   },
+
   "arcraiders": {
-   "displayName": "Arc Raiders",
-   "accessRoleId": "1507763683126804630",
-   "pingRoleId": "",
-   "textCategoryId": "1505669070698057779",
-   "lfgChannelIds": ["1507759111599689788"],
-   "voiceCategoryIds": ["1505669070698057779"],
-   "maxSquadSize": 4,
-   "fields": {
-     "faction": false,
-     "difficulty": false,
-     "activity": true
-  },
-  "activities": [
-    "Raiding",
-    "Loot run",
-    "Quests",
-    "New player help",
-    "Chill squad"
-  ]
-}
+    "displayName": "Arc Raiders",
+    "accessRoleId": "1507763683126804630",
+    "pingRoleId": "",
+    "textCategoryId": "1505669070698057779",
+    "lfgChannelIds": ["1507759111599689788"],
+    "voiceCategoryIds": ["1505669070698057779"],
+    "maxSquadSize": 4,
+    "fields": {
+      "faction": false,
+      "difficulty": false,
+      "activity": true
+    },
+    "activities": [
+      "Raiding",
+      "Loot Run",
+      "Quests",
+      "New Player Help",
+      "Chill Squad"
+    ]
+  }
 }
