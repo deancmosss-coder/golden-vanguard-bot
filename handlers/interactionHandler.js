@@ -420,6 +420,20 @@ function registerInteractionHandler(client, commands, sessions, askToPlayTools) 
 
       if (creatorHandled) return;
 
+      // =========================
+      // LFG NOTIFICATION BUTTONS
+      // =========================
+
+      if (interaction.isButton()) {
+        const lfgHandled =
+          await lfgNotificationService.handleNotificationButton(interaction);
+
+        if (lfgHandled) {
+          registry.registerSuccess("lfgNotifications");
+          return;
+        }
+      }
+
       if (interaction.isAutocomplete()) {
         const cmd = commands.get(interaction.commandName);
 
