@@ -4,6 +4,7 @@
 // - game config detection
 // - embeds
 // - dropdowns
+// - custom Other Games modal support
 // - roster sync
 // - VC resolve
 // - VC validation
@@ -17,6 +18,8 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require("discord.js");
 
 const logger = require("./logger");
@@ -31,12 +34,14 @@ const FACTION_SELECT_ID = "gv_faction";
 const DIFFICULTY_SELECT_ID = "gv_difficulty";
 const ACTIVITY_SELECT_ID = "gv_activity";
 
+const CUSTOM_DETAILS_BUTTON_ID = "gv_custom_game_details";
+const CUSTOM_DETAILS_MODAL_PREFIX = "gv_custom_game_modal";
+const CUSTOM_GAME_INPUT_ID = "gv_custom_game_name";
+const CUSTOM_ACTIVITY_INPUT_ID = "gv_custom_game_activity";
+
 function loadGameConfigs() {
   try {
-    if (!fs.existsSync(CONFIG_PATH)) {
-      return {};
-    }
-
+    if (!fs.existsSync(CONFIG_PATH)) return {};
     return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
   } catch (err) {
     logger.error("Failed to load askToPlayGames.json", err, {
@@ -81,7 +86,6 @@ function getSessionConfig(session) {
   if (!session?.gameKey) return null;
 
   const config = getGameConfig(session.gameKey);
-
   if (!config) return null;
 
   return {
@@ -155,6 +159,14 @@ function buildAskEmbed(session, vcName) {
     .setFooter({ text: "The Golden Vanguard" })
     .setTimestamp();
 
+  if (config?.fields?.customGame) {
+    embed.addFields({
+      name: "Game",
+      value: session.customGame || "Not specified",
+      inline: true,
+    });
+  }
+
   if (config?.fields?.difficulty) {
     embed.addFields({
       name: "Difficulty",
@@ -207,6 +219,16 @@ function buildAskComponents(session) {
 
   const rows = [];
 
+  if (config.customGameInput && (!session.customGame || !session.activity)) {
+    const button = new ButtonBuilder()
+      .setCustomId(CUSTOM_DETAILS_BUTTON_ID)
+      .setLabel("Set game & activity")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎮");
+
+    rows.push(new ActionRowBuilder().addComponents(button));
+  }
+
   if (config.fields?.faction && !session.faction) {
     const factionMenu = new StringSelectMenuBuilder()
       .setCustomId(FACTION_SELECT_ID)
@@ -240,6 +262,7 @@ function buildAskComponents(session) {
   }
 
   if (
+    !config.customGameInput &&
     config.fields?.activity &&
     !session.activity &&
     Array.isArray(config.activities) &&
@@ -330,7 +353,6 @@ async function renameHostVcFromSession(client, session, guild) {
 
   if (!config) return;
 
-  // Only Helldivers currently uses difficulty-based VC rename.
   if (session.gameKey !== "helldivers") return;
 
   const host = await guild.members.fetch(session.ownerId).catch(() => null);
@@ -382,6 +404,10 @@ module.exports = {
   FACTION_SELECT_ID,
   DIFFICULTY_SELECT_ID,
   ACTIVITY_SELECT_ID,
+  CUSTOM_DETAILS_BUTTON_ID,
+  CUSTOM_DETAILS_MODAL_PREFIX,
+  CUSTOM_GAME_INPUT_ID,
+  CUSTOM_ACTIVITY_INPUT_ID,
   loadGameConfigs,
   getGameConfig,
   findGameConfigByChannel,
