@@ -155,8 +155,10 @@ registerMessageHandler(client, {
   buildAskEmbed: askToPlayService.buildAskEmbed,
   buildAskComponents: askToPlayService.buildAskComponents,
   syncRosterFromVc: askToPlayService.syncRosterFromVc,
-  findGameConfigByChannel: askToPlayService.findGameConfigByChannel,
-  getDisplayVcName: askToPlayService.getDisplayVcName,
+  findGameConfigByChannel:
+    askToPlayService.findGameConfigByChannel,
+  getDisplayVcName:
+    askToPlayService.getDisplayVcName,
   sessions,
 });
 
