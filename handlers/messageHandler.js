@@ -75,6 +75,7 @@ function registerMessageHandler(client, options) {
         faction: null,
         difficulty: null,
         activity: null,
+        customGame: null,
         roster: new Set([owner.id]),
       };
 
