@@ -225,6 +225,26 @@
       "Quests",
       "New Player Help",
       "Chill Squad"
+     ] 
+    }, 
+
+    "othergames": {
+     "displayName": "Other Games",
+     "accessRoleId": "",
+     "pingRoleId": "",
+     "textCategoryId": "1305329362115235952",
+     "lfgChannelIds": ["1511098556570927134"],
+     "voiceCategoryIds": ["1305329362115235952"],
+     "maxSquadSize": 10,
+     "customGameInput": true,
+     "fields": {
+       "faction": false,
+       "difficulty": false,
+       "activity": true,
+       "customGame": true
+     },
+     "activities": []
+     "otherGamesRole": true
     ]
   }
 }
