@@ -243,8 +243,7 @@
        "activity": true,
        "customGame": true
      },
-     "activities": []
+     "activities": [], 
      "otherGamesRole": true
-   ]
   }
 }
