@@ -123,7 +123,8 @@ async function handleChatInputCommand(client, interaction, commands) {
         feature,
         location: "ChatInputCommand",
         action: `Executing /${interaction.commandName}`,
-        likelyCause: "System command failed while bypassing command feature lock.",
+        likelyCause:
+          "System command failed while bypassing command feature lock.",
         severity: "error",
       });
 
@@ -215,9 +216,7 @@ async function handleDivisionButton(interaction) {
 
   if (interaction.customId === "division_leave") {
     registry.registerSuccess("division");
-
     await interaction.editReply("You have left your current division.");
-
     return true;
   }
 
@@ -292,6 +291,130 @@ async function handleTrackerInteractions(client, interaction) {
         await runCmd.handleTrackerModal(interaction);
       },
     });
+  }
+
+  return false;
+}
+
+async function handleAskToPlayCustomDetails(
+  client,
+  interaction,
+  sessions,
+  askToPlayTools
+) {
+  if (
+    interaction.isButton() &&
+    interaction.customId === askToPlayTools.CUSTOM_DETAILS_BUTTON_ID
+  ) {
+    const session = sessions.get(interaction.message.id);
+
+    if (!session) {
+      await interaction.reply({
+        content: "Session expired.",
+        flags: 64,
+      }).catch(() => {});
+
+      return true;
+    }
+
+    if (interaction.user.id !== session.ownerId) {
+      await interaction.reply({
+        content: "Only the host can set the game and activity.",
+        flags: 64,
+      }).catch(() => {});
+
+      return true;
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(
+        `${askToPlayTools.CUSTOM_DETAILS_MODAL_PREFIX}:${interaction.message.id}`
+      )
+      .setTitle("Other Games Ask-to-Play");
+
+    const gameInput = new TextInputBuilder()
+      .setCustomId(askToPlayTools.CUSTOM_GAME_INPUT_ID)
+      .setLabel("What game are you playing?")
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder("Example: Deep Rock Galactic")
+      .setRequired(true)
+      .setMaxLength(60);
+
+    if (session.customGame) {
+      gameInput.setValue(session.customGame);
+    }
+
+    const activityInput = new TextInputBuilder()
+      .setCustomId(askToPlayTools.CUSTOM_ACTIVITY_INPUT_ID)
+      .setLabel("What are you doing?")
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder("Example: Missions, chill, ranked, loot run")
+      .setRequired(true)
+      .setMaxLength(80);
+
+    if (session.activity) {
+      activityInput.setValue(session.activity);
+    }
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(gameInput),
+      new ActionRowBuilder().addComponents(activityInput)
+    );
+
+    await interaction.showModal(modal);
+
+    return true;
+  }
+
+  if (
+    interaction.isModalSubmit() &&
+    interaction.customId?.startsWith(
+      `${askToPlayTools.CUSTOM_DETAILS_MODAL_PREFIX}:`
+    )
+  ) {
+    const messageId = interaction.customId.split(":")[1];
+    const session = sessions.get(messageId);
+
+    if (!session) {
+      await interaction.reply({
+        content: "Session expired.",
+        flags: 64,
+      }).catch(() => {});
+
+      return true;
+    }
+
+    if (interaction.user.id !== session.ownerId) {
+      await interaction.reply({
+        content: "Only the host can update this Ask-to-Play post.",
+        flags: 64,
+      }).catch(() => {});
+
+      return true;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    const customGame = interaction.fields
+      .getTextInputValue(askToPlayTools.CUSTOM_GAME_INPUT_ID)
+      .trim();
+
+    const activity = interaction.fields
+      .getTextInputValue(askToPlayTools.CUSTOM_ACTIVITY_INPUT_ID)
+      .trim();
+
+    session.customGame = customGame;
+    session.activity = activity;
+
+    await askToPlayTools.updateAskMessage(client, session);
+
+    registry.registerSuccess("askToPlay");
+
+    await interaction.editReply({
+      content: `✅ Game set to **${customGame}** — **${activity}**`,
+    });
+
+    return true;
   }
 
   return false;
@@ -400,7 +523,8 @@ async function handleAskToPlaySelect(
       feature: "askToPlay",
       location: "StringSelectMenu",
       action: "Updating Ask-to-Play selection",
-      likelyCause: "Expired interaction, invalid session, or message edit issue.",
+      likelyCause:
+        "Expired interaction, invalid session, or message edit issue.",
       severity: "warning",
     });
 
@@ -426,10 +550,6 @@ function registerInteractionHandler(client, commands, sessions, askToPlayTools) 
 
       if (creatorHandled) return;
 
-      // =========================
-      // LFG NOTIFICATION DROPDOWN
-      // =========================
-
       const lfgHandled =
         await lfgNotificationService.handleNotificationInteraction(interaction);
 
@@ -437,6 +557,16 @@ function registerInteractionHandler(client, commands, sessions, askToPlayTools) 
         registry.registerSuccess("lfgNotifications");
         return;
       }
+
+      const customAskHandled =
+        await handleAskToPlayCustomDetails(
+          client,
+          interaction,
+          sessions,
+          askToPlayTools
+        );
+
+      if (customAskHandled) return;
 
       if (interaction.isAutocomplete()) {
         const cmd = commands.get(interaction.commandName);
