@@ -36,43 +36,103 @@ function hasApproverAccess(member) {
   return approverRoleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
-function normalisePlatformName(name) {
-  const lower = String(name || "").toLowerCase();
-
-  if (lower.includes("twitch")) return "twitch";
-  if (lower.includes("youtube")) return "youtube";
-  if (lower.includes("kick")) return "kick";
-  if (lower.includes("tiktok")) return "tiktok";
-  if (lower.includes("facebook")) return "facebook";
-  if (lower.includes("instagram")) return "instagram";
-  if (lower.includes("discord")) return "discord";
-  if (lower.includes("twitter") || lower === "x") return "x";
-
-  return lower.trim() || "other";
+function cleanUrl(value) {
+  return String(value || "").trim();
 }
 
-function parseLinesToLinks(rawText) {
+function buildPlatformList({ twitchUrl, youtubeUrl, kickUrl }) {
+  const platforms = [];
+
+  if (twitchUrl) {
+    platforms.push({
+      platform: "twitch",
+      label: "Twitch",
+      url: twitchUrl,
+    });
+  }
+
+  if (youtubeUrl) {
+    platforms.push({
+      platform: "youtube",
+      label: "YouTube",
+      url: youtubeUrl,
+    });
+  }
+
+  if (kickUrl) {
+    platforms.push({
+      platform: "kick",
+      label: "Kick",
+      url: kickUrl,
+    });
+  }
+
+  return platforms;
+}
+
+function buildPlatformsRaw(platforms) {
+  if (!Array.isArray(platforms) || !platforms.length) {
+    return "";
+  }
+
+  return platforms
+    .map((platform) => `${platform.label} - ${platform.url}`)
+    .join("\n");
+}
+
+function parseSocials(rawText) {
   const lines = String(rawText || "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
   return lines.map((line) => {
-    const parts = line.split(/[-–—:]/);
+    const lower = line.toLowerCase();
 
-    const label = parts.length > 1 ? parts[0].trim() : "other";
+    let platform = "other";
+    let label = "Other";
 
-    const value =
-      parts.length > 1
-        ? parts.slice(1).join("-").trim()
-        : line;
+    if (lower.includes("discord")) {
+      platform = "discord";
+      label = "Discord";
+    } else if (lower.includes("facebook")) {
+      platform = "facebook";
+      label = "Facebook";
+    } else if (lower.includes("instagram")) {
+      platform = "instagram";
+      label = "Instagram";
+    } else if (lower.includes("tiktok")) {
+      platform = "tiktok";
+      label = "TikTok";
+    } else if (lower.includes("twitter") || lower.includes("x.com")) {
+      platform = "x";
+      label = "X";
+    } else if (lower.includes("youtube")) {
+      platform = "youtube";
+      label = "YouTube";
+    } else if (lower.includes("twitch")) {
+      platform = "twitch";
+      label = "Twitch";
+    }
 
     return {
-      platform: normalisePlatformName(label),
+      platform,
       label,
-      url: value,
+      url: line,
     };
   });
+}
+
+function getExistingPlatformUrl(existing, platformName) {
+  if (!existing || !Array.isArray(existing.platforms)) {
+    return "";
+  }
+
+  const match = existing.platforms.find(
+    (item) => String(item.platform || "").toLowerCase() === platformName
+  );
+
+  return match?.url || "";
 }
 
 function buildApplicationModal(existing = null) {
@@ -80,60 +140,60 @@ function buildApplicationModal(existing = null) {
     .setCustomId(MODAL_ID)
     .setTitle(existing?.approved ? "Edit Creator Profile" : "Creator Application");
 
-  const platformsInput = new TextInputBuilder()
-    .setCustomId("platforms")
-    .setLabel("Streaming platforms")
-    .setStyle(TextInputStyle.Paragraph)
-    .setRequired(true)
-    .setPlaceholder("Twitch - link")
-    .setMaxLength(1000);
+  const twitchInput = new TextInputBuilder()
+    .setCustomId("twitchUrl")
+    .setLabel("Twitch channel link")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setPlaceholder("https://www.twitch.tv/yourname")
+    .setMaxLength(300);
+
+  const youtubeInput = new TextInputBuilder()
+    .setCustomId("youtubeUrl")
+    .setLabel("YouTube channel link")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setPlaceholder("https://www.youtube.com/channel/UC...")
+    .setMaxLength(300);
+
+  const kickInput = new TextInputBuilder()
+    .setCustomId("kickUrl")
+    .setLabel("Kick channel link")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setPlaceholder("https://kick.com/yourname")
+    .setMaxLength(300);
 
   const socialsInput = new TextInputBuilder()
     .setCustomId("socials")
     .setLabel("Social links")
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(false)
-    .setPlaceholder("Instagram - link")
+    .setPlaceholder("Instagram - link\nTikTok - link\nFacebook - link\nDiscord - link")
     .setMaxLength(1000);
 
-  const contentInput = new TextInputBuilder()
-    .setCustomId("contentType")
-    .setLabel("What do you stream?")
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setPlaceholder("Helldivers 2 squad gameplay")
-    .setMaxLength(200);
-
-  const scheduleInput = new TextInputBuilder()
-    .setCustomId("schedule")
-    .setLabel("Typical stream schedule")
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setPlaceholder("Evenings / weekends")
-    .setMaxLength(200);
-
-  const bioInput = new TextInputBuilder()
-    .setCustomId("bio")
-    .setLabel("Short creator bio")
+  const creatorInfoInput = new TextInputBuilder()
+    .setCustomId("creatorInfo")
+    .setLabel("Creator info / bio")
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
-    .setPlaceholder("Tell us about your content")
+    .setPlaceholder("Tell us what you create, what games you play, and why people should check you out.")
     .setMaxLength(1000);
 
   if (existing) {
-    platformsInput.setValue(existing.platformsRaw || "");
+    twitchInput.setValue(getExistingPlatformUrl(existing, "twitch"));
+    youtubeInput.setValue(getExistingPlatformUrl(existing, "youtube"));
+    kickInput.setValue(getExistingPlatformUrl(existing, "kick"));
     socialsInput.setValue(existing.socialsRaw || "");
-    contentInput.setValue(existing.contentType || "");
-    scheduleInput.setValue(existing.schedule || "");
-    bioInput.setValue(existing.bio || "");
+    creatorInfoInput.setValue(existing.bio || existing.contentType || "");
   }
 
   modal.addComponents(
-    new ActionRowBuilder().addComponents(platformsInput),
+    new ActionRowBuilder().addComponents(twitchInput),
+    new ActionRowBuilder().addComponents(youtubeInput),
+    new ActionRowBuilder().addComponents(kickInput),
     new ActionRowBuilder().addComponents(socialsInput),
-    new ActionRowBuilder().addComponents(contentInput),
-    new ActionRowBuilder().addComponents(scheduleInput),
-    new ActionRowBuilder().addComponents(bioInput)
+    new ActionRowBuilder().addComponents(creatorInfoInput)
   );
 
   return modal;
@@ -155,13 +215,7 @@ function buildApplicationEmbed(user, application, statusText = "Pending Review")
         "**Socials**",
         application.socialsRaw || "Not provided",
         "",
-        "**Content Type**",
-        application.contentType || "Not provided",
-        "",
-        "**Schedule**",
-        application.schedule || "Not provided",
-        "",
-        "**Bio**",
+        "**Creator Info**",
         application.bio || "Not provided",
       ].join("\n")
     )
@@ -186,13 +240,7 @@ function buildProfileUpdatedEmbed(user, creator) {
         "**Socials**",
         creator.socialsRaw || "Not provided",
         "",
-        "**Content Type**",
-        creator.contentType || "Not provided",
-        "",
-        "**Schedule**",
-        creator.schedule || "Not provided",
-        "",
-        "**Bio**",
+        "**Creator Info**",
         creator.bio || "Not provided",
       ].join("\n")
     )
@@ -258,25 +306,29 @@ async function handleModalSubmit(interaction) {
     return false;
   }
 
-  const platformsRaw = interaction.fields
-    .getTextInputValue("platforms")
-    .trim();
+  const twitchUrl = cleanUrl(interaction.fields.getTextInputValue("twitchUrl"));
+  const youtubeUrl = cleanUrl(interaction.fields.getTextInputValue("youtubeUrl"));
+  const kickUrl = cleanUrl(interaction.fields.getTextInputValue("kickUrl"));
+  const socialsRaw = cleanUrl(interaction.fields.getTextInputValue("socials"));
+  const creatorInfo = cleanUrl(interaction.fields.getTextInputValue("creatorInfo"));
 
-  const socialsRaw = interaction.fields
-    .getTextInputValue("socials")
-    .trim();
+  const platforms = buildPlatformList({
+    twitchUrl,
+    youtubeUrl,
+    kickUrl,
+  });
 
-  const contentType = interaction.fields
-    .getTextInputValue("contentType")
-    .trim();
+  if (!platforms.length) {
+    await interaction.reply({
+      content:
+        "Please add at least one streaming platform link: Twitch, YouTube, or Kick.",
+      flags: 64,
+    });
 
-  const schedule = interaction.fields
-    .getTextInputValue("schedule")
-    .trim();
+    return true;
+  }
 
-  const bio = interaction.fields
-    .getTextInputValue("bio")
-    .trim();
+  const platformsRaw = buildPlatformsRaw(platforms);
 
   const payload = {
     discordUserId: interaction.user.id,
@@ -285,12 +337,13 @@ async function handleModalSubmit(interaction) {
 
     platformsRaw,
     socialsRaw,
-    contentType,
-    schedule,
-    bio,
 
-    platforms: parseLinesToLinks(platformsRaw),
-    socials: parseLinesToLinks(socialsRaw),
+    contentType: creatorInfo,
+    schedule: "Listed on creator platforms",
+    bio: creatorInfo,
+
+    platforms,
+    socials: parseSocials(socialsRaw),
   };
 
   const existingCreator = creatorStore.getCreatorByUserId(interaction.user.id);
