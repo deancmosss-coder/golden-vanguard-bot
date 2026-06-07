@@ -208,7 +208,7 @@
 
   "arcraiders": {
     "displayName": "Arc Raiders",
-    "accessRoleId": "1507763683126804630",
+    "accessRoleId": "1507763683126804630",  
     "pingRoleId": "",
     "textCategoryId": "1505669070698057779",
     "lfgChannelIds": ["1507759111599689788"],
@@ -245,5 +245,27 @@
      },
      "activities": [], 
      "otherGamesRole": true
+      ]
+     },
+
+     "thedivision": {
+      "displayName": "The Division",
+      "accessRoleId": "1513167011549548624",
+      "pingRoleId": "",
+      "textCategoryId": "1512949527248769086",
+      "lfgChannelIds": ["1513162210988523581"],
+      "voiceCategoryIds": ["1512949527248769086"],
+      "maxSquadSize": 8,
+      "fields": {
+        "faction": false,
+        "difficulty": false,
+        "activity": true
+      },
+      "activities": [
+        "Raid",
+        "Incursion",
+        "Countdown",
+        "Dark Zone",
+        "Open World"
    }
  }
