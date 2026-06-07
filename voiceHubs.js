@@ -209,7 +209,7 @@ const HUBS = {
     tag: "Rank",
     label: "Ranked Queue",
     categoryId: "1508071286222491709",
-      },
+  },
 
   // Hero Shooters
   "1508537929134375102": {
@@ -231,7 +231,7 @@ const HUBS = {
     tag: "Rank",
     label: "Ranked Operation",
     categoryId: "1505673282324795492",
-          },
+  },
 
   // The Division
   "1513162563683221534": {
