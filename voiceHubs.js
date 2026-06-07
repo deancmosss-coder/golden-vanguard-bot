@@ -231,6 +231,28 @@ const HUBS = {
     tag: "Rank",
     label: "Ranked Operation",
     categoryId: "1505673282324795492",
+          },
+
+  // The Division
+  "1513162563683221534": {
+    tag: "RAID",
+    label: "Raid Operations",
+    categoryId: "1512949527248769086",
+  },
+  "1513162642859098132": {
+    tag: "DARK",
+    label: "Dark Zone Patrol",
+    categoryId: "1512949527248769086",
+  },
+  "1513163004471152781": {
+    tag: "INCURSION",
+    label: "Incursion Network",
+    categoryId: "1512949527248769086",
+  }, 
+  "1513163236944642131": {
+    tag: "MISSION",
+    label: "Mission Squad",
+    categoryId: "1512949527248769086",
   },
 };
 
