@@ -50,6 +50,10 @@ const {
   registerErrorHandlers,
 } = require("./handlers/errorHandler");
 
+const {
+  startWallpaperDashboardService,
+} = require("./services/wallpaperDashboardService");
+
 // =========================
 // ENV
 // =========================
@@ -88,6 +92,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildPresences,
   ],
   partials: [Partials.Channel],
 });
@@ -99,6 +104,8 @@ const client = new Client({
 setupVoiceHubs(client);
 setupMemberTracker(client);
 setupInviteTracker(client);
+
+startWallpaperDashboardService(client);
 
 // =========================
 // LOADERS
