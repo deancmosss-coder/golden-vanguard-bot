@@ -1,0 +1,109 @@
+// =========================
+// services/wallpaperDashboardService.js
+// Golden Vanguard Wallpaper Dashboard API
+// =========================
+
+const express = require("express");
+const cors = require("cors");
+
+const DASHBOARD_PORT = Number(process.env.DASHBOARD_PORT || 3050);
+const DASHBOARD_GUILD_ID = (process.env.DASHBOARD_GUILD_ID || "").trim();
+
+function getTargetGuild(client) {
+  if (DASHBOARD_GUILD_ID) {
+    return client.guilds.cache.get(DASHBOARD_GUILD_ID) || null;
+  }
+
+  return client.guilds.cache.first() || null;
+}
+
+function countOnlineMembers(guild) {
+  let online = 0;
+
+  guild.presences.cache.forEach((presence) => {
+    if (!presence?.userId) return;
+    if (presence.status === "offline") return;
+    online++;
+  });
+
+  return online;
+}
+
+function getVoiceStats(guild) {
+  const activeVoiceChannels = guild.channels.cache.filter((channel) => {
+    return channel.isVoiceBased?.() && channel.members && channel.members.size > 0;
+  });
+
+  let usersInVoice = 0;
+
+  activeVoiceChannels.forEach((channel) => {
+    usersInVoice += channel.members.filter((member) => !member.user.bot).size;
+  });
+
+  return {
+    usersInVoice,
+    activeVoiceChannels: activeVoiceChannels.size,
+  };
+}
+
+function startWallpaperDashboardService(client) {
+  const app = express();
+
+  app.use(cors());
+
+  app.get("/", (req, res) => {
+    res.json({
+      ok: true,
+      service: "Golden Vanguard Wallpaper Dashboard API",
+      endpoint: "/dashboard",
+    });
+  });
+
+  app.get("/dashboard", async (req, res) => {
+    try {
+      const guild = getTargetGuild(client);
+
+      if (!guild) {
+        return res.status(503).json({
+          ok: false,
+          error: "Guild not available yet",
+        });
+      }
+
+      const freshGuild = await guild.fetch().catch(() => guild);
+
+      const totalMembers = freshGuild.memberCount || guild.memberCount || 0;
+      const onlineMembers = countOnlineMembers(guild);
+      const voiceStats = getVoiceStats(guild);
+
+      res.json({
+        ok: true,
+        updatedAt: new Date().toISOString(),
+        community: {
+          totalMembers,
+          onlineMembers,
+          usersInVoice: voiceStats.usersInVoice,
+        },
+        voiceNetwork: {
+          usersInVoice: voiceStats.usersInVoice,
+          activeVoiceChannels: voiceStats.activeVoiceChannels,
+        },
+      });
+    } catch (err) {
+      console.error("❌ Wallpaper dashboard API failed:", err);
+
+      res.status(500).json({
+        ok: false,
+        error: "Dashboard API failed",
+      });
+    }
+  });
+
+  app.listen(DASHBOARD_PORT, "0.0.0.0", () => {
+    console.log(`✅ Wallpaper dashboard API running on port ${DASHBOARD_PORT}`);
+  });
+}
+
+module.exports = {
+  startWallpaperDashboardService,
+};
