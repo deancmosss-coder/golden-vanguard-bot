@@ -46,7 +46,56 @@ function getVoiceStats(guild) {
   };
 }
 
-function startWallpaperDashboardService(client) {
+function buildAskToPlayStats(sessions, askToPlayService) {
+  if (!sessions || !askToPlayService) {
+    return {
+      activeSessions: 0,
+      playersLooking: 0,
+      games: [],
+    };
+  }
+
+  const gameMap = new Map();
+  let playersLooking = 0;
+
+  for (const session of sessions.values()) {
+    const config =
+      typeof askToPlayService.getSessionConfig === "function"
+        ? askToPlayService.getSessionConfig(session)
+        : null;
+
+    const gameName =
+      session.customGame ||
+      config?.displayName ||
+      session.gameKey ||
+      "Unknown Game";
+
+    const rosterSize = session.roster?.size || 1;
+
+    playersLooking += rosterSize;
+
+    const existing = gameMap.get(gameName) || {
+      game: gameName,
+      sessions: 0,
+      players: 0,
+    };
+
+    existing.sessions += 1;
+    existing.players += rosterSize;
+
+    gameMap.set(gameName, existing);
+  }
+
+  return {
+    activeSessions: sessions.size,
+    playersLooking,
+    games: [...gameMap.values()].slice(0, 3),
+  };
+}
+
+function startWallpaperDashboardService(client, options = {}) {
+  const { sessions, askToPlayService } = options;
+
   const app = express();
 
   app.use(cors());
@@ -75,6 +124,7 @@ function startWallpaperDashboardService(client) {
       const totalMembers = freshGuild.memberCount || guild.memberCount || 0;
       const onlineMembers = countOnlineMembers(guild);
       const voiceStats = getVoiceStats(guild);
+      const askToPlay = buildAskToPlayStats(sessions, askToPlayService);
 
       res.json({
         ok: true,
@@ -88,6 +138,7 @@ function startWallpaperDashboardService(client) {
           usersInVoice: voiceStats.usersInVoice,
           activeVoiceChannels: voiceStats.activeVoiceChannels,
         },
+        askToPlay,
       });
     } catch (err) {
       console.error("❌ Wallpaper dashboard API failed:", err);
