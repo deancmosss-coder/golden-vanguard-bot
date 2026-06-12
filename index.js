@@ -105,11 +105,6 @@ setupVoiceHubs(client);
 setupMemberTracker(client);
 setupInviteTracker(client);
 
-startWallpaperDashboardService(client, {
-  sessions,
-  askToPlayService,
-});
-
 // =========================
 // LOADERS
 // =========================
@@ -121,6 +116,11 @@ const commands = loadCommands();
 // =========================
 
 const sessions = new Map();
+
+startWallpaperDashboardService(client, {
+  sessions,
+  askToPlayService,
+});
 
 // =========================
 // ASK-TO-PLAY WRAPPERS
