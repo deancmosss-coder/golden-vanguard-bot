@@ -105,7 +105,10 @@ setupVoiceHubs(client);
 setupMemberTracker(client);
 setupInviteTracker(client);
 
-startWallpaperDashboardService(client);
+startWallpaperDashboardService(client, {
+  sessions,
+  askToPlayService,
+});
 
 // =========================
 // LOADERS
