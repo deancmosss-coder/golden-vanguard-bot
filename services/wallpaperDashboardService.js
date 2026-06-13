@@ -21,6 +21,10 @@ const STREAM_ALERTS_FILE = path.join(
   "../data/streamAlerts.json"
 );
 
+const {
+  getRecentMessages,
+} = require("./wallpaperChatStore");
+
 function getTargetGuild(client) {
   if (DASHBOARD_GUILD_ID) {
     return client.guilds.cache.get(DASHBOARD_GUILD_ID) || null;
@@ -306,6 +310,7 @@ function startWallpaperDashboardService(client, options = {}) {
       const activity = buildActivityFeed();
       const creatorNetwork = buildCreatorNetwork();
       const activeGames = buildActiveGames(guild, sessions, askToPlayService);
+      const latestChat = getRecentMessages(8);
 
       res.json({
         ok: true,
@@ -323,6 +328,7 @@ function startWallpaperDashboardService(client, options = {}) {
         activity,
         creatorNetwork,
         activeGames,
+        latestChat,
       });
     } catch (err) {
       console.error("❌ Wallpaper dashboard API failed:", err);
