@@ -14,6 +14,10 @@ const DASHBOARD_GUILD_ID = (process.env.DASHBOARD_GUILD_ID || "").trim();
 const MEMBER_TRACKING_FILE = path.join(
   __dirname,
   "../data/memberTracking.json"
+  
+const STREAM_ALERTS_FILE = path.join(
+  __dirname,
+  "../data/streamAlerts.json"
 );
 
 function getTargetGuild(client) {
@@ -160,6 +164,53 @@ function buildActivityFeed() {
   }
 }
 
+function buildCreatorNetwork() {
+  try {
+    if (!fs.existsSync(STREAM_ALERTS_FILE)) {
+      return {
+        liveCount: 0,
+        liveCreators: [],
+      };
+    }
+
+    const store = JSON.parse(fs.readFileSync(STREAM_ALERTS_FILE, "utf8"));
+    const liveStreams = Array.isArray(store.liveStreams)
+      ? store.liveStreams
+      : [];
+
+    const liveCreators = liveStreams.slice(0, 4).map((stream) => {
+      const platform =
+        stream.platform === "youtube"
+          ? "YouTube"
+          : stream.platform === "twitch"
+            ? "Twitch"
+            : stream.platform || "Live";
+
+      return {
+        name:
+          stream.creatorName ||
+          stream.displayName ||
+          stream.twitchUsername ||
+          stream.youtubeChannelTitle ||
+          "Creator",
+        platform,
+      };
+    });
+
+    return {
+      liveCount: liveCreators.length,
+      liveCreators,
+    };
+  } catch (err) {
+    console.error("❌ Failed to build creator network:", err);
+
+    return {
+      liveCount: 0,
+      liveCreators: [],
+    };
+  }
+}
+
 function startWallpaperDashboardService(client, options = {}) {
   const { sessions, askToPlayService } = options;
 
@@ -193,6 +244,7 @@ function startWallpaperDashboardService(client, options = {}) {
       const voiceStats = getVoiceStats(guild);
       const askToPlay = buildAskToPlayStats(sessions, askToPlayService);
       const activity = buildActivityFeed();
+      const creatorNetwork = buildCreatorNetwork();
 
       res.json({
         ok: true,
@@ -208,6 +260,7 @@ function startWallpaperDashboardService(client, options = {}) {
         },
         askToPlay,
         activity,
+        creatorNetwork,
       });
     } catch (err) {
       console.error("❌ Wallpaper dashboard API failed:", err);
