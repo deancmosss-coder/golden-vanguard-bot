@@ -11,6 +11,10 @@ const logger = require("../services/logger");
 const registry = require("../services/featureRegistry");
 const { sendErrorAlert } = require("../services/alertService");
 
+const {
+  addMessage,
+} = require("../services/wallpaperChatStore");
+
 function registerMessageHandler(client, options) {
   const {
     ASK_ROLE_ID,
@@ -26,6 +30,22 @@ function registerMessageHandler(client, options) {
   client.on(Events.MessageCreate, async (message) => {
     try {
       if (message.author.bot || !message.guild) return;
+        const allowedChannels = String(
+          process.env.DASHBOARD_CHAT_CHANNEL_IDS || ""
+        )
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
+
+        if (allowedChannels.includes(message.channel.id)) {
+          addMessage({
+            channel: message.channel.name,
+            author: message.member?.displayName || message.author.username,
+            content: (message.content || "")
+              .replace(/\n/g, " ")
+              .slice(0, 120),
+          });
+        }
 
       try {
         const runCmd = require("../commands/run.js");
