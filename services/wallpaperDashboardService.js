@@ -212,6 +212,65 @@ function buildCreatorNetwork() {
   }
 }
 
+function buildActiveGames(guild, sessions, askToPlayService) {
+  const gameMap = new Map();
+
+  const addGame = (gameName, count = 1) => {
+    if (!gameName) return;
+
+    const existing = gameMap.get(gameName) || {
+      game: gameName,
+      count: 0,
+    };
+
+    existing.count += count;
+    gameMap.set(gameName, existing);
+  };
+
+  if (sessions && askToPlayService) {
+    for (const session of sessions.values()) {
+      const config =
+        typeof askToPlayService.getSessionConfig === "function"
+          ? askToPlayService.getSessionConfig(session)
+          : null;
+
+      addGame(
+        session.customGame ||
+          config?.displayName ||
+          session.gameKey ||
+          "Unknown Game",
+        session.roster?.size || 1
+      );
+    }
+  }
+
+  guild.channels.cache.forEach((channel) => {
+    if (!channel.isVoiceBased?.()) return;
+    if (!channel.members || channel.members.size === 0) return;
+
+    const humanCount = channel.members.filter((member) => !member.user.bot).size;
+    if (!humanCount) return;
+
+    const name = channel.name.toLowerCase();
+
+    if (name.includes("helldivers")) addGame("Helldivers", humanCount);
+    else if (name.includes("arc")) addGame("Arc Raiders", humanCount);
+    else if (name.includes("minecraft")) addGame("Minecraft", humanCount);
+    else if (name.includes("warframe")) addGame("Warframe", humanCount);
+    else if (name.includes("call")) addGame("Call of Duty", humanCount);
+    else if (name.includes("fortnite")) addGame("Fortnite", humanCount);
+    else if (name.includes("division")) addGame("The Division", humanCount);
+    else if (name.includes("gta")) addGame("GTA", humanCount);
+    else if (name.includes("battlefield")) addGame("Battlefield", humanCount);
+    else if (name.includes("honor")) addGame("For Honor", humanCount);
+    else if (name.includes("hero")) addGame("Hero Shooters", humanCount);
+  });
+
+  return [...gameMap.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+}
+
 function startWallpaperDashboardService(client, options = {}) {
   const { sessions, askToPlayService } = options;
 
@@ -246,6 +305,7 @@ function startWallpaperDashboardService(client, options = {}) {
       const askToPlay = buildAskToPlayStats(sessions, askToPlayService);
       const activity = buildActivityFeed();
       const creatorNetwork = buildCreatorNetwork();
+      const activeGames = buildActiveGames(guild, sessions, askToPlayService);
 
       res.json({
         ok: true,
@@ -262,6 +322,7 @@ function startWallpaperDashboardService(client, options = {}) {
         askToPlay,
         activity,
         creatorNetwork,
+        activeGames,
       });
     } catch (err) {
       console.error("❌ Wallpaper dashboard API failed:", err);
