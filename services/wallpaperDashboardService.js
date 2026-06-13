@@ -14,6 +14,7 @@ const DASHBOARD_GUILD_ID = (process.env.DASHBOARD_GUILD_ID || "").trim();
 const MEMBER_TRACKING_FILE = path.join(
   __dirname,
   "../data/memberTracking.json"
+);
   
 const STREAM_ALERTS_FILE = path.join(
   __dirname,
