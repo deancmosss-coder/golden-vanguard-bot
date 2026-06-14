@@ -312,12 +312,12 @@ function buildNexusFeed(
     };
   }
 
-return {
-  type: "activity",
-  title: activity[0] || "Community Online",
-  subtitle: "",
-  action: "LIVE",
-};
+  return {
+    type: "activity",
+    title: activity[0] || "Community Online",
+    subtitle: "",
+    action: "LIVE",
+  };
 }
 
 function startWallpaperDashboardService(client, options = {}) {
