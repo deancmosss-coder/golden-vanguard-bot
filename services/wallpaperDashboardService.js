@@ -312,11 +312,10 @@ function buildNexusFeed(
     };
   }
 
-  return {
-    type: "activity",
-    title: "COMMUNITY UPDATE",
-    subtitle: activity[0] || "Community online",
-    action: "LIVE",
+ return {
+  type: "activity",
+  title: activity[0] || "Community Online",
+  subtitle: "",
   };
 }
 
