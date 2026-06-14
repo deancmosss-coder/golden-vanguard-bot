@@ -1,0 +1,16 @@
+
+# Secrets
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Runtime logs
+logs/
+*.log
+
+# Backups
+*.tar.gz
+*.zip
+*.server-backup.json
