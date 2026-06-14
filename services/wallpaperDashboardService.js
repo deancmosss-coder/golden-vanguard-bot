@@ -120,6 +120,64 @@ function buildActivityFeed() {
       ];
     }
 
+function buildRecruitmentTracker() {
+  try {
+    if (!fs.existsSync(MEMBER_TRACKING_FILE)) {
+      return {
+        joinedToday: 0,
+        leftToday: 0,
+        netGrowth: 0,
+      };
+    }
+
+    const store = JSON.parse(
+      fs.readFileSync(MEMBER_TRACKING_FILE, "utf8")
+    );
+
+    const events = Array.isArray(store.events)
+      ? store.events
+      : [];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    let joinedToday = 0;
+    let leftToday = 0;
+
+    events.forEach((event) => {
+      const eventDate = String(
+        event.timestamp || event.createdAt || ""
+      ).slice(0, 10);
+
+      if (eventDate !== today) return;
+
+      if (event.type === "join") {
+        joinedToday++;
+      }
+
+      if (event.type === "leave") {
+        leftToday++;
+      }
+    });
+
+    return {
+      joinedToday,
+      leftToday,
+      netGrowth: joinedToday - leftToday,
+    };
+  } catch (err) {
+    console.error(
+      "❌ Failed to build recruitment tracker:",
+      err
+    );
+
+    return {
+      joinedToday: 0,
+      leftToday: 0,
+      netGrowth: 0,
+    };
+  }
+}
+    
     const store = JSON.parse(fs.readFileSync(MEMBER_TRACKING_FILE, "utf8"));
     const events = Array.isArray(store.events) ? store.events : [];
 
@@ -353,6 +411,8 @@ function startWallpaperDashboardService(client, options = {}) {
       const voiceStats = getVoiceStats(guild);
       const askToPlay = buildAskToPlayStats(sessions, askToPlayService);
       const activity = buildActivityFeed();
+      const recruitmentTracker =
+        buildRecruitmentTracker();
       const creatorNetwork = buildCreatorNetwork();
       const activeGames = buildActiveGames(guild, sessions, askToPlayService);
       const nexusFeed = buildNexusFeed(
@@ -388,6 +448,7 @@ function startWallpaperDashboardService(client, options = {}) {
         latestChat,
         nexusFeed,
         systemStatus,
+        recruitmentTracker,
       });
     } catch (err) {
       console.error("❌ Wallpaper dashboard API failed:", err);
