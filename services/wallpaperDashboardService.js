@@ -275,6 +275,51 @@ function buildActiveGames(guild, sessions, askToPlayService) {
     .slice(0, 6);
 }
 
+function buildNexusFeed(
+  creatorNetwork,
+  askToPlay,
+  activeGames,
+  activity
+) {
+  if (creatorNetwork.liveCount > 0) {
+    const creator = creatorNetwork.liveCreators[0];
+
+    return {
+      type: "creator",
+      title: `${creator.name} IS LIVE`,
+      subtitle: `Streaming on ${creator.platform}`,
+      action: "WATCH NOW",
+    };
+  }
+
+  if (askToPlay.activeSessions > 0) {
+    const game = askToPlay.games[0];
+
+    return {
+      type: "lfg",
+      title: game?.game || "Squad Forming",
+      subtitle: `${askToPlay.playersLooking} players looking for a squad`,
+      action: "JOIN NOW",
+    };
+  }
+
+  if (activeGames.length > 0) {
+    return {
+      type: "game",
+      title: activeGames[0].game,
+      subtitle: `${activeGames[0].count} active players`,
+      action: "ACTIVE",
+    };
+  }
+
+  return {
+    type: "activity",
+    title: "COMMUNITY UPDATE",
+    subtitle: activity[0] || "Community online",
+    action: "LIVE",
+  };
+}
+
 function startWallpaperDashboardService(client, options = {}) {
   const { sessions, askToPlayService } = options;
 
@@ -310,6 +355,12 @@ function startWallpaperDashboardService(client, options = {}) {
       const activity = buildActivityFeed();
       const creatorNetwork = buildCreatorNetwork();
       const activeGames = buildActiveGames(guild, sessions, askToPlayService);
+      const nexusFeed = buildNexusFeed(
+        creatorNetwork,
+        askToPlay,
+        activeGames,
+        activity
+      );
       const latestChat = getRecentMessages(8);
 
       res.json({
@@ -329,6 +380,7 @@ function startWallpaperDashboardService(client, options = {}) {
         creatorNetwork,
         activeGames,
         latestChat,
+        nexusFeed,
       });
     } catch (err) {
       console.error("❌ Wallpaper dashboard API failed:", err);
