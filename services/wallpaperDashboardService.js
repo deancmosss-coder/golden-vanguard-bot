@@ -120,6 +120,55 @@ function buildActivityFeed() {
       ];
     }
 
+    const store = JSON.parse(fs.readFileSync(MEMBER_TRACKING_FILE, "utf8"));
+    const events = Array.isArray(store.events) ? store.events : [];
+
+    const latest = events
+      .slice(-8)
+      .reverse()
+      .map((event) => {
+        const name =
+          event.displayName ||
+          event.username ||
+          event.tag ||
+          "Someone";
+
+        if (event.type === "join") {
+          return event.returning
+            ? `Returning member ${name} joined the server`
+            : `${name} joined the server`;
+        }
+
+        if (event.type === "leave") {
+          return `${name} left the server`;
+        }
+
+        return `${name} created community activity`;
+      })
+      .slice(0, 4);
+
+    if (!latest.length) {
+      return [
+        "Nexus activity feed waiting for server events",
+        "No recent community activity found",
+        "Ask-To-Play system online",
+        "Golden Vanguard systems standing by",
+      ];
+    }
+
+    return latest;
+  } catch (err) {
+    console.error("❌ Failed to build activity feed:", err);
+
+    return [
+      "Activity feed temporarily unavailable",
+      "Nexus API still online",
+      "Community systems standing by",
+      "Golden Vanguard monitoring active",
+    ];
+  }
+}
+
 function buildRecruitmentTracker() {
   try {
     if (!fs.existsSync(MEMBER_TRACKING_FILE)) {
@@ -178,55 +227,6 @@ function buildRecruitmentTracker() {
   }
 }
     
-    const store = JSON.parse(fs.readFileSync(MEMBER_TRACKING_FILE, "utf8"));
-    const events = Array.isArray(store.events) ? store.events : [];
-
-    const latest = events
-      .slice(-8)
-      .reverse()
-      .map((event) => {
-        const name =
-          event.displayName ||
-          event.username ||
-          event.tag ||
-          "Someone";
-
-        if (event.type === "join") {
-          return event.returning
-            ? `Returning member ${name} joined the server`
-            : `${name} joined the server`;
-        }
-
-        if (event.type === "leave") {
-          return `${name} left the server`;
-        }
-
-        return `${name} created community activity`;
-      })
-      .slice(0, 4);
-
-    if (!latest.length) {
-      return [
-        "Nexus activity feed waiting for server events",
-        "No recent community activity found",
-        "Ask-To-Play system online",
-        "Golden Vanguard systems standing by",
-      ];
-    }
-
-    return latest;
-  } catch (err) {
-    console.error("❌ Failed to build activity feed:", err);
-
-    return [
-      "Activity feed temporarily unavailable",
-      "Nexus API still online",
-      "Community systems standing by",
-      "Golden Vanguard monitoring active",
-    ];
-  }
-}
-
 function buildCreatorNetwork() {
   try {
     if (!fs.existsSync(STREAM_ALERTS_FILE)) {
