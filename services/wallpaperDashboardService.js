@@ -362,7 +362,13 @@ function startWallpaperDashboardService(client, options = {}) {
         activity
       );
       const latestChat = getRecentMessages(8);
-
+      const systemStatus = {
+        discord: "ONLINE",
+        bot: "ONLINE",
+        voice: voiceStats.activeVoiceChannels > 0 ? "ACTIVE" : "IDLE",
+        nexus: "ONLINE",
+      };
+      
       res.json({
         ok: true,
         updatedAt: new Date().toISOString(),
@@ -381,6 +387,7 @@ function startWallpaperDashboardService(client, options = {}) {
         activeGames,
         latestChat,
         nexusFeed,
+        systemStatus,
       });
     } catch (err) {
       console.error("❌ Wallpaper dashboard API failed:", err);
