@@ -39,14 +39,14 @@
     ]
   },
 
-  "party": {
-    "displayName": "Party Games",
+  "coop": {
+    "displayName": "Co-op Games",
     "accessRoleId": "1505318205030404208",
     "pingRoleId": "",
     "textCategoryId": "1505316630052344029",
     "lfgChannelIds": ["1505317042537107529"],
     "voiceCategoryIds": ["1505317136241918123"],
-    "maxSquadSize": 10,
+    "maxSquadSize": 15,
     "fields": {
       "faction": false,
       "difficulty": false,
@@ -55,7 +55,10 @@
     "activities": [
       "Lethal Company",
       "R.E.P.O",
-      "RV There Yet?"
+      "RV There Yet?",
+      "Meccha Chameleon",
+      "Among Us",
+      "Backrooms: Escaped"
     ]
   },
 
