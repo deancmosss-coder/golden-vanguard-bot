@@ -50,20 +50,20 @@ const HUBS = {
     categoryId: "1505309836345344210",
   },
 
-  // INDIE / PARTY — replace IDs
+  // CO-OP
   "1505317203514228876": {
-    tag: "LETHAL",
-    label: "Lethal Company",
+    tag: "DANGER",
+    label: "Danger Squad",
     categoryId: "1505316630052344029",
   },
   "1505317260233801929": {
-    tag: "REPO",
-    label: "R.E.P.O",
+    tag: "LET'S GO",
+    label: "Let's Go",
     categoryId: "1505316630052344029",
   },
   "1505317338361237514": {
-    tag: "RV",
-    label: "RV There Yet?",
+    tag: "HUNTERS",
+    label: "Hunters",
     categoryId: "1505316630052344029",
   },
   "1505317389447991409": {
