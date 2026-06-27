@@ -187,15 +187,35 @@ function buildRecruitmentTracker() {
       ? store.events
       : [];
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/London",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
 
     let joinedToday = 0;
     let leftToday = 0;
 
     events.forEach((event) => {
-      const eventDate = String(
-        event.timestamp || event.createdAt || ""
-      ).slice(0, 10);
+      let eventTime = null;
+
+      if (event.type === "join") {
+        eventTime = event.joinedAt;
+      }
+
+      if (event.type === "leave") {
+        eventTime = event.leftAt;
+      }
+
+      if (!eventTime) return;
+
+      const eventDate = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/London",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(eventTime));
 
       if (eventDate !== today) return;
 
