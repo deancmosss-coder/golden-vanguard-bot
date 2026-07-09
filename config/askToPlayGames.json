@@ -231,8 +231,8 @@
      ] 
     }, 
 
-    "othergames": {
-     "displayName": "Other Games",
+    "lfghub": {
+     "displayName": "LFG HUB",
      "accessRoleId": "",
      "pingRoleId": "",
      "textCategoryId": "1305329362115235952",
