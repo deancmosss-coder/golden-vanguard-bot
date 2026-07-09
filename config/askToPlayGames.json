@@ -234,7 +234,7 @@
     "lfghub": {
      "displayName": "LFG HUB",
      "accessRoleId": "",
-     "pingRoleId": "",
+     "pingRoleId": "1473730693707206812",
      "textCategoryId": "1305329362115235952",
      "lfgChannelIds": ["1511098556570927134"],
      "voiceCategoryIds": ["1305329362115235952"],
