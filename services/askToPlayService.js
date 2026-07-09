@@ -10,10 +10,15 @@
 // - VC validation
 // - Helldivers VC rename support
 //
-// IMPORTANT:
-// This file pings the role set in askToPlayGames.json:
-// "pingRoleId": "YOUR_ASKTOPLAY_ROLE_ID"
+// Ping system:
+// - Main live ping comes from .env:
+//   ASK_TO_PLAY_ROLE_ID=1473730693707206812
+//
+// - Falls back to askToPlayGames.json:
+//   "pingRoleId": "1473730693707206812"
 // =========================
+
+require("dotenv").config();
 
 const fs = require("fs");
 const path = require("path");
@@ -98,6 +103,39 @@ function getSessionConfig(session) {
   };
 }
 
+function getAskToPlayPingRoleId(config) {
+  return (
+    process.env.ASK_TO_PLAY_ROLE_ID ||
+    process.env.ASKTOPLAY_ROLE_ID ||
+    config?.pingRoleId ||
+    null
+  );
+}
+
+function getAskToPlayPingRoleIdFromSession(session) {
+  const config = getSessionConfig(session);
+  return getAskToPlayPingRoleId(config);
+}
+
+function buildAskContent(session) {
+  const roleId = getAskToPlayPingRoleIdFromSession(session);
+  return roleId ? `<@&${roleId}>` : null;
+}
+
+function buildAskAllowedMentions(session) {
+  const roleId = getAskToPlayPingRoleIdFromSession(session);
+
+  return roleId
+    ? {
+        roles: [roleId],
+        users: [],
+      }
+    : {
+        roles: [],
+        users: [],
+      };
+}
+
 function factionToTag(faction) {
   if (!faction) return null;
 
@@ -149,7 +187,7 @@ function getDisplayVcName(vc, config) {
 function buildAskEmbed(session, vcName) {
   const config = getSessionConfig(session);
   const displayName = config?.displayName || "Ask-To-Play";
-  const pingRoleId = config?.pingRoleId || null;
+  const pingRoleId = getAskToPlayPingRoleId(config);
   const maxSquadSize = Number(config?.maxSquadSize || 4);
 
   const embed = new EmbedBuilder()
@@ -344,11 +382,10 @@ async function updateAskMessage(client, session) {
   syncRosterFromVc(session, vc);
 
   await msg.edit({
+    content: buildAskContent(session),
     embeds: [buildAskEmbed(session, vcName)],
     components: buildAskComponents(session),
-    allowedMentions: config?.pingRoleId
-      ? { roles: [config.pingRoleId], users: [] }
-      : { roles: [], users: [] },
+    allowedMentions: buildAskAllowedMentions(session),
   });
 }
 
@@ -412,10 +449,17 @@ module.exports = {
   CUSTOM_DETAILS_MODAL_PREFIX,
   CUSTOM_GAME_INPUT_ID,
   CUSTOM_ACTIVITY_INPUT_ID,
+
   loadGameConfigs,
   getGameConfig,
   findGameConfigByChannel,
   getSessionConfig,
+
+  getAskToPlayPingRoleId,
+  getAskToPlayPingRoleIdFromSession,
+  buildAskContent,
+  buildAskAllowedMentions,
+
   isVcAllowedForGame,
   getDisplayVcName,
   buildAskEmbed,
