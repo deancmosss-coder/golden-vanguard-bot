@@ -4,20 +4,16 @@
 // - game config detection
 // - embeds
 // - dropdowns
-// - custom Other Games modal support
+// - custom game/activity modal support
 // - roster sync
 // - VC resolve
 // - VC validation
 // - Helldivers VC rename support
 //
-// Current live mode:
-// - Always pings the main @AskToPlay role via ASK_TO_PLAY_ROLE_ID
-// - Keeps old per-game pingRoleId support as fallback for future premium/multi-server use
+// IMPORTANT:
+// This file pings the role set in askToPlayGames.json:
+// "pingRoleId": "YOUR_ASKTOPLAY_ROLE_ID"
 // =========================
-
-try {
-  require("dotenv").config();
-} catch (_) {}
 
 const fs = require("fs");
 const path = require("path");
@@ -37,11 +33,6 @@ const CONFIG_PATH = path.join(
   __dirname,
   "../config/askToPlayGames.json"
 );
-
-const ASK_TO_PLAY_ROLE_ID =
-  process.env.ASK_TO_PLAY_ROLE_ID ||
-  process.env.ASKTOPLAY_ROLE_ID ||
-  "";
 
 const FACTION_SELECT_ID = "gv_faction";
 const DIFFICULTY_SELECT_ID = "gv_difficulty";
@@ -95,7 +86,7 @@ function findGameConfigByChannel(channel) {
   return null;
 }
 
-function getGameConfigFromSession(session) {
+function getSessionConfig(session) {
   if (!session?.gameKey) return null;
 
   const config = getGameConfig(session.gameKey);
@@ -105,59 +96,6 @@ function getGameConfigFromSession(session) {
     gameKey: session.gameKey,
     ...config,
   };
-}
-
-function getSessionConfig(session) {
-  return getGameConfigFromSession(session);
-}
-
-/**
- * This is now the main ping resolver.
- *
- * Priority:
- * 1. ASK_TO_PLAY_ROLE_ID from .env
- * 2. config.askToPlayRoleId if added later
- * 3. config.pingRoleId old per-game fallback
- *
- * This lets you use one @AskToPlay role now,
- * without deleting the old premium/multi-server setup.
- */
-function getAskToPlayPingRoleId(config) {
-  return (
-    ASK_TO_PLAY_ROLE_ID ||
-    config?.askToPlayRoleId ||
-    config?.pingRoleId ||
-    null
-  );
-}
-
-function getAskToPlayPingRoleIdFromSession(session) {
-  const config = getSessionConfig(session);
-  return getAskToPlayPingRoleId(config);
-}
-
-/**
- * IMPORTANT:
- * Real Discord pings should be sent in message content, not only inside embeds.
- * Use this helper in the file that first creates/sends the Ask-to-Play message.
- */
-function buildAskContent(session) {
-  const roleId = getAskToPlayPingRoleIdFromSession(session);
-  return roleId ? `<@&${roleId}>` : "";
-}
-
-function getAllowedMentionsForAskToPlay(session) {
-  const roleId = getAskToPlayPingRoleIdFromSession(session);
-
-  return roleId
-    ? {
-        roles: [roleId],
-        users: [],
-      }
-    : {
-        users: [],
-        roles: [],
-      };
 }
 
 function factionToTag(faction) {
@@ -211,12 +149,12 @@ function getDisplayVcName(vc, config) {
 function buildAskEmbed(session, vcName) {
   const config = getSessionConfig(session);
   const displayName = config?.displayName || "Ask-To-Play";
-  const pingRoleId = getAskToPlayPingRoleId(config);
+  const pingRoleId = config?.pingRoleId || null;
   const maxSquadSize = Number(config?.maxSquadSize || 4);
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle(`🎯 ${displayName} Ask-to-Play`)
+    .setTitle(`🎯 ${displayName}`)
     .setDescription(
       pingRoleId
         ? `<@${session.ownerId}> pinged <@&${pingRoleId}>`
@@ -408,7 +346,9 @@ async function updateAskMessage(client, session) {
   await msg.edit({
     embeds: [buildAskEmbed(session, vcName)],
     components: buildAskComponents(session),
-    allowedMentions: getAllowedMentionsForAskToPlay(session),
+    allowedMentions: config?.pingRoleId
+      ? { roles: [config.pingRoleId], users: [] }
+      : { roles: [], users: [] },
   });
 }
 
@@ -472,17 +412,10 @@ module.exports = {
   CUSTOM_DETAILS_MODAL_PREFIX,
   CUSTOM_GAME_INPUT_ID,
   CUSTOM_ACTIVITY_INPUT_ID,
-
   loadGameConfigs,
   getGameConfig,
   findGameConfigByChannel,
   getSessionConfig,
-
-  getAskToPlayPingRoleId,
-  getAskToPlayPingRoleIdFromSession,
-  buildAskContent,
-  getAllowedMentionsForAskToPlay,
-
   isVcAllowedForGame,
   getDisplayVcName,
   buildAskEmbed,
