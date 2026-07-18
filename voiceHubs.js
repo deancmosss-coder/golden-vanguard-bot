@@ -1,298 +1,144 @@
+const fs = require("fs");
+const path = require("path");
 const { ChannelType, Events } = require("discord.js");
 
-const HUBS = {
-  // HELLDIVERS
-  "1497970074756321362": {
-    tag: "MO",
-    label: "Major Order",
-    categoryId: "1478464677783666778",
-  },
-  "1483928217701060638": {
-    tag: "BOTS",
-    label: "Automaton",
-    categoryId: "1478464677783666778",
-  },
-  "1483928278116077800": {
-    tag: "BUGS",
-    label: "Terminid",
-    categoryId: "1478464677783666778",
-  },
-  "1483928332373332019": {
-    tag: "SQUIDS",
-    label: "Illuminate",
-    categoryId: "1478464677783666778",
-  },
-  "1483928397275988139": {
-    tag: "DANGER",
-    label: "Danger Room",
-    categoryId: "1478464677783666778",
-  },
+// Permanent join-to-create VC
+const GAMING_VC_ID = "1488947979611013381";
 
-  // GTA — replace IDs
-  "1505315362512572650": {
-    tag: "OPS",
-    label: "Criminal Operations",
-    categoryId: "1505309836345344210",
-  },
-  "1505315445635547279": {
-    tag: "HEIST",
-    label: "Heist Team Alpha",
-    categoryId: "1505309836345344210",
-  },
-  "1505315508566622218": {
-    tag: "FREEROAM",
-    label: "Free Roam Ops",
-    categoryId: "1505309836345344210",
-  },
-  "1505315571560878142": {
-    tag: "CREW",
-    label: "Crew Command",
-    categoryId: "1505309836345344210",
-  },
+// Category where Gaming VC and all temporary VCs are located
+const LFG_CATEGORY_ID = "1305329362115235952";
 
-  // CO-OP
-  "1505317203514228876": {
-    tag: "DANGER",
-    label: "Danger Squad",
-    categoryId: "1505316630052344029",
-  },
-  "1505317260233801929": {
-    tag: "LET'S GO",
-    label: "Let's Go",
-    categoryId: "1505316630052344029",
-  },
-  "1505317338361237514": {
-    tag: "HUNTERS",
-    label: "Hunters",
-    categoryId: "1505316630052344029",
-  },
-  "1505317389447991409": {
-    tag: "PARTY",
-    label: "Let's Party",
-    categoryId: "1505316630052344029",
-  },
+// Initial name before the member uses @asktoplay
+const DEFAULT_VC_NAME = "GAMING";
 
-  // BATTLEFIELD
-  "1505642842255523900": {
-    tag: "ASSAULT",
-    label: "Assault",
-    categoryId: "1505639128845258976",
-  },
-  "1505643123584532631": {
-    tag: "MEDIC",
-    label: "Medic",
-    categoryId: "1505639128845258976",
-  },
-  "1505647933532410077": {
-    tag: "ENGINEER",
-    label: "Engineer",
-    categoryId: "1505639128845258976",
-  },
-  "1505648284050657310": {
-    tag: "RECON",
-    label: "Recon",
-    categoryId: "1505639128845258976",
-  }, 
+// Persistent ownership storage
+const DATA_DIRECTORY = path.join(__dirname, "data");
+const SESSION_FILE = path.join(DATA_DIRECTORY, "voiceSessions.json");
 
-  // OTHER
-  "1488947979611013381": {
-    tag: "GAMING", 
-    label: "Gaming VC", 
-    categoryId: "1305329362115235952", 
-  },
-
-  // ARC RAIDERS
-  "1507760365965021404": {
-    tag: "SURFACE",
-    label: "Surface Operation",
-    categoryId: "1507760365965021404",
-  },
-  "1507760410185564322": {
-    tag: "EXTRACTION",
-    label: "Extraction Point",
-    categoryId: "1507760365965021404",
-  },
-  "1507760457165836510": {
-    tag: "HIGH RISK",
-    label: "High Risk Zone",
-    categoryId: "1507760365965021404",
-  }, 
-  "1507760500983730197": {
-    tag: "SALVAGE",
-    label: "Salvage Teams",
-    categoryId: "1507760365965021404",
-  },
-
-  // Minecraft
-  "1507868614705811578": {
-    tag: "SURVIVAL",
-    label: "Survival Realm",
-    categoryId: "1507865338312790137",
-  },
-  "1507868714979033108": {
-    tag: "BUILDER",
-    label: "Builder's Guild",
-    categoryId: "1507865338312790137",
-  },
-  "1507868791437004881": {
-    tag: "OVERWORLD",
-    label: "Overworld Expedition",
-    categoryId: "1507865338312790137",
-  }, 
-  "1507868864774668368": {
-    tag: "RESOURCE",
-    label: "Resource Gathering",
-    categoryId: "1507865338312790137",
-  },
-
-  // Warframe
-  "1508027585555333120": {
-    tag: "ORBITER",
-    label: "Orbiter Link",
-    categoryId: "1505669523867439207",
-  },
-  "1508027641456890048": {
-    tag: "TENNO",
-    label: "Tenno Operations",
-    categoryId: "1505669523867439207",
-  },
-  "1508027709933092944": {
-    tag: "VOID",
-    label: "Void Missions",
-    categoryId: "1505669523867439207",
-  }, 
-  "1508027759119827054": {
-    tag: "SORTIE",
-    label: "Sortie Squad",
-    categoryId: "1505669523867439207",
-  },
-
-  // For Honor
-  "1508072192611450971": {
-    tag: "BATTLE",
-    label: "Battle Queue",
-    categoryId: "1505667361229901926",
-  },
-  "1508072256054759564": {
-    tag: "DOMINION",
-    label: "Diminion Front",
-    categoryId: "1505667361229901926",
-  },
-  "1508072311775957064": {
-    tag: "WARRIOR",
-    label: "Warrior Assembly",
-    categoryId: "1505667361229901926",
-  }, 
-  "1508072361075675166": {
-    tag: "DUEL",
-    label: "Duel Arena",
-    categoryId: "1505667361229901926",
-  },
-
-  // Fortnite
-  "1508097053765533836": {
-    tag: "BUS",
-    label: "Battle Bus",
-    categoryId: "1508071286222491709",
-  },
-  "1508097239200039073": {
-    tag: "VICTORY",
-    label: "Victory Grind",
-    categoryId: "1508071286222491709",
-  },
-  "1508097302244495450": {
-    tag: "ZERO",
-    label: "Zero Build",
-    categoryId: "1508071286222491709",
-  }, 
-  "1508097355608494160": {
-    tag: "Rank",
-    label: "Ranked Queue",
-    categoryId: "1508071286222491709",
-  },
-
-  // Hero Shooters
-  "1508537929134375102": {
-    tag: "MULTIVERSE",
-    label: "Multiverse Mayhem",
-    categoryId: "1505673282324795492",
-  },
-  "1508538098856755460": {
-    tag: "HERO",
-    label: "Hero Assembly",
-    categoryId: "1505673282324795492",
-  },
-  "1508538184903168121": {
-    tag: "BLAME",
-    label: "Blame the Healer",
-    categoryId: "1505673282324795492",
-  }, 
-  "1508538290909745192": {
-    tag: "Rank",
-    label: "Ranked Operation",
-    categoryId: "1505673282324795492",
-  },
-
-  // The Division
-  "1513162563683221534": {
-    tag: "RAID",
-    label: "Raid Operations",
-    categoryId: "1512949527248769086",
-  },
-  "1513162642859098132": {
-    tag: "DARK",
-    label: "Dark Zone Patrol",
-    categoryId: "1512949527248769086",
-  },
-  "1513163004471152781": {
-    tag: "INCURSION",
-    label: "Incursion Network",
-    categoryId: "1512949527248769086",
-  }, 
-  "1513163236944642131": {
-    tag: "MISSION",
-    label: "Mission Squad",
-    categoryId: "1512949527248769086",
-  },
-};
-
+const voiceSessions = new Map();
 const ignoredMoves = new Map();
-const createCooldown = new Map();
+const createCooldowns = new Map();
+const creatingUsers = new Set();
+const deleteChecks = new Set();
 
-function makeSafeName(username) {
-  return (username || "Host").replace(/[^\w\s-]/g, "").slice(0, 16);
+/* =========================
+   STORAGE
+   ========================= */
+
+function ensureSessionFile() {
+  if (!fs.existsSync(DATA_DIRECTORY)) {
+    fs.mkdirSync(DATA_DIRECTORY, { recursive: true });
+  }
+
+  if (!fs.existsSync(SESSION_FILE)) {
+    fs.writeFileSync(SESSION_FILE, "{}\n", "utf8");
+  }
 }
 
-function isHub(channelId) {
-  return !!channelId && HUBS[channelId] !== undefined;
+function loadVoiceSessions() {
+  ensureSessionFile();
+  voiceSessions.clear();
+
+  try {
+    const raw = fs.readFileSync(SESSION_FILE, "utf8");
+    const parsed = JSON.parse(raw || "{}");
+
+    for (const [channelId, record] of Object.entries(parsed)) {
+      if (!record || typeof record !== "object") continue;
+
+      voiceSessions.set(channelId, {
+        guildId: String(record.guildId || ""),
+        ownerId: String(record.ownerId || ""),
+        createdAt: Number(record.createdAt || Date.now()),
+        game: String(record.game || ""),
+      });
+    }
+  } catch (error) {
+    console.error("[VoiceHub] Could not load voice sessions:", error);
+  }
 }
 
-function getManagedTagsRegex() {
-  const tags = [...new Set(Object.values(HUBS).map((h) => h.tag))]
-    .map((tag) => tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
+function saveVoiceSessions() {
+  ensureSessionFile();
 
-  return new RegExp(`^(${tags})\\s\\|`, "i");
+  try {
+    const output = Object.fromEntries(voiceSessions);
+    const temporaryFile = `${SESSION_FILE}.tmp`;
+
+    fs.writeFileSync(
+      temporaryFile,
+      `${JSON.stringify(output, null, 2)}\n`,
+      "utf8"
+    );
+
+    fs.renameSync(temporaryFile, SESSION_FILE);
+  } catch (error) {
+    console.error("[VoiceHub] Could not save voice sessions:", error);
+  }
 }
 
-function isManagedVC(channel) {
+function removeVoiceSession(channelId) {
+  if (!voiceSessions.has(channelId)) return;
+
+  voiceSessions.delete(channelId);
+  saveVoiceSessions();
+}
+
+loadVoiceSessions();
+
+/* =========================
+   NAME CLEANING
+   ========================= */
+
+function cleanName(value, maximumLength) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\|/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maximumLength);
+}
+
+function makeSafeUsername(username) {
+  return cleanName(username, 20) || "Host";
+}
+
+function makeSafeGameName(game, maximumLength) {
+  return cleanName(game, maximumLength);
+}
+
+/* =========================
+   CHANNEL CHECKS
+   ========================= */
+
+function isGamingHub(channelId) {
+  return channelId === GAMING_VC_ID;
+}
+
+function isManagedTemporaryVC(channel) {
   if (!channel) return false;
   if (channel.type !== ChannelType.GuildVoice) return false;
-  if (HUBS[channel.id]) return false;
+  if (channel.id === GAMING_VC_ID) return false;
+  if (channel.parentId !== LFG_CATEGORY_ID) return false;
 
-  const tagRegex = getManagedTagsRegex();
-  return tagRegex.test(channel.name);
+  return voiceSessions.has(channel.id);
 }
 
-function markIgnored(userId, ms = 3000) {
-  ignoredMoves.set(userId, Date.now() + ms);
+/* =========================
+   MOVE PROTECTION
+   ========================= */
+
+function markIgnoredMove(userId, milliseconds = 2500) {
+  ignoredMoves.set(userId, Date.now() + milliseconds);
 }
 
-function isIgnored(userId) {
+function shouldIgnoreMove(userId) {
   const until = ignoredMoves.get(userId);
+
   if (!until) return false;
 
-  if (Date.now() > until) {
+  if (Date.now() >= until) {
     ignoredMoves.delete(userId);
     return false;
   }
@@ -300,114 +146,328 @@ function isIgnored(userId) {
   return true;
 }
 
-function onCreateCooldown(userId) {
-  const until = createCooldown.get(userId);
+function markCreateCooldown(userId, milliseconds = 5000) {
+  createCooldowns.set(userId, Date.now() + milliseconds);
+}
+
+function isOnCreateCooldown(userId) {
+  const until = createCooldowns.get(userId);
+
   if (!until) return false;
 
-  if (Date.now() > until) {
-    createCooldown.delete(userId);
+  if (Date.now() >= until) {
+    createCooldowns.delete(userId);
     return false;
   }
 
   return true;
 }
 
-function markCreateCooldown(userId, ms = 4000) {
-  createCooldown.set(userId, Date.now() + ms);
-}
+/* =========================
+   TEMPORARY VC DELETION
+   ========================= */
 
-async function deleteIfEmpty(channel) {
-  if (!channel) return;
+async function deleteTemporaryVCIfEmpty(channel) {
+  if (!channel || deleteChecks.has(channel.id)) return;
 
-  for (let i = 0; i < 5; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+  deleteChecks.add(channel.id);
 
-    const fresh = channel.guild.channels.cache.get(channel.id);
-    if (!fresh) return;
-    if (!isManagedVC(fresh)) return;
+  try {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    if (fresh.members.size === 0) {
-      try {
-        await fresh.delete("Auto delete empty squad VC");
-      } catch (err) {
-        console.error("[VoiceHub] Delete failed:", err);
+      const freshChannel = await channel.guild.channels
+        .fetch(channel.id)
+        .catch(() => null);
+
+      if (!freshChannel) {
+        removeVoiceSession(channel.id);
+        return;
       }
-      return;
+
+      if (!isManagedTemporaryVC(freshChannel)) {
+        return;
+      }
+
+      if (freshChannel.members.size === 0) {
+        try {
+          await freshChannel.delete(
+            "Automatically deleting empty temporary Gaming VC"
+          );
+        } catch (error) {
+          // Unknown Channel means another delete check already removed it.
+          if (error?.code !== 10003) {
+            console.error("[VoiceHub] Delete failed:", error);
+            return;
+          }
+        }
+
+        removeVoiceSession(channel.id);
+        return;
+      }
     }
+  } finally {
+    deleteChecks.delete(channel.id);
   }
 }
 
-async function cleanupOrphans(guild) {
-  const channels = guild.channels.cache.filter((c) => isManagedVC(c));
+/* =========================
+   STARTUP CLEANUP
+   ========================= */
 
-  for (const [, ch] of channels) {
-    if (ch.members.size === 0) {
+async function cleanupSavedVoiceSessions(client) {
+  let changed = false;
+
+  for (const [channelId, record] of voiceSessions.entries()) {
+    const guild = client.guilds.cache.get(record.guildId);
+
+    if (!guild) {
+      voiceSessions.delete(channelId);
+      changed = true;
+      continue;
+    }
+
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+
+    if (!channel) {
+      voiceSessions.delete(channelId);
+      changed = true;
+      continue;
+    }
+
+    // Remove old records from the previous multi-category system
+    // without deleting those unrelated channels.
+    if (
+      channel.type !== ChannelType.GuildVoice ||
+      channel.parentId !== LFG_CATEGORY_ID ||
+      channel.id === GAMING_VC_ID
+    ) {
+      voiceSessions.delete(channelId);
+      changed = true;
+      continue;
+    }
+
+    if (channel.members.size === 0) {
       try {
-        await ch.delete("Startup cleanup");
-      } catch (err) {
-        console.error("[VoiceHub] Cleanup delete failed:", err);
+        await channel.delete(
+          "Removing empty temporary Gaming VC during startup"
+        );
+      } catch (error) {
+        if (error?.code !== 10003) {
+          console.error("[VoiceHub] Startup cleanup failed:", error);
+          continue;
+        }
       }
+
+      voiceSessions.delete(channelId);
+      changed = true;
     }
   }
+
+  if (changed) {
+    saveVoiceSessions();
+  }
 }
+
+/* =========================
+   LFG GAME RENAME
+   ========================= */
+
+/**
+ * Renames the temporary VC using the game entered in @asktoplay.
+ *
+ * Examples:
+ * Fortnite | Moss
+ * The Division 2 | Moss
+ * Lethal Company | Moss
+ *
+ * Activity is not included.
+ *
+ * The LFG post still works when this returns false.
+ * It silently refuses to rename:
+ * - a permanent VC;
+ * - another member's temporary VC;
+ * - when the member is not in voice.
+ */
+async function renameManagedVcFromLfg({ guild, userId, game }) {
+  if (!guild || !userId) return false;
+
+  const member = await guild.members.fetch(userId).catch(() => null);
+  const voiceChannel = member?.voice?.channel;
+
+  if (!member || !voiceChannel) {
+    return false;
+  }
+
+  const session = voiceSessions.get(voiceChannel.id);
+
+  if (!session) {
+    return false;
+  }
+
+  // Only the person who created the temporary VC can rename it.
+  if (session.ownerId !== userId) {
+    return false;
+  }
+
+  if (!isManagedTemporaryVC(voiceChannel)) {
+    return false;
+  }
+
+  const safeUsername = makeSafeUsername(member.user.username);
+
+  // Discord voice channel names have a maximum length of 100.
+  const maximumGameLength = Math.max(
+    1,
+    100 - safeUsername.length - 3
+  );
+
+  const safeGame = makeSafeGameName(game, maximumGameLength);
+
+  if (!safeGame) {
+    return false;
+  }
+
+  const desiredName = `${safeGame} | ${safeUsername}`.slice(0, 100);
+
+  try {
+    if (voiceChannel.name !== desiredName) {
+      await voiceChannel.setName(
+        desiredName,
+        "Updated from the game entered in Ask-to-Play"
+      );
+    }
+
+    session.game = safeGame;
+    voiceSessions.set(voiceChannel.id, session);
+    saveVoiceSessions();
+
+    return true;
+  } catch (error) {
+    console.error("[VoiceHub] LFG rename failed:", error);
+    return false;
+  }
+}
+
+/* =========================
+   VOICE HUB SYSTEM
+   ========================= */
 
 function setupVoiceHubs(client) {
   client.once(Events.ClientReady, async () => {
-    for (const guild of client.guilds.cache.values()) {
-      await cleanupOrphans(guild);
-    }
+    await cleanupSavedVoiceSessions(client);
 
-    console.log("✅ Multi-game voice hubs online");
+    console.log(
+      "✅ Single Gaming VC join-to-create system online"
+    );
   });
 
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     const member = newState.member || oldState.member;
+
     if (!member || member.user.bot) return;
 
-    const oldId = oldState.channelId;
-    const newId = newState.channelId;
+    const oldChannelId = oldState.channelId;
+    const newChannelId = newState.channelId;
 
-    if (oldId === newId) return;
-    if (isIgnored(member.id)) return;
+    if (oldChannelId === newChannelId) return;
 
-    if (isHub(newId)) {
-      if (onCreateCooldown(member.id)) return;
-      markCreateCooldown(member.id);
+    // Always check whether the temporary VC they left is now empty.
+    if (
+      oldState.channel &&
+      isManagedTemporaryVC(oldState.channel)
+    ) {
+      deleteTemporaryVCIfEmpty(oldState.channel).catch((error) => {
+        console.error("[VoiceHub] Delete check failed:", error);
+      });
+    }
 
-      if (!newState.channel || newState.channel.id !== newId) return;
-
-      const hub = HUBS[newId];
-      const safeName = makeSafeName(member.user.username);
-      const vcName = `${hub.tag} | ${safeName}`;
-
-      try {
-        const created = await newState.guild.channels.create({
-          name: vcName,
-          type: ChannelType.GuildVoice,
-          parent: hub.categoryId,
-          userLimit: 0,
-          reason: `Join to create from ${hub.label}`,
-        });
-
-        markIgnored(member.id);
-        await member.voice.setChannel(created);
-      } catch (err) {
-        console.error("[VoiceHub] Create failed:", err);
-      }
-
+    // Ignore the follow-up event caused by the bot moving the member.
+    if (shouldIgnoreMove(member.id)) {
       return;
     }
 
-    if (oldId) {
-      const oldChannel = oldState.channel;
+    // Only Gaming VC creates temporary channels.
+    if (!isGamingHub(newChannelId)) {
+      return;
+    }
 
-      if (isManagedVC(oldChannel)) {
-        deleteIfEmpty(oldChannel).catch((err) => {
-          console.error("[VoiceHub] Delete check error:", err);
-        });
+    if (
+      creatingUsers.has(member.id) ||
+      isOnCreateCooldown(member.id)
+    ) {
+      return;
+    }
+
+    creatingUsers.add(member.id);
+    markCreateCooldown(member.id);
+
+    let createdChannel = null;
+
+    try {
+      // Confirm they are still inside Gaming VC.
+      if (
+        !newState.channel ||
+        newState.channel.id !== GAMING_VC_ID ||
+        member.voice.channelId !== GAMING_VC_ID
+      ) {
+        return;
       }
+
+      const safeUsername = makeSafeUsername(member.user.username);
+      const temporaryName =
+        `${DEFAULT_VC_NAME} | ${safeUsername}`.slice(0, 100);
+
+      createdChannel = await newState.guild.channels.create({
+        name: temporaryName,
+        type: ChannelType.GuildVoice,
+        parent: LFG_CATEGORY_ID,
+        userLimit: 0,
+        reason: "Join-to-create from Gaming VC",
+      });
+
+      voiceSessions.set(createdChannel.id, {
+        guildId: newState.guild.id,
+        ownerId: member.id,
+        createdAt: Date.now(),
+        game: "",
+      });
+
+      saveVoiceSessions();
+
+      // They may have disconnected while Discord created the VC.
+      if (member.voice.channelId !== GAMING_VC_ID) {
+        await createdChannel
+          .delete("Member left before temporary VC was ready")
+          .catch(() => {});
+
+        removeVoiceSession(createdChannel.id);
+        return;
+      }
+
+      markIgnoredMove(member.id);
+
+      await member.voice.setChannel(
+        createdChannel,
+        "Moving member into their temporary Gaming VC"
+      );
+    } catch (error) {
+      console.error("[VoiceHub] Create or move failed:", error);
+
+      if (createdChannel) {
+        await createdChannel
+          .delete("Cleaning up after failed temporary VC creation")
+          .catch(() => {});
+
+        removeVoiceSession(createdChannel.id);
+      }
+    } finally {
+      creatingUsers.delete(member.id);
     }
   });
 }
 
-module.exports = { setupVoiceHubs };
+module.exports = {
+  setupVoiceHubs,
+  renameManagedVcFromLfg,
+};
