@@ -404,11 +404,24 @@ async function handleAskToPlayCustomDetails(
       .trim();
 
     session.customGame = customGame;
-    session.activity = activity;
+session.activity = activity;
 
-    await askToPlayTools.updateAskMessage(client, session);
+// Rename the owner's temporary VC first.
+if (
+  interaction.guild &&
+  typeof askToPlayTools.renameHostVcFromSession === "function"
+) {
+  await askToPlayTools.renameHostVcFromSession(
+    client,
+    session,
+    interaction.guild
+  );
+}
 
-    registry.registerSuccess("askToPlay");
+// Update the LFG embed after renaming so it shows the new VC name.
+await askToPlayTools.updateAskMessage(client, session);
+
+registry.registerSuccess("askToPlay");
 
     await interaction.editReply({
       content: `✅ Game set to **${customGame}** — **${activity}**`,
