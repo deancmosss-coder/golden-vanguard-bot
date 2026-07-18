@@ -1,490 +1,473 @@
-// =========================
-// services/wallpaperDashboardService.js
-// Golden Vanguard Wallpaper Dashboard API
-// =========================
-
 const fs = require("fs");
 const path = require("path");
-const express = require("express");
-const cors = require("cors");
+const { ChannelType, Events } = require("discord.js");
 
-const DASHBOARD_PORT = Number(process.env.DASHBOARD_PORT || 3050);
-const DASHBOARD_GUILD_ID = (process.env.DASHBOARD_GUILD_ID || "").trim();
+// Permanent join-to-create VC
+const GAMING_VC_ID = "1488947979611013381";
 
-const MEMBER_TRACKING_FILE = path.join(
-  __dirname,
-  "../data/memberTracking.json"
-);
-  
-const STREAM_ALERTS_FILE = path.join(
-  __dirname,
-  "../data/streamAlerts.json"
-);
+// Category where Gaming VC and all temporary VCs are located
+const LFG_CATEGORY_ID = "1305329362115235952";
 
-const {
-  getRecentMessages,
-} = require("./wallpaperChatStore");
+// Initial name before the member uses @asktoplay
+const DEFAULT_VC_NAME = "GAMING";
 
-function getTargetGuild(client) {
-  if (DASHBOARD_GUILD_ID) {
-    return client.guilds.cache.get(DASHBOARD_GUILD_ID) || null;
+// Persistent ownership storage
+const DATA_DIRECTORY = path.join(__dirname, "data");
+const SESSION_FILE = path.join(DATA_DIRECTORY, "voiceSessions.json");
+
+const voiceSessions = new Map();
+const ignoredMoves = new Map();
+const createCooldowns = new Map();
+const creatingUsers = new Set();
+const deleteChecks = new Set();
+
+/* =========================
+   STORAGE
+   ========================= */
+
+function ensureSessionFile() {
+  if (!fs.existsSync(DATA_DIRECTORY)) {
+    fs.mkdirSync(DATA_DIRECTORY, { recursive: true });
   }
 
-  return client.guilds.cache.first() || null;
-}
-
-function countOnlineMembers(guild) {
-  let online = 0;
-
-  guild.presences.cache.forEach((presence) => {
-    if (!presence?.userId) return;
-    if (presence.status === "offline") return;
-    online++;
-  });
-
-  return online;
-}
-
-function getVoiceStats(guild) {
-  const activeVoiceChannels = guild.channels.cache.filter((channel) => {
-    return channel.isVoiceBased?.() && channel.members && channel.members.size > 0;
-  });
-
-  let usersInVoice = 0;
-
-  activeVoiceChannels.forEach((channel) => {
-    usersInVoice += channel.members.filter((member) => !member.user.bot).size;
-  });
-
-  return {
-    usersInVoice,
-    activeVoiceChannels: activeVoiceChannels.size,
-  };
-}
-
-function buildAskToPlayStats(sessions, askToPlayService) {
-  if (!sessions || !askToPlayService) {
-    return {
-      activeSessions: 0,
-      playersLooking: 0,
-      games: [],
-    };
+  if (!fs.existsSync(SESSION_FILE)) {
+    fs.writeFileSync(SESSION_FILE, "{}\n", "utf8");
   }
-
-  const gameMap = new Map();
-  let playersLooking = 0;
-
-  for (const session of sessions.values()) {
-    const config =
-      typeof askToPlayService.getSessionConfig === "function"
-        ? askToPlayService.getSessionConfig(session)
-        : null;
-
-    const gameName =
-      session.customGame ||
-      config?.displayName ||
-      session.gameKey ||
-      "Unknown Game";
-
-    const rosterSize = session.roster?.size || 1;
-
-    playersLooking += rosterSize;
-
-    const existing = gameMap.get(gameName) || {
-      game: gameName,
-      sessions: 0,
-      players: 0,
-    };
-
-    existing.sessions += 1;
-    existing.players += rosterSize;
-
-    gameMap.set(gameName, existing);
-  }
-
-  return {
-    activeSessions: sessions.size,
-    playersLooking,
-    games: [...gameMap.values()].slice(0, 3),
-  };
 }
 
-function buildActivityFeed() {
+function loadVoiceSessions() {
+  ensureSessionFile();
+  voiceSessions.clear();
+
   try {
-    if (!fs.existsSync(MEMBER_TRACKING_FILE)) {
-      return [
-        "Nexus activity feed waiting for server events",
-        "No recent community activity found",
-        "Ask-To-Play system online",
-        "Golden Vanguard systems standing by",
-      ];
+    const raw = fs.readFileSync(SESSION_FILE, "utf8");
+    const parsed = JSON.parse(raw || "{}");
+
+    for (const [channelId, record] of Object.entries(parsed)) {
+      if (!record || typeof record !== "object") continue;
+
+      voiceSessions.set(channelId, {
+        guildId: String(record.guildId || ""),
+        ownerId: String(record.ownerId || ""),
+        createdAt: Number(record.createdAt || Date.now()),
+        game: String(record.game || ""),
+      });
     }
-
-    const store = JSON.parse(fs.readFileSync(MEMBER_TRACKING_FILE, "utf8"));
-    const events = Array.isArray(store.events) ? store.events : [];
-
-    const latest = events
-      .slice(-8)
-      .reverse()
-      .map((event) => {
-        const name =
-          event.displayName ||
-          event.username ||
-          event.tag ||
-          "Someone";
-
-        if (event.type === "join") {
-          return event.returning
-            ? `Returning member ${name} joined the server`
-            : `${name} joined the server`;
-        }
-
-        if (event.type === "leave") {
-          return `${name} left the server`;
-        }
-
-        return `${name} created community activity`;
-      })
-      .slice(0, 4);
-
-    if (!latest.length) {
-      return [
-        "Nexus activity feed waiting for server events",
-        "No recent community activity found",
-        "Ask-To-Play system online",
-        "Golden Vanguard systems standing by",
-      ];
-    }
-
-    return latest;
-  } catch (err) {
-    console.error("❌ Failed to build activity feed:", err);
-
-    return [
-      "Activity feed temporarily unavailable",
-      "Nexus API still online",
-      "Community systems standing by",
-      "Golden Vanguard monitoring active",
-    ];
+  } catch (error) {
+    console.error("[VoiceHub] Could not load voice sessions:", error);
   }
 }
 
-function buildRecruitmentTracker() {
-  try {
-    if (!fs.existsSync(MEMBER_TRACKING_FILE)) {
-      return {
-        joinedToday: 0,
-        leftToday: 0,
-        netGrowth: 0,
-      };
-    }
+function saveVoiceSessions() {
+  ensureSessionFile();
 
-    const store = JSON.parse(
-      fs.readFileSync(MEMBER_TRACKING_FILE, "utf8")
+  try {
+    const output = Object.fromEntries(voiceSessions);
+    const temporaryFile = `${SESSION_FILE}.tmp`;
+
+    fs.writeFileSync(
+      temporaryFile,
+      `${JSON.stringify(output, null, 2)}\n`,
+      "utf8"
     );
 
-    const events = Array.isArray(store.events)
-      ? store.events
-      : [];
-
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/London",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-
-    let joinedToday = 0;
-    let leftToday = 0;
-
-    events.forEach((event) => {
-      let eventTime = null;
-
-      if (event.type === "join") {
-        eventTime = event.joinedAt;
-      }
-
-      if (event.type === "leave") {
-        eventTime = event.leftAt;
-      }
-
-      if (!eventTime) return;
-
-      const eventDate = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Europe/London",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(new Date(eventTime));
-
-      if (eventDate !== today) return;
-
-      if (event.type === "join") {
-        joinedToday++;
-      }
-
-      if (event.type === "leave") {
-        leftToday++;
-      }
-    });
-
-    return {
-      joinedToday,
-      leftToday,
-      netGrowth: joinedToday - leftToday,
-    };
-  } catch (err) {
-    console.error(
-      "❌ Failed to build recruitment tracker:",
-      err
-    );
-
-    return {
-      joinedToday: 0,
-      leftToday: 0,
-      netGrowth: 0,
-    };
+    fs.renameSync(temporaryFile, SESSION_FILE);
+  } catch (error) {
+    console.error("[VoiceHub] Could not save voice sessions:", error);
   }
 }
-    
-function buildCreatorNetwork() {
+
+function removeVoiceSession(channelId) {
+  if (!voiceSessions.has(channelId)) return;
+
+  voiceSessions.delete(channelId);
+  saveVoiceSessions();
+}
+
+loadVoiceSessions();
+
+/* =========================
+   NAME CLEANING
+   ========================= */
+
+function cleanName(value, maximumLength) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\|/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maximumLength);
+}
+
+function makeSafeUsername(username) {
+  return cleanName(username, 20) || "Host";
+}
+
+function makeSafeGameName(game, maximumLength) {
+  return cleanName(game, maximumLength);
+}
+
+/* =========================
+   CHANNEL CHECKS
+   ========================= */
+
+function isGamingHub(channelId) {
+  return channelId === GAMING_VC_ID;
+}
+
+function isManagedTemporaryVC(channel) {
+  if (!channel) return false;
+  if (channel.type !== ChannelType.GuildVoice) return false;
+  if (channel.id === GAMING_VC_ID) return false;
+  if (channel.parentId !== LFG_CATEGORY_ID) return false;
+
+  return voiceSessions.has(channel.id);
+}
+
+/* =========================
+   MOVE PROTECTION
+   ========================= */
+
+function markIgnoredMove(userId, milliseconds = 2500) {
+  ignoredMoves.set(userId, Date.now() + milliseconds);
+}
+
+function shouldIgnoreMove(userId) {
+  const until = ignoredMoves.get(userId);
+
+  if (!until) return false;
+
+  if (Date.now() >= until) {
+    ignoredMoves.delete(userId);
+    return false;
+  }
+
+  return true;
+}
+
+function markCreateCooldown(userId, milliseconds = 5000) {
+  createCooldowns.set(userId, Date.now() + milliseconds);
+}
+
+function isOnCreateCooldown(userId) {
+  const until = createCooldowns.get(userId);
+
+  if (!until) return false;
+
+  if (Date.now() >= until) {
+    createCooldowns.delete(userId);
+    return false;
+  }
+
+  return true;
+}
+
+/* =========================
+   TEMPORARY VC DELETION
+   ========================= */
+
+async function deleteTemporaryVCIfEmpty(channel) {
+  if (!channel || deleteChecks.has(channel.id)) return;
+
+  deleteChecks.add(channel.id);
+
   try {
-    if (!fs.existsSync(STREAM_ALERTS_FILE)) {
-      return {
-        liveCount: 0,
-        liveCreators: [],
-      };
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      const freshChannel = await channel.guild.channels
+        .fetch(channel.id)
+        .catch(() => null);
+
+      if (!freshChannel) {
+        removeVoiceSession(channel.id);
+        return;
+      }
+
+      if (!isManagedTemporaryVC(freshChannel)) {
+        return;
+      }
+
+      if (freshChannel.members.size === 0) {
+        try {
+          await freshChannel.delete(
+            "Automatically deleting empty temporary Gaming VC"
+          );
+        } catch (error) {
+          // Unknown Channel means another delete check already removed it.
+          if (error?.code !== 10003) {
+            console.error("[VoiceHub] Delete failed:", error);
+            return;
+          }
+        }
+
+        removeVoiceSession(channel.id);
+        return;
+      }
+    }
+  } finally {
+    deleteChecks.delete(channel.id);
+  }
+}
+
+/* =========================
+   STARTUP CLEANUP
+   ========================= */
+
+async function cleanupSavedVoiceSessions(client) {
+  let changed = false;
+
+  for (const [channelId, record] of voiceSessions.entries()) {
+    const guild = client.guilds.cache.get(record.guildId);
+
+    if (!guild) {
+      voiceSessions.delete(channelId);
+      changed = true;
+      continue;
     }
 
-    const store = JSON.parse(fs.readFileSync(STREAM_ALERTS_FILE, "utf8"));
-    const liveStreams = Array.isArray(store.liveStreams)
-      ? store.liveStreams
-      : [];
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
 
-    const liveCreators = liveStreams.slice(0, 4).map((stream) => {
-      const platform =
-        stream.platform === "youtube"
-          ? "YouTube"
-          : stream.platform === "twitch"
-            ? "Twitch"
-            : stream.platform || "Live";
+    if (!channel) {
+      voiceSessions.delete(channelId);
+      changed = true;
+      continue;
+    }
 
-      return {
-        name:
-          stream.creatorName ||
-          stream.displayName ||
-          stream.twitchUsername ||
-          stream.youtubeChannelTitle ||
-          "Creator",
-        platform,
-      };
-    });
+    // Remove old records from the previous multi-category system
+    // without deleting those unrelated channels.
+    if (
+      channel.type !== ChannelType.GuildVoice ||
+      channel.parentId !== LFG_CATEGORY_ID ||
+      channel.id === GAMING_VC_ID
+    ) {
+      voiceSessions.delete(channelId);
+      changed = true;
+      continue;
+    }
 
-    return {
-      liveCount: liveCreators.length,
-      liveCreators,
-    };
-  } catch (err) {
-    console.error("❌ Failed to build creator network:", err);
+    if (channel.members.size === 0) {
+      try {
+        await channel.delete(
+          "Removing empty temporary Gaming VC during startup"
+        );
+      } catch (error) {
+        if (error?.code !== 10003) {
+          console.error("[VoiceHub] Startup cleanup failed:", error);
+          continue;
+        }
+      }
 
-    return {
-      liveCount: 0,
-      liveCreators: [],
-    };
+      voiceSessions.delete(channelId);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveVoiceSessions();
   }
 }
 
-function buildActiveGames(guild, sessions, askToPlayService) {
-  const gameMap = new Map();
+/* =========================
+   LFG GAME RENAME
+   ========================= */
 
-  const addGame = (gameName, count = 1) => {
-    if (!gameName) return;
+/**
+ * Renames the temporary VC using the game entered in @asktoplay.
+ *
+ * Examples:
+ * Fortnite | Moss
+ * The Division 2 | Moss
+ * Lethal Company | Moss
+ *
+ * Activity is not included.
+ *
+ * The LFG post still works when this returns false.
+ * It silently refuses to rename:
+ * - a permanent VC;
+ * - another member's temporary VC;
+ * - when the member is not in voice.
+ */
+async function renameManagedVcFromLfg({ guild, userId, game }) {
+  if (!guild || !userId) return false;
 
-    const existing = gameMap.get(gameName) || {
-      game: gameName,
-      count: 0,
-    };
+  const member = await guild.members.fetch(userId).catch(() => null);
+  const voiceChannel = member?.voice?.channel;
 
-    existing.count += count;
-    gameMap.set(gameName, existing);
-  };
+  if (!member || !voiceChannel) {
+    return false;
+  }
 
-  if (sessions && askToPlayService) {
-    for (const session of sessions.values()) {
-      const config =
-        typeof askToPlayService.getSessionConfig === "function"
-          ? askToPlayService.getSessionConfig(session)
-          : null;
+  const session = voiceSessions.get(voiceChannel.id);
 
-      addGame(
-        session.customGame ||
-          config?.displayName ||
-          session.gameKey ||
-          "Unknown Game",
-        session.roster?.size || 1
+  if (!session) {
+    return false;
+  }
+
+  // Only the person who created the temporary VC can rename it.
+  if (session.ownerId !== userId) {
+    return false;
+  }
+
+  if (!isManagedTemporaryVC(voiceChannel)) {
+    return false;
+  }
+
+  const safeUsername = makeSafeUsername(member.user.username);
+
+  // Discord voice channel names have a maximum length of 100.
+  const maximumGameLength = Math.max(
+    1,
+    100 - safeUsername.length - 3
+  );
+
+  const safeGame = makeSafeGameName(game, maximumGameLength);
+
+  if (!safeGame) {
+    return false;
+  }
+
+  const desiredName = `${safeGame} | ${safeUsername}`.slice(0, 100);
+
+  try {
+    if (voiceChannel.name !== desiredName) {
+      await voiceChannel.setName(
+        desiredName,
+        "Updated from the game entered in Ask-to-Play"
       );
     }
+
+    session.game = safeGame;
+    voiceSessions.set(voiceChannel.id, session);
+    saveVoiceSessions();
+
+    return true;
+  } catch (error) {
+    console.error("[VoiceHub] LFG rename failed:", error);
+    return false;
   }
-
-  guild.channels.cache.forEach((channel) => {
-    if (!channel.isVoiceBased?.()) return;
-    if (!channel.members || channel.members.size === 0) return;
-
-    const humanCount = channel.members.filter((member) => !member.user.bot).size;
-    if (!humanCount) return;
-
-    const name = channel.name.toLowerCase();
-
-    if (name.includes("helldivers")) addGame("Helldivers", humanCount);
-    else if (name.includes("arc")) addGame("Arc Raiders", humanCount);
-    else if (name.includes("minecraft")) addGame("Minecraft", humanCount);
-    else if (name.includes("warframe")) addGame("Warframe", humanCount);
-    else if (name.includes("call")) addGame("Call of Duty", humanCount);
-    else if (name.includes("fortnite")) addGame("Fortnite", humanCount);
-    else if (name.includes("division")) addGame("The Division", humanCount);
-    else if (name.includes("gta")) addGame("GTA", humanCount);
-    else if (name.includes("battlefield")) addGame("Battlefield", humanCount);
-    else if (name.includes("honor")) addGame("For Honor", humanCount);
-    else if (name.includes("hero")) addGame("Hero Shooters", humanCount);
-  });
-
-  return [...gameMap.values()]
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 6);
 }
 
-function buildNexusFeed(
-  creatorNetwork,
-  askToPlay,
-  activeGames,
-  activity
-) {
-  if (creatorNetwork.liveCount > 0) {
-    const creator = creatorNetwork.liveCreators[0];
+/* =========================
+   VOICE HUB SYSTEM
+   ========================= */
 
-    return {
-      type: "creator",
-      title: `${creator.name} IS LIVE`,
-      subtitle: `Streaming on ${creator.platform}`,
-      action: "WATCH NOW",
-    };
-  }
+function setupVoiceHubs(client) {
+  client.once(Events.ClientReady, async () => {
+    await cleanupSavedVoiceSessions(client);
 
-  if (askToPlay.activeSessions > 0) {
-    const game = askToPlay.games[0];
-
-    return {
-      type: "lfg",
-      title: game?.game || "Squad Forming",
-      subtitle: `${askToPlay.playersLooking} players looking for a squad`,
-      action: "JOIN NOW",
-    };
-  }
-
-  if (activeGames.length > 0) {
-    return {
-      type: "game",
-      title: activeGames[0].game,
-      subtitle: `${activeGames[0].count} active players`,
-      action: "ACTIVE",
-    };
-  }
-
-  return {
-    type: "activity",
-    title: activity[0] || "Community Online",
-    subtitle: "",
-    action: "LIVE",
-  };
-}
-
-function startWallpaperDashboardService(client, options = {}) {
-  const { sessions, askToPlayService } = options;
-
-  const app = express();
-
-  app.use(cors());
-
-  app.get("/", (req, res) => {
-    res.json({
-      ok: true,
-      service: "Golden Vanguard Wallpaper Dashboard API",
-      endpoint: "/dashboard",
-    });
+    console.log(
+      "✅ Single Gaming VC join-to-create system online"
+    );
   });
 
-  app.get("/dashboard", async (req, res) => {
+  client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+    const member = newState.member || oldState.member;
+
+    if (!member || member.user.bot) return;
+
+    const oldChannelId = oldState.channelId;
+    const newChannelId = newState.channelId;
+
+    if (oldChannelId === newChannelId) return;
+
+    // Always check whether the temporary VC they left is now empty.
+    if (
+      oldState.channel &&
+      isManagedTemporaryVC(oldState.channel)
+    ) {
+      deleteTemporaryVCIfEmpty(oldState.channel).catch((error) => {
+        console.error("[VoiceHub] Delete check failed:", error);
+      });
+    }
+
+    // Ignore the follow-up event caused by the bot moving the member.
+    if (shouldIgnoreMove(member.id)) {
+      return;
+    }
+
+    // Only Gaming VC creates temporary channels.
+    if (!isGamingHub(newChannelId)) {
+      return;
+    }
+
+    if (
+      creatingUsers.has(member.id) ||
+      isOnCreateCooldown(member.id)
+    ) {
+      return;
+    }
+
+    creatingUsers.add(member.id);
+    markCreateCooldown(member.id);
+
+    let createdChannel = null;
+
     try {
-      const guild = getTargetGuild(client);
-
-      if (!guild) {
-        return res.status(503).json({
-          ok: false,
-          error: "Guild not available yet",
-        });
+      // Confirm they are still inside Gaming VC.
+      if (
+        !newState.channel ||
+        newState.channel.id !== GAMING_VC_ID ||
+        member.voice.channelId !== GAMING_VC_ID
+      ) {
+        return;
       }
 
-      const freshGuild = await guild.fetch().catch(() => guild);
+      const safeUsername = makeSafeUsername(member.user.username);
+      const temporaryName =
+        `${DEFAULT_VC_NAME} | ${safeUsername}`.slice(0, 100);
 
-      const totalMembers = freshGuild.memberCount || guild.memberCount || 0;
-      const onlineMembers = countOnlineMembers(guild);
-      const voiceStats = getVoiceStats(guild);
-      const askToPlay = buildAskToPlayStats(sessions, askToPlayService);
-      const activity = buildActivityFeed();
-      const recruitmentTracker =
-        buildRecruitmentTracker();
-      const creatorNetwork = buildCreatorNetwork();
-      const activeGames = buildActiveGames(guild, sessions, askToPlayService);
-      const nexusFeed = buildNexusFeed(
-        creatorNetwork,
-        askToPlay,
-        activeGames,
-        activity
+      createdChannel = await newState.guild.channels.create({
+        name: temporaryName,
+        type: ChannelType.GuildVoice,
+        parent: LFG_CATEGORY_ID,
+        userLimit: 0,
+        reason: "Join-to-create from Gaming VC",
+      });
+
+      voiceSessions.set(createdChannel.id, {
+        guildId: newState.guild.id,
+        ownerId: member.id,
+        createdAt: Date.now(),
+        game: "",
+      });
+
+      saveVoiceSessions();
+
+      // They may have disconnected while Discord created the VC.
+      if (member.voice.channelId !== GAMING_VC_ID) {
+        await createdChannel
+          .delete("Member left before temporary VC was ready")
+          .catch(() => {});
+
+        removeVoiceSession(createdChannel.id);
+        return;
+      }
+
+      markIgnoredMove(member.id);
+
+      await member.voice.setChannel(
+        createdChannel,
+        "Moving member into their temporary Gaming VC"
       );
-      const latestChat = getRecentMessages(8);
-      const systemStatus = {
-        discord: "ONLINE",
-        bot: "ONLINE",
-        voice: voiceStats.activeVoiceChannels > 0 ? "ACTIVE" : "IDLE",
-        nexus: "ONLINE",
-      };
-      
-      res.json({
-        ok: true,
-        updatedAt: new Date().toISOString(),
-        community: {
-          totalMembers,
-          onlineMembers,
-          usersInVoice: voiceStats.usersInVoice,
-        },
-        voiceNetwork: {
-          usersInVoice: voiceStats.usersInVoice,
-          activeVoiceChannels: voiceStats.activeVoiceChannels,
-        },
-        askToPlay,
-        activity,
-        creatorNetwork,
-        activeGames,
-        latestChat,
-        nexusFeed,
-        systemStatus,
-        recruitmentTracker,
-      });
-    } catch (err) {
-      console.error("❌ Wallpaper dashboard API failed:", err);
+    } catch (error) {
+      console.error("[VoiceHub] Create or move failed:", error);
 
-      res.status(500).json({
-        ok: false,
-        error: "Dashboard API failed",
-      });
+      if (createdChannel) {
+        await createdChannel
+          .delete("Cleaning up after failed temporary VC creation")
+          .catch(() => {});
+
+        removeVoiceSession(createdChannel.id);
+      }
+    } finally {
+      creatingUsers.delete(member.id);
     }
-  });
-
-  app.listen(DASHBOARD_PORT, "0.0.0.0", () => {
-    console.log(`✅ Wallpaper dashboard API running on port ${DASHBOARD_PORT}`);
   });
 }
 
 module.exports = {
-  startWallpaperDashboardService,
+  setupVoiceHubs,
+  renameManagedVcFromLfg,
 };
