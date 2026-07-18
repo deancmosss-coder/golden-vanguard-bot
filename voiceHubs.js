@@ -290,33 +290,73 @@ async function cleanupSavedVoiceSessions(client) {
  * - when the member is not in voice.
  */
 async function renameManagedVcFromLfg({ guild, userId, game }) {
-  if (!guild || !userId) return false;
+  if (!guild || !userId || !game) {
+    console.warn("[VoiceHub] Rename skipped: missing required information.");
+    return false;
+  }
 
   const member = await guild.members.fetch(userId).catch(() => null);
   const voiceChannel = member?.voice?.channel;
 
   if (!member || !voiceChannel) {
+    console.warn(
+      `[VoiceHub] Rename skipped: user ${userId} is not in voice.`
+    );
     return false;
   }
 
-  const session = voiceSessions.get(voiceChannel.id);
-
-  if (!session) {
-    return false;
-  }
-
-  // Only the person who created the temporary VC can rename it.
-  if (session.ownerId !== userId) {
-    return false;
-  }
-
-  if (!isManagedTemporaryVC(voiceChannel)) {
+  if (
+    voiceChannel.type !== ChannelType.GuildVoice ||
+    voiceChannel.id === GAMING_VC_ID ||
+    voiceChannel.parentId !== LFG_CATEGORY_ID
+  ) {
+    console.warn(
+      `[VoiceHub] Rename skipped: ${voiceChannel.name} is not a temporary LFG VC.`
+    );
     return false;
   }
 
   const safeUsername = makeSafeUsername(member.user.username);
 
-  // Discord voice channel names have a maximum length of 100.
+  // Reload the saved records in case PM2 restarted.
+  loadVoiceSessions();
+
+  let session = voiceSessions.get(voiceChannel.id);
+
+  // Recover the ownership record from the original VC name.
+  if (!session) {
+    const originalOwnerName =
+      `${DEFAULT_VC_NAME} | ${safeUsername}`.slice(0, 100);
+
+    if (voiceChannel.name !== originalOwnerName) {
+      console.warn(
+        `[VoiceHub] Rename skipped: no ownership record for ${voiceChannel.id}.`
+      );
+      return false;
+    }
+
+    session = {
+      guildId: guild.id,
+      ownerId: String(userId),
+      createdAt: Date.now(),
+      game: "",
+    };
+
+    voiceSessions.set(voiceChannel.id, session);
+    saveVoiceSessions();
+
+    console.log(
+      `[VoiceHub] Recovered ownership for ${voiceChannel.name}.`
+    );
+  }
+
+  if (String(session.ownerId) !== String(userId)) {
+    console.warn(
+      `[VoiceHub] Rename skipped: user ${userId} does not own ${voiceChannel.id}.`
+    );
+    return false;
+  }
+
   const maximumGameLength = Math.max(
     1,
     100 - safeUsername.length - 3
@@ -325,22 +365,27 @@ async function renameManagedVcFromLfg({ guild, userId, game }) {
   const safeGame = makeSafeGameName(game, maximumGameLength);
 
   if (!safeGame) {
+    console.warn("[VoiceHub] Rename skipped: empty game name.");
     return false;
   }
 
-  const desiredName = `${safeGame} | ${safeUsername}`.slice(0, 100);
+  const desiredName =
+    `${safeGame} | ${safeUsername}`.slice(0, 100);
 
   try {
-    if (voiceChannel.name !== desiredName) {
-      await voiceChannel.setName(
-        desiredName,
-        "Updated from the game entered in Ask-to-Play"
-      );
-    }
+    await voiceChannel.setName(
+      desiredName,
+      "Updated from Ask-to-Play game entry"
+    );
 
     session.game = safeGame;
+
     voiceSessions.set(voiceChannel.id, session);
     saveVoiceSessions();
+
+    console.log(
+      `[VoiceHub] Renamed "${voiceChannel.name}" to "${desiredName}".`
+    );
 
     return true;
   } catch (error) {
