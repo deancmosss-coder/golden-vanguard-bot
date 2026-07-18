@@ -20,6 +20,7 @@ const ignoredMoves = new Map();
 const createCooldowns = new Map();
 const creatingUsers = new Set();
 const deleteChecks = new Set();
+let cleanupTimer = null;
 
 /* =========================
    STORAGE
@@ -119,10 +120,20 @@ function isGamingHub(channelId) {
 function isManagedTemporaryVC(channel) {
   if (!channel) return false;
   if (channel.type !== ChannelType.GuildVoice) return false;
-  if (channel.id === GAMING_VC_ID) return false;
-  if (channel.parentId !== LFG_CATEGORY_ID) return false;
 
-  return voiceSessions.has(channel.id);
+  // Never delete the permanent Gaming VC.
+  if (channel.id === GAMING_VC_ID) return false;
+
+  // Every other voice channel inside the LFG Hub is temporary.
+  return channel.parentId === LFG_CATEGORY_ID;
+}
+
+function getHumanMemberCount(channel) {
+  if (!channel?.members) return 0;
+
+  return channel.members.filter(
+    (member) => !member.user.bot
+  ).size;
 }
 
 /* =========================
@@ -173,38 +184,50 @@ async function deleteTemporaryVCIfEmpty(channel) {
   deleteChecks.add(channel.id);
 
   try {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Allow Discord time to update the channel member cache.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      const freshChannel = await channel.guild.channels
-        .fetch(channel.id)
-        .catch(() => null);
+    const freshChannel = await channel.guild.channels
+      .fetch(channel.id)
+      .catch(() => null);
 
-      if (!freshChannel) {
-        removeVoiceSession(channel.id);
+    if (!freshChannel) {
+      removeVoiceSession(channel.id);
+      return;
+    }
+
+    if (!isManagedTemporaryVC(freshChannel)) {
+      return;
+    }
+
+    const humanMembers = getHumanMemberCount(freshChannel);
+
+    // Someone is still using the VC.
+    if (humanMembers > 0) {
+      return;
+    }
+
+    try {
+      await freshChannel.delete(
+        "Automatically deleting empty temporary Gaming VC"
+      );
+
+      console.log(
+        `[VoiceHub] Deleted empty temporary VC: ${freshChannel.name} (${freshChannel.id})`
+      );
+
+      removeVoiceSession(freshChannel.id);
+    } catch (error) {
+      // Unknown Channel means something else already deleted it.
+      if (error?.code === 10003) {
+        removeVoiceSession(freshChannel.id);
         return;
       }
 
-      if (!isManagedTemporaryVC(freshChannel)) {
-        return;
-      }
-
-      if (freshChannel.members.size === 0) {
-        try {
-          await freshChannel.delete(
-            "Automatically deleting empty temporary Gaming VC"
-          );
-        } catch (error) {
-          // Unknown Channel means another delete check already removed it.
-          if (error?.code !== 10003) {
-            console.error("[VoiceHub] Delete failed:", error);
-            return;
-          }
-        }
-
-        removeVoiceSession(channel.id);
-        return;
-      }
+      console.error(
+        `[VoiceHub] Failed to delete ${freshChannel.name}:`,
+        error
+      );
     }
   } finally {
     deleteChecks.delete(channel.id);
@@ -397,15 +420,48 @@ async function renameManagedVcFromLfg({ guild, userId, game }) {
 /* =========================
    VOICE HUB SYSTEM
    ========================= */
+async function sweepEmptyTemporaryVCs(client) {
+  for (const guild of client.guilds.cache.values()) {
+    const channels = await guild.channels.fetch().catch(() => null);
+
+    if (!channels) continue;
+
+    const emptyTemporaryChannels = [...channels.values()].filter(
+      (channel) =>
+        isManagedTemporaryVC(channel) &&
+        getHumanMemberCount(channel) === 0
+    );
+
+    if (!emptyTemporaryChannels.length) continue;
+
+    await Promise.allSettled(
+      emptyTemporaryChannels.map((channel) =>
+        deleteTemporaryVCIfEmpty(channel)
+      )
+    );
+  }
+}
 
 function setupVoiceHubs(client) {
-  client.once(Events.ClientReady, async () => {
-    await cleanupSavedVoiceSessions(client);
+ client.once(Events.ClientReady, async () => {
+  await cleanupSavedVoiceSessions(client);
+  await sweepEmptyTemporaryVCs(client);
 
-    console.log(
-      "✅ Single Gaming VC join-to-create system online"
-    );
-  });
+  // Backup sweep every 60 seconds.
+  if (!cleanupTimer) {
+    cleanupTimer = setInterval(() => {
+      sweepEmptyTemporaryVCs(client).catch((error) => {
+        console.error("[VoiceHub] Cleanup sweep failed:", error);
+      });
+    }, 60_000);
+
+    cleanupTimer.unref?.();
+  }
+
+  console.log(
+    "✅ Single Gaming VC join-to-create system online"
+  );
+});
 
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     const member = newState.member || oldState.member;
