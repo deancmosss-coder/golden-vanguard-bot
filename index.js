@@ -12,7 +12,10 @@ const {
   Partials,
 } = require("discord.js");
 
-const { setupVoiceHubs } = require("./voiceHubs");
+const {
+  setupVoiceHubs,
+  renameManagedVcFromLfg,
+} = require("./voiceHubs");
 
 const { loadCommands } = require("./loaders/commandLoader");
 
@@ -140,6 +143,21 @@ async function renameHostVcFromSession(...args) {
   const session = args.length === 3 ? args[1] : args[0];
   const guild = args.length === 3 ? args[2] : args[1];
 
+  if (!session || !guild) {
+    return false;
+  }
+
+  // New LFG Hub system:
+  // rename the owner's temporary VC using the game they typed.
+  if (session.customGame) {
+    return renameManagedVcFromLfg({
+      guild,
+      userId: session.ownerId,
+      game: session.customGame,
+    });
+  }
+
+  // Keep the older Helldivers rename behaviour available.
   return askToPlayService.renameHostVcFromSession(
     client,
     session,
